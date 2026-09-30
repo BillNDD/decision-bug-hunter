@@ -1,3 +1,4 @@
+from decision_bug_hunter.providers import ProviderResponse, ValidatedGateway
 """Adversarial implementation regressions; all judge responses are synthetic."""
 from contextlib import redirect_stdout, redirect_stderr
 from decimal import Decimal
@@ -360,6 +361,62 @@ class ProjectAndCliRepairTests(unittest.TestCase):
             cli.parser().parse_args(["x", "--strict-choice-mass", "--choice-rounding-places", "3"])
         self.assertEqual(caught.exception.code, 2)
 
+
+class ReceiptRepairTests(unittest.TestCase):
+    def test_interrupt_keeps_durable_uncertain_dispatch(self):
+        with tempfile.TemporaryDirectory() as td:
+            owner = self
+            class InterruptingProvider(SyntheticProvider):
+                def decide(self, request):
+                    saved = json.loads(Path(gateway.last_receipt).read_text())
+                    owner.assertTrue(saved["submission_possible"])
+                    owner.assertEqual(saved["status"], "dispatching")
+                    raise KeyboardInterrupt
+            gateway = ValidatedGateway(InterruptingProvider(), td)
+            self.addCleanup(gateway.close)
+            with self.assertRaises(KeyboardInterrupt):
+                gateway.evaluate({"x": 1}, {"q": protocol.QUESTION}, metadata={})
+            saved = json.loads(Path(gateway.last_receipt).read_text())
+            self.assertTrue(saved["submission_possible"])
+            self.assertEqual(saved["error"], "interrupted")
+
+    def test_invalid_judgment_keeps_known_usage_in_receipt_and_report(self):
+        class InvalidProvider(SyntheticProvider):
+            def decide(self, request):
+                self.requests.append(request)
+                qs = json.loads(request.payload)["questions"]
+                return ProviderResponse({k: {"type": "noul", "noul": "bad"} for k in qs},
+                                        {"input_tokens": 4321, "output_tokens": 7})
+        with tempfile.TemporaryDirectory() as td:
+            gateway = ValidatedGateway(InvalidProvider(), td)
+            self.addCleanup(gateway.close)
+            result = scan(source(1), gateway, config())
+            saved = json.loads(Path(gateway.last_receipt).read_text())
+            self.assertEqual(saved["usage"]["input_tokens"], 4321)
+            self.assertEqual(result["usage"]["input_tokens"], 4321)
+            self.assertEqual(result["usage"]["attempts_with_known_usage"], 1)
+            self.assertEqual(result["status"], "incomplete")
+
+    def test_provider_timeout_uses_remaining_run_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            from decision_bug_hunter.questions import noul
+            pack, _ = load_pack()
+            question = noul(pack, "screen", Span(1, 1))
+            provider = SyntheticProvider(fixture=FixtureProvider())
+            gateway = ValidatedGateway(provider, td, deadline_seconds=30)
+            self.addCleanup(gateway.close)
+            gateway.set_run_deadline(100.25)
+            with patch("decision_bug_hunter.providers.time.monotonic", return_value=100):
+                gateway.evaluate({"excerpts": []}, {"q": question}, metadata={})
+            self.assertEqual(provider.requests[0].timeout_seconds, .25)
+
+
+class FocusedDiscoveryTests(unittest.TestCase):
+    def test_focused_module_execution_includes_parity_tests(self):
+        result = subprocess.run([sys.executable, "-B", "-m", "tests.test_choice_profiles", "-v"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("test_valid_profiles_accepted_by_both_paths", result.stderr)
 
 
 if __name__ == "__main__":

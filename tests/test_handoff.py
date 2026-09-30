@@ -1,3 +1,4 @@
+from tests.test_provider_boundary import SyntheticProvider
 """Offline handoff tests. Fixture judgments are assigned, never live inference."""
 from contextlib import redirect_stdout, redirect_stderr
 from decimal import Decimal
@@ -269,6 +270,79 @@ class HandoffTests(unittest.TestCase):
         self.assertFalse(p.requests)
 
 
+class CompactCliTests(unittest.TestCase):
+    def run_cli(self, root, fmt=None, override=selected_references, spec=True):
+        path=root/'fixture.txt';path.write_text(FIXTURE,encoding='utf-8')
+        req=root/'requirements.txt';req.write_bytes(b'\xef\xbb\xbf'+SPEC.replace('\n','\r\n').encode())
+        argv=[str(path),'--no-whole-file','--scope','standalone',
+              '--output-dir',str(root/'runs')]
+        if spec: argv+=['--spec-file',str(req)]
+        if fmt: argv+=['--output-format',fmt]
+        provider=FixtureProvider([(9,9)],override=override)
+        out,err=io.StringIO(),io.StringIO()
+        with              patch.object(socket,'create_connection',side_effect=AssertionError('no network')), \
+             patch.object(cli,'DecisionsProvider',return_value=SyntheticProvider(fixture=provider, secret=KEY)), \
+             redirect_stdout(out),redirect_stderr(err):
+            code=cli.main(argv)
+        results=list((root/'runs').glob('run-*/report.json'))
+        self.assertTrue(results,err.getvalue())
+        return code,out.getvalue(),json.loads(results[0].read_text()),results[0],provider
+
+    def test_default_compact_and_saved_json_and_ranges_agree(self):
+        with tempfile.TemporaryDirectory() as td:
+            code,text,report,path,_=self.run_cli(Path(td))
+            self.assertEqual(code,1)
+            self.assertEqual(text,path.with_name('findings.txt').read_text())
+            self.assertIn('F1 | suspect: 9-9 | assessment: recheck-supported',text)
+            self.assertIn('read-with: 1-2 | relevant-requirement: SPEC:5-6',text)
+            self.assertEqual(path.with_name('ranges.txt').read_text(),
+                             'Bug suspected between lines 9 and 9.\n')
+            self.assertEqual(json.loads(path.with_name('handoff.json').read_text()),report['handoff'])
+
+    def test_raw_file_spec_hash_preserves_bom_crlf_and_original_coordinates(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);_,_,report,_,_=self.run_cli(root)
+            self.assertEqual(report['specification']['sha256'],
+                             hashlib.sha256((root/'requirements.txt').read_bytes()).hexdigest())
+            self.assertEqual(report['specification']['hash_basis'],'original-bytes')
+            self.assertEqual(report['specification']['line_count'],8)
+
+    def test_json_stdout_is_compact_and_matches_handoff_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            code,text,report,path,_=self.run_cli(Path(td),'json')
+            self.assertEqual(code,1)
+            self.assertEqual(text,path.with_name('handoff.json').read_text())
+            self.assertEqual(json.loads(text),report['handoff'])
+            self.assertNotIn('"score"',text)
+
+    def test_ranges_mode_is_exact_legacy_stdout_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            code,text,report,path,_=self.run_cli(Path(td),'ranges')
+            self.assertEqual((code,text),(1,'Bug suspected between lines 9 and 9.\n'))
+            self.assertIn('FILE:',path.with_name('findings.txt').read_text())
+
+    def test_malformed_reference_response_does_not_fabricate_refs(self):
+        def malformed(qid,q,state,target):
+            if qid.startswith(('read_with_','requirement_')):
+                return {'type':'noul','noul':'0.95'}
+        with tempfile.TemporaryDirectory() as td:
+            code,text,report,path,_=self.run_cli(Path(td),override=malformed)
+            self.assertEqual(code,2)
+            self.assertEqual(report['scan_status'],'complete')
+            self.assertIn('HANDOFF: incomplete',text)
+            self.assertIn('read-with: unknown',text)
+            self.assertIn('relevant-requirement: unknown',text)
+            self.assertEqual(ranges(report),{(9,9)})
+
+    def test_receipts_and_handoff_never_embed_source_spec_or_credentials(self):
+        with tempfile.TemporaryDirectory() as td:
+            code,text,report,path,_=self.run_cli(Path(td))
+            for f in path.parent.joinpath('receipts').glob('*.json'):
+                saved=f.read_text()
+                for token in ('Reject empty input.', 'def process', KEY):
+                    self.assertNotIn(token,saved)
+            for token in ('Reject empty input.','def process',KEY):
+                self.assertNotIn(token,text)
 
 
 if __name__=='__main__':

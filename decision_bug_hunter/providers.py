@@ -87,11 +87,13 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
                 os.close(directory)
     except Exception:
         error = True
-    if temp is not None:
-        try:
-            temp.unlink(missing_ok=True)
-        except Exception:
-            error = True
+    finally:
+        # Control-flow interruption must also release the temporary file.
+        if temp is not None:
+            try:
+                temp.unlink(missing_ok=True)
+            except Exception:
+                error = True
     if error:
         raise ProviderError("receipt_failed")
 
@@ -123,6 +125,7 @@ class ValidatedGateway:
         self._deadline: float | None = None
         self._last_stats: dict[str, Any] | None = None
         self._last_receipt: str | None = None
+        self._stats_owner: int | None = None
         self._busy = False
         self._blocked = False
         self._closed = False
@@ -130,10 +133,14 @@ class ValidatedGateway:
 
     @property
     def last_call_stats(self) -> dict[str, Any] | None:
+        if self._stats_owner != threading.get_ident():
+            return None
         return deepcopy(self._last_stats)
 
     @property
     def last_receipt(self) -> str | None:
+        if self._stats_owner != threading.get_ident():
+            return None
         return self._last_receipt
 
     def require_available(self) -> None:
@@ -180,9 +187,16 @@ class ValidatedGateway:
         if not self._call_lock.acquire(blocking=False):
             raise ProviderError("transport_failed")
         try:
+            self._stats_owner = threading.get_ident()
+            self._last_stats = None
+            self._last_receipt = None
             self.require_available()
             self._busy = True
             return self._evaluate(state, questions, metadata=metadata)
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                self._blocked = True
+            raise
         finally:
             self._busy = False
             self._call_lock.release()
@@ -211,19 +225,50 @@ class ValidatedGateway:
         }
         path = self.receipt_dir / (uuid.uuid4().hex + ".json")
         try:
+            return self._journaled_attempt(path, wire, expected, receipt, timeout)
+        except BaseException as exc:
+            if not isinstance(exc, Exception):
+                # Block before another filesystem operation or propagation. The
+                # shared local receipt retains usage learned before interruption.
+                self._fail_receipt(path, receipt, "interrupted", persist=True)
+            raise
+
+    def _fail_receipt(self, path: Path, receipt: dict[str, Any], code: str, *,
+                      persist: bool) -> None:
+        self._blocked = True
+        receipt.update(status="failed", error=code, answers=None)
+        self._last_receipt = str(path)
+        self._last_stats = deepcopy(receipt)
+        if persist:
+            try:
+                _write_receipt(path, receipt)
+            except BaseException:
+                # Settlement is best effort; the gateway remains blocked even
+                # when storage fails again or the operator interrupts again.
+                pass
+
+    def _journaled_attempt(self, path: Path, wire: bytes, expected: dict[str, Any],
+                           receipt: dict[str, Any], timeout: float) -> dict[str, Any]:
+        try:
             self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             self.check_sensitive(str(path), receipt)
             _write_receipt(path, receipt)
         except Exception:
-            self._blocked = True
+            self._fail_receipt(path, receipt, "receipt_failed", persist=True)
             raise ProviderError("receipt_failed") from None
         self._last_receipt = str(path)
         self._last_stats = deepcopy(receipt)
         error: str | None = None
         answers: dict[str, Any] | None = None
-        interrupted = False
         started = time.monotonic()
         try:
+            # Intent persistence consumes the run budget. Recheck immediately
+            # before the one provider call, including a reduced positive budget.
+            if self._deadline is not None:
+                timeout = min(timeout, self._deadline - started)
+            receipt["timeout_seconds"] = max(0.0, timeout)
+            if timeout <= 0:
+                raise ProviderError("run_deadline_exceeded")
             response = self.provider.decide(ProviderRequest(wire, timeout))
             if type(response) is not ProviderResponse:
                 raise ProviderError("response_schema")
@@ -241,13 +286,8 @@ class ValidatedGateway:
             error = exc.code
             if error in {"transport_failed", "deadline_exceeded", "interrupted"}:
                 self._blocked = True
-        except KeyboardInterrupt:
-            interrupted = True
-            error = "interrupted"
-            self._blocked = True
         except Exception:
             error = "transport_failed"
-            # An arbitrary adapter failure may have left work in flight.
             self._blocked = True
         receipt.update(status="failed" if error else "validated", error=error,
                        answers=plain(answers) if error is None else None,
@@ -255,11 +295,9 @@ class ValidatedGateway:
         self._last_stats = deepcopy(receipt)
         try:
             _write_receipt(path, receipt)
-        except ProviderError:
-            self._blocked = True
+        except Exception:
+            self._fail_receipt(path, receipt, "receipt_failed", persist=False)
             raise ProviderError("receipt_failed") from None
-        if interrupted:
-            raise KeyboardInterrupt
         if error:
             raise ProviderError(error)
         assert answers is not None

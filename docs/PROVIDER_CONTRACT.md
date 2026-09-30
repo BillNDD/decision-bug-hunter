@@ -68,11 +68,20 @@ deadline, usage, partial-failure, and durable-submission accounting changes.
 
 The gateway validates requests, scope metadata, active-adapter sensitive data,
 and deadlines before dispatch. A durable `dispatching` receipt precedes one
-`decide` invocation. A terminal receipt records validated answers or a fixed
-safe failure code. No raw source/specification or provider exception text is
+`decide` invocation. The remaining run budget is recomputed after intent
+persistence, immediately before dispatch; an expired budget permits no call.
+A terminal receipt records validated answers or a fixed safe failure code. No raw source/specification or provider exception text is
 journaled. Receipt persistence failure prevents further gateway use. An
-interruption or uncertain transport failure retains possible submission and
-blocks reuse; no automatic retry is performed.
+interruption during either journal transition or provider execution blocks
+reuse before propagation. Best-effort settlement retains possible submission
+and validated usage while withholding judgments; repeated settlement failure
+keeps the gateway blocked. Uncertain transport failure also blocks reuse.
+No automatic retry is performed.
+
+`last_call_stats` and `last_receipt` belong to the thread owning the attempt.
+A rejected concurrent caller sees no other caller's record. A new blocked
+attempt clears its statistics so earlier known usage cannot be booked twice.
+Preflight failures create no journal because dispatch was never possible.
 
 The engine also revalidates gateway outputs, preserves limits and incomplete
 coverage, and counts attempts with known/unknown usage separately. Direct custom

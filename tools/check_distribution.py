@@ -58,9 +58,11 @@ def main():
                 raise RuntimeError("incomplete_source_distribution")
     with tempfile.TemporaryDirectory(prefix="dbh-distribution-") as temp:
         root = Path(temp)
-        run([sys.executable, "-m", "venv", str(root / "venv")], root)
+        # Driver pip installs into the fresh environment without bootstrapping pip.
+        run([sys.executable, "-m", "venv", "--without-pip", str(root / "venv")], root)
         python = root / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        run([str(python), "-m", "pip", "install", "--no-index", "--no-deps", str(wheels[0])], root)
+        run([sys.executable, "-m", "pip", "--python", str(python), "install",
+             "--no-index", "--no-deps", str(wheels[0])], root)
         code = ("import json; from importlib.resources import files; import decision_bug_hunter as p; "
                 "from decision_bug_hunter.decisions import DecisionsProvider; "
                 "from decision_bug_hunter.protocol import ProviderError; "

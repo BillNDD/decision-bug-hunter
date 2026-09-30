@@ -1,3 +1,5 @@
+from decision_bug_hunter.providers import ProviderResponse, ValidatedGateway
+from tests.test_provider_boundary import SyntheticProvider
 """Batched Noul/Choice contract and rounding-profile regression tests."""
 from decimal import Decimal, localcontext
 from fractions import Fraction
@@ -189,6 +191,46 @@ class SyntheticSweepTests(unittest.TestCase):
         result=scan(source(48),FixtureProvider([(8,32)]),Config(whole_file=False))
         self.assertIn((1,48),ranges(result))
         self.assertFalse(any(b-a+1<25 for a,b in ranges(result)))
+
+
+class PortableBatchBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        self.qs = {"exists": protocol.QUESTION,
+                   "where": {"type": "choice", "instructions": "Choose.",
+                             "criteria": {"a": "First", "b": "Second", "c": "Third"}}}
+
+    def test_sensitive_criterion_rejected_before_transport(self):
+        with tempfile.TemporaryDirectory() as td:
+            provider = SyntheticProvider(secret=KEY)
+            gateway = ValidatedGateway(provider, td)
+            self.addCleanup(gateway.close)
+            self.qs["where"]["criteria"]["a"] = KEY
+            with self.assertRaises(protocol.ProviderError) as caught:
+                gateway.evaluate({}, self.qs, metadata={})
+            self.assertEqual(caught.exception.code, "sensitive_input")
+            self.assertEqual(provider.requests, [])
+            # DBH preflight writes no journal: no dispatch was possible.
+            self.assertEqual(list(Path(td).iterdir()), [])
+
+    def test_mutated_question_map_uses_immutable_sent_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            owner = self
+            class MutatingProvider(SyntheticProvider):
+                def decide(self, request):
+                    self.requests.append(request)
+                    sent = json.loads(request.payload)
+                    owner.qs.clear()
+                    return ProviderResponse(json.loads(body(sent["questions"], {"a": 1, "b": 0, "c": 0}))["answers"])
+            provider = MutatingProvider()
+            gateway = ValidatedGateway(provider, td)
+            self.addCleanup(gateway.close)
+            answer = gateway.evaluate({}, self.qs, metadata={})
+            self.assertEqual(set(answer), {"exists", "where"})
+            receipt = json.loads(Path(gateway.last_receipt).read_text())
+            self.assertEqual(receipt["question_count"], 2)
+            self.assertIsNone(receipt["rounding_places"])
+            self.assertEqual(set(receipt["answers"]), {"exists", "where"})
+
 
 if __name__=="__main__":
     unittest.main()

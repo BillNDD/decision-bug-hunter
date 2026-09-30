@@ -367,5 +367,47 @@ class ProviderBoundaryTests(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
 
 
+class MissingChoiceDataTests(unittest.TestCase):
+    def test_selected_option_does_not_fabricate_probabilities_or_confidence(self):
+        question = {"type": "choice", "instructions": "Choose.", "criteria": {"a": "A", "b": "B"}}
+        for answer in ({"type": "choice", "choice": "a"},
+                       {"type": "choice", "choice": "a", "probabilities": {"a": 1, "b": 0}},
+                       {"type": "choice", "choice": "a", "confidence": 1}):
+            with self.subTest(answer=answer), tempfile.TemporaryDirectory() as td:
+                provider = SyntheticProvider(ProviderResponse({"q": answer}, {"input_tokens": 2, "output_tokens": 1}))
+                gateway = ValidatedGateway(provider, td)
+                self.addCleanup(gateway.close)
+                with self.assertRaises(ProviderError) as caught:
+                    gateway.evaluate({}, {"q": question}, metadata={})
+                self.assertEqual(caught.exception.code, "response_schema")
+                self.assertIsNone(gateway.last_call_stats["answers"])
+                self.assertEqual(gateway.last_call_stats["usage"]["input_tokens"], 2)
+
+
+class AttemptBookkeepingTests(unittest.TestCase):
+    def test_blocked_reuse_clears_statistics_without_rebooking_known_usage(self):
+        from decision_bug_hunter.providers import _write_receipt
+        with tempfile.TemporaryDirectory() as td:
+            provider = SyntheticProvider(ProviderResponse({"q": {"type": "noul", "noul": .9}},
+                                                         {"input_tokens": 17, "output_tokens": 3}))
+            gateway = ValidatedGateway(provider, td)
+            self.addCleanup(gateway.close)
+            def fail_terminal(path, receipt):
+                if receipt["status"] != "dispatching":
+                    raise ProviderError("receipt_failed")
+                _write_receipt(path, receipt)
+            with patch("decision_bug_hunter.providers._write_receipt", side_effect=fail_terminal):
+                with self.assertRaises(ProviderError):
+                    gateway.evaluate({}, {"q": QUESTION}, metadata={})
+            prior = gateway.last_call_stats
+            self.assertEqual(prior["usage"]["input_tokens"], 17)
+            with self.assertRaises(ProviderError):
+                gateway.evaluate({"different": "state"}, {"q": QUESTION}, metadata={})
+            self.assertEqual(len(provider.requests), 1)
+            self.assertIsNone(gateway.last_call_stats)
+            self.assertIsNone(gateway.last_receipt)
+            self.assertEqual(prior["usage"]["input_tokens"], 17)
+
+
 if __name__ == "__main__":
     unittest.main()

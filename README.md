@@ -19,7 +19,8 @@ It never executes target files. The original JBH remains a separate Jev tool.
 
 ## Install and check
 
-Python 3.11 or later; no runtime dependencies. From this repository:
+Python 3.11 or later; no runtime dependencies. The distribution checker needs
+pip 22.3 or later. From this repository:
 
 ```sh
 python -m venv .venv
