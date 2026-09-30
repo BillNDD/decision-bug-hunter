@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.mypy_cache/
+.env
+.env.*
+!.env.example
+dbh_runs/
+smoke-results/
+coverage.xml
+.coverage
