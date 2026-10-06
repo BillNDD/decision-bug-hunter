@@ -150,7 +150,8 @@ def build() -> list[dict]:
 
     def add(sid, name, request, purpose, **meta):
         path = OUT / f"{sid}-{name}.json"
-        path.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        path.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n",
+                        encoding="utf-8", newline="\n")
         entries.append({"id": sid, "file": path.name, "purpose": purpose, "repeat": 1,
                         "optional": False, "expect": "ok", **meta})
 
@@ -342,7 +343,8 @@ def main() -> int:
         old.unlink()
     entries = build()
     (OUT / "manifest.json").write_text(json.dumps({"endpoint": "https://openrouter.ai/api/alpha/decisions",
-                                                   "entries": entries}, indent=1) + "\n", encoding="utf-8")
+                                                   "entries": entries}, indent=1) + "\n",
+                                       encoding="utf-8", newline="\n")
     total = sum((OUT / e["file"]).stat().st_size * e["repeat"] for e in entries)
     print(f"Wrote {len(entries)} manifest entries to {OUT.relative_to(ROOT)} "
           f"({total} request bytes including repeats).")
