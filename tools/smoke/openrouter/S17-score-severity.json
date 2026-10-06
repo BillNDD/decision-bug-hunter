@@ -1,0 +1,134 @@
+{
+ "model": "openai/gpt-6-luna-decisions",
+ "state": {
+  "source_sha256": "c09f192dc4079830c6958ff020fba9656d8583f90c2658b6bad4cfe1b7f3d96e",
+  "file": "summarize.py",
+  "total_lines": 22,
+  "excerpts": [
+   {
+    "start_line": 1,
+    "end_line": 22,
+    "lines": [
+     {
+      "line": 1,
+      "text": "def summarize(readings, limit):"
+     },
+     {
+      "line": 2,
+      "text": "    \"\"\"Return (count, mean, peak) for readings strictly below limit.\"\"\""
+     },
+     {
+      "line": 3,
+      "text": "    kept = []"
+     },
+     {
+      "line": 4,
+      "text": "    for value in readings:"
+     },
+     {
+      "line": 5,
+      "text": "        if value <= limit:"
+     },
+     {
+      "line": 6,
+      "text": "            kept.append(value)"
+     },
+     {
+      "line": 7,
+      "text": "    if not kept:"
+     },
+     {
+      "line": 8,
+      "text": "        return 0, 0.0, None"
+     },
+     {
+      "line": 9,
+      "text": "    total = 0"
+     },
+     {
+      "line": 10,
+      "text": "    for value in kept:"
+     },
+     {
+      "line": 11,
+      "text": "        total += value"
+     },
+     {
+      "line": 12,
+      "text": "    mean = total / len(kept)"
+     },
+     {
+      "line": 13,
+      "text": "    peak = kept[0]"
+     },
+     {
+      "line": 14,
+      "text": "    for value in kept[1:]:"
+     },
+     {
+      "line": 15,
+      "text": "        if value > peak:"
+     },
+     {
+      "line": 16,
+      "text": "            peak = value"
+     },
+     {
+      "line": 17,
+      "text": "    return len(kept), mean, peak"
+     },
+     {
+      "line": 18,
+      "text": ""
+     },
+     {
+      "line": 19,
+      "text": ""
+     },
+     {
+      "line": 20,
+      "text": "def describe(stats):"
+     },
+     {
+      "line": 21,
+      "text": "    count, mean, peak = stats"
+     },
+     {
+      "line": 22,
+      "text": "    return f\"{count} readings, mean {mean:.2f}, peak {peak}\""
+     }
+    ]
+   }
+  ],
+  "specification": {
+   "mode": "provided",
+   "lines": [
+    {
+     "line": 1,
+     "text": "Only readings strictly below the limit are kept."
+    },
+    {
+     "line": 2,
+     "text": "Return the count, mean and peak of the kept readings."
+    },
+    {
+     "line": 3,
+     "text": "Return (0, 0.0, None) when nothing is kept."
+    }
+   ]
+  },
+  "context_scope": "declared_standalone"
+ },
+ "questions": {
+  "severity": {
+   "type": "score",
+   "instructions": "How severe is the most serious defect in this code relative to the specification?",
+   "criteria": [
+    "No defect",
+    "Cosmetic only",
+    "Wrong result for some inputs",
+    "Crash or data loss"
+   ]
+  }
+ }
+}

@@ -1,0 +1,636 @@
+{
+ "model": "openai/gpt-6-luna-decisions",
+ "state": {
+  "source_sha256": "c09f192dc4079830c6958ff020fba9656d8583f90c2658b6bad4cfe1b7f3d96e",
+  "file": "summarize.py",
+  "total_lines": 22,
+  "excerpts": [
+   {
+    "start_line": 1,
+    "end_line": 22,
+    "lines": [
+     {
+      "line": 1,
+      "text": "def summarize(readings, limit):"
+     },
+     {
+      "line": 2,
+      "text": "    \"\"\"Return (count, mean, peak) for readings strictly below limit.\"\"\""
+     },
+     {
+      "line": 3,
+      "text": "    kept = []"
+     },
+     {
+      "line": 4,
+      "text": "    for value in readings:"
+     },
+     {
+      "line": 5,
+      "text": "        if value <= limit:"
+     },
+     {
+      "line": 6,
+      "text": "            kept.append(value)"
+     },
+     {
+      "line": 7,
+      "text": "    if not kept:"
+     },
+     {
+      "line": 8,
+      "text": "        return 0, 0.0, None"
+     },
+     {
+      "line": 9,
+      "text": "    total = 0"
+     },
+     {
+      "line": 10,
+      "text": "    for value in kept:"
+     },
+     {
+      "line": 11,
+      "text": "        total += value"
+     },
+     {
+      "line": 12,
+      "text": "    mean = total / len(kept)"
+     },
+     {
+      "line": 13,
+      "text": "    peak = kept[0]"
+     },
+     {
+      "line": 14,
+      "text": "    for value in kept[1:]:"
+     },
+     {
+      "line": 15,
+      "text": "        if value > peak:"
+     },
+     {
+      "line": 16,
+      "text": "            peak = value"
+     },
+     {
+      "line": 17,
+      "text": "    return len(kept), mean, peak"
+     },
+     {
+      "line": 18,
+      "text": ""
+     },
+     {
+      "line": 19,
+      "text": ""
+     },
+     {
+      "line": 20,
+      "text": "def describe(stats):"
+     },
+     {
+      "line": 21,
+      "text": "    count, mean, peak = stats"
+     },
+     {
+      "line": 22,
+      "text": "    return f\"{count} readings, mean {mean:.2f}, peak {peak}\""
+     }
+    ]
+   }
+  ],
+  "specification": {
+   "mode": "provided",
+   "lines": [
+    {
+     "line": 1,
+     "text": "Only readings strictly below the limit are kept."
+    },
+    {
+     "line": 2,
+     "text": "Return the count, mean and peak of the kept readings."
+    },
+    {
+     "line": 3,
+     "text": "Return (0, 0.0, None) when nothing is kept."
+    }
+   ]
+  },
+  "context_scope": "declared_standalone"
+ },
+ "questions": {
+  "line_bug_L1": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 1 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L1": {
+   "type": "noul",
+   "instructions": "Would source line 1 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L1": {
+   "type": "noul",
+   "instructions": "Is source line 1 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L1": {
+   "type": "noul",
+   "instructions": "Is source line 1 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L2": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 2 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L2": {
+   "type": "noul",
+   "instructions": "Would source line 2 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L2": {
+   "type": "noul",
+   "instructions": "Is source line 2 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L2": {
+   "type": "noul",
+   "instructions": "Is source line 2 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L3": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 3 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L3": {
+   "type": "noul",
+   "instructions": "Would source line 3 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L3": {
+   "type": "noul",
+   "instructions": "Is source line 3 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L3": {
+   "type": "noul",
+   "instructions": "Is source line 3 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L4": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 4 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L4": {
+   "type": "noul",
+   "instructions": "Would source line 4 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L4": {
+   "type": "noul",
+   "instructions": "Is source line 4 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L4": {
+   "type": "noul",
+   "instructions": "Is source line 4 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L5": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 5 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L5": {
+   "type": "noul",
+   "instructions": "Would source line 5 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L5": {
+   "type": "noul",
+   "instructions": "Is source line 5 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L5": {
+   "type": "noul",
+   "instructions": "Is source line 5 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L6": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 6 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L6": {
+   "type": "noul",
+   "instructions": "Would source line 6 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L6": {
+   "type": "noul",
+   "instructions": "Is source line 6 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L6": {
+   "type": "noul",
+   "instructions": "Is source line 6 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L7": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 7 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L7": {
+   "type": "noul",
+   "instructions": "Would source line 7 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L7": {
+   "type": "noul",
+   "instructions": "Is source line 7 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L7": {
+   "type": "noul",
+   "instructions": "Is source line 7 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L8": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 8 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L8": {
+   "type": "noul",
+   "instructions": "Would source line 8 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L8": {
+   "type": "noul",
+   "instructions": "Is source line 8 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L8": {
+   "type": "noul",
+   "instructions": "Is source line 8 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L9": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 9 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L9": {
+   "type": "noul",
+   "instructions": "Would source line 9 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L9": {
+   "type": "noul",
+   "instructions": "Is source line 9 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L9": {
+   "type": "noul",
+   "instructions": "Is source line 9 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L10": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 10 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L10": {
+   "type": "noul",
+   "instructions": "Would source line 10 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L10": {
+   "type": "noul",
+   "instructions": "Is source line 10 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L10": {
+   "type": "noul",
+   "instructions": "Is source line 10 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L11": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 11 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L11": {
+   "type": "noul",
+   "instructions": "Would source line 11 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L11": {
+   "type": "noul",
+   "instructions": "Is source line 11 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L11": {
+   "type": "noul",
+   "instructions": "Is source line 11 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L12": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 12 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L12": {
+   "type": "noul",
+   "instructions": "Would source line 12 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L12": {
+   "type": "noul",
+   "instructions": "Is source line 12 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L12": {
+   "type": "noul",
+   "instructions": "Is source line 12 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L13": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 13 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L13": {
+   "type": "noul",
+   "instructions": "Would source line 13 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L13": {
+   "type": "noul",
+   "instructions": "Is source line 13 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L13": {
+   "type": "noul",
+   "instructions": "Is source line 13 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L14": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 14 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L14": {
+   "type": "noul",
+   "instructions": "Would source line 14 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L14": {
+   "type": "noul",
+   "instructions": "Is source line 14 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L14": {
+   "type": "noul",
+   "instructions": "Is source line 14 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L15": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 15 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L15": {
+   "type": "noul",
+   "instructions": "Would source line 15 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L15": {
+   "type": "noul",
+   "instructions": "Is source line 15 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L15": {
+   "type": "noul",
+   "instructions": "Is source line 15 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_bug_L16": {
+   "type": "noul",
+   "instructions": "Considering the specification, does source line 16 contain or participate in a substantive bug?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_fix_L16": {
+   "type": "noul",
+   "instructions": "Would source line 16 need to change to make the code satisfy the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_ok_L16": {
+   "type": "noul",
+   "instructions": "Is source line 16 correct as written with respect to the specification?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "line_top_L16": {
+   "type": "noul",
+   "instructions": "Is source line 16 the single most likely location of a bug in this file?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  }
+ }
+}

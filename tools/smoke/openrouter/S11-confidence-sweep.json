@@ -1,0 +1,405 @@
+{
+ "model": "openai/gpt-6-luna-decisions",
+ "state": {
+  "source_sha256": "c09f192dc4079830c6958ff020fba9656d8583f90c2658b6bad4cfe1b7f3d96e",
+  "file": "summarize.py",
+  "total_lines": 22,
+  "excerpts": [
+   {
+    "start_line": 1,
+    "end_line": 22,
+    "lines": [
+     {
+      "line": 1,
+      "text": "def summarize(readings, limit):"
+     },
+     {
+      "line": 2,
+      "text": "    \"\"\"Return (count, mean, peak) for readings strictly below limit.\"\"\""
+     },
+     {
+      "line": 3,
+      "text": "    kept = []"
+     },
+     {
+      "line": 4,
+      "text": "    for value in readings:"
+     },
+     {
+      "line": 5,
+      "text": "        if value <= limit:"
+     },
+     {
+      "line": 6,
+      "text": "            kept.append(value)"
+     },
+     {
+      "line": 7,
+      "text": "    if not kept:"
+     },
+     {
+      "line": 8,
+      "text": "        return 0, 0.0, None"
+     },
+     {
+      "line": 9,
+      "text": "    total = 0"
+     },
+     {
+      "line": 10,
+      "text": "    for value in kept:"
+     },
+     {
+      "line": 11,
+      "text": "        total += value"
+     },
+     {
+      "line": 12,
+      "text": "    mean = total / len(kept)"
+     },
+     {
+      "line": 13,
+      "text": "    peak = kept[0]"
+     },
+     {
+      "line": 14,
+      "text": "    for value in kept[1:]:"
+     },
+     {
+      "line": 15,
+      "text": "        if value > peak:"
+     },
+     {
+      "line": 16,
+      "text": "            peak = value"
+     },
+     {
+      "line": 17,
+      "text": "    return len(kept), mean, peak"
+     },
+     {
+      "line": 18,
+      "text": ""
+     },
+     {
+      "line": 19,
+      "text": ""
+     },
+     {
+      "line": 20,
+      "text": "def describe(stats):"
+     },
+     {
+      "line": 21,
+      "text": "    count, mean, peak = stats"
+     },
+     {
+      "line": 22,
+      "text": "    return f\"{count} readings, mean {mean:.2f}, peak {peak}\""
+     }
+    ]
+   }
+  ],
+  "specification": {
+   "mode": "provided",
+   "lines": [
+    {
+     "line": 1,
+     "text": "Only readings strictly below the limit are kept."
+    },
+    {
+     "line": 2,
+     "text": "Return the count, mean and peak of the kept readings."
+    },
+    {
+     "line": 3,
+     "text": "Return (0, 0.0, None) when nothing is kept."
+    }
+   ]
+  },
+  "context_scope": "declared_standalone"
+ },
+ "questions": {
+  "first_def": {
+   "type": "choice",
+   "instructions": "Which line starts the first function definition?",
+   "criteria": {
+    "L1": "source line 1",
+    "L3": "source line 3",
+    "L20": "source line 20"
+   }
+  },
+  "second_def": {
+   "type": "choice",
+   "instructions": "Which line starts the second function definition?",
+   "criteria": {
+    "L1": "source line 1",
+    "L17": "source line 17",
+    "L20": "source line 20"
+   }
+  },
+  "mean_line": {
+   "type": "choice",
+   "instructions": "Which line computes the mean?",
+   "criteria": {
+    "L9": "source line 9",
+    "L11": "source line 11",
+    "L12": "source line 12",
+    "L13": "source line 13"
+   }
+  },
+  "peak_init": {
+   "type": "choice",
+   "instructions": "Which line first assigns peak?",
+   "criteria": {
+    "L13": "source line 13",
+    "L16": "source line 16",
+    "L21": "source line 21"
+   }
+  },
+  "empty_return": {
+   "type": "choice",
+   "instructions": "Which line handles the case where nothing is kept?",
+   "criteria": {
+    "L7": "source line 7",
+    "L8": "source line 8",
+    "L17": "source line 17"
+   }
+  },
+  "filter_line": {
+   "type": "choice",
+   "instructions": "Which line decides whether a reading is kept?",
+   "criteria": {
+    "L4": "source line 4",
+    "L5": "source line 5",
+    "L6": "source line 6"
+   }
+  },
+  "sum_loop": {
+   "type": "choice",
+   "instructions": "Which line starts the loop that sums the kept readings?",
+   "criteria": {
+    "L4": "source line 4",
+    "L10": "source line 10",
+    "L14": "source line 14"
+   }
+  },
+  "max_loop": {
+   "type": "choice",
+   "instructions": "Which line starts the loop that finds the peak?",
+   "criteria": {
+    "L4": "source line 4",
+    "L10": "source line 10",
+    "L14": "source line 14"
+   }
+  },
+  "format_line": {
+   "type": "choice",
+   "instructions": "Which line formats text for display?",
+   "criteria": {
+    "L17": "source line 17",
+    "L21": "source line 21",
+    "L22": "source line 22"
+   }
+  },
+  "unpack_line": {
+   "type": "choice",
+   "instructions": "Which line unpacks a tuple?",
+   "criteria": {
+    "L17": "source line 17",
+    "L21": "source line 21",
+    "L22": "source line 22"
+   }
+  },
+  "language": {
+   "type": "choice",
+   "instructions": "Which language is the file written in?",
+   "criteria": {
+    "python": "Python",
+    "javascript": "JavaScript",
+    "go": "Go",
+    "rust": "Rust"
+   }
+  },
+  "functions": {
+   "type": "choice",
+   "instructions": "How many functions does the file define?",
+   "criteria": {
+    "one": "One",
+    "two": "Two",
+    "three": "Three",
+    "four": "Four"
+   }
+  },
+  "returns_tuple": {
+   "type": "choice",
+   "instructions": "What does summarize return?",
+   "criteria": {
+    "tuple": "A tuple",
+    "list": "A list",
+    "dict": "A dictionary",
+    "string": "A string"
+   }
+  },
+  "describe_returns": {
+   "type": "choice",
+   "instructions": "What does describe return?",
+   "criteria": {
+    "tuple": "A tuple",
+    "list": "A list",
+    "dict": "A dictionary",
+    "string": "A string"
+   }
+  },
+  "spec_mode": {
+   "type": "choice",
+   "instructions": "Was a specification supplied?",
+   "criteria": {
+    "yes": "A specification was supplied.",
+    "no": "No specification was supplied."
+   }
+  },
+  "scope": {
+   "type": "choice",
+   "instructions": "Which context scope is declared?",
+   "criteria": {
+    "project": "project",
+    "declared_standalone": "declared standalone",
+    "owner_isolated": "owner isolated"
+   }
+  },
+  "bug_line": {
+   "type": "choice",
+   "instructions": "Which single line most likely violates the specification?",
+   "criteria": {
+    "L5": "source line 5",
+    "L8": "source line 8",
+    "L12": "source line 12",
+    "L16": "source line 16"
+   }
+  },
+  "bug_kind": {
+   "type": "choice",
+   "instructions": "What kind of defect is most likely present?",
+   "criteria": {
+    "boundary": "An off-by-one or boundary comparison",
+    "division": "Division by zero",
+    "type": "A type error",
+    "none": "No defect"
+   }
+  },
+  "riskiest_input": {
+   "type": "choice",
+   "instructions": "Which input is most likely to expose a defect?",
+   "criteria": {
+    "empty": "An empty list",
+    "equal": "A reading equal to the limit",
+    "negative": "Negative readings",
+    "large": "Very large readings"
+   }
+  },
+  "perf": {
+   "type": "choice",
+   "instructions": "Which change would most improve performance?",
+   "criteria": {
+    "builtin_sum": "Use the built-in sum",
+    "builtin_max": "Use the built-in max",
+    "single_pass": "Combine the loops into one pass",
+    "nothing": "No meaningful improvement"
+   }
+  },
+  "style": {
+   "type": "choice",
+   "instructions": "Which style issue is most prominent?",
+   "criteria": {
+    "naming": "Naming",
+    "length": "Function length",
+    "comments": "Missing comments",
+    "none": "No notable issue"
+   }
+  },
+  "describe_none": {
+   "type": "choice",
+   "instructions": "What happens if describe receives stats with peak None?",
+   "criteria": {
+    "prints_none": "It prints 'peak None'",
+    "raises": "It raises an exception",
+    "skips": "It omits the peak"
+   }
+  },
+  "mean_format": {
+   "type": "choice",
+   "instructions": "How many decimal places does describe show for the mean?",
+   "criteria": {
+    "zero": "Zero",
+    "one": "One",
+    "two": "Two",
+    "three": "Three"
+   }
+  },
+  "kept_type": {
+   "type": "choice",
+   "instructions": "What type is kept?",
+   "criteria": {
+    "list": "A list",
+    "set": "A set",
+    "tuple": "A tuple",
+    "dict": "A dictionary"
+   }
+  },
+  "limit_role": {
+   "type": "choice",
+   "instructions": "What is limit used for?",
+   "criteria": {
+    "filter": "Filtering readings",
+    "count": "Counting readings",
+    "format": "Formatting output",
+    "unused": "It is unused"
+   }
+  },
+  "test_first": {
+   "type": "choice",
+   "instructions": "Which test would you write first?",
+   "criteria": {
+    "equal_limit": "A reading equal to the limit",
+    "empty": "An empty input",
+    "single": "One reading",
+    "many": "Many readings"
+   }
+  },
+  "rename": {
+   "type": "choice",
+   "instructions": "Which name would most benefit from renaming?",
+   "criteria": {
+    "kept": "kept",
+    "value": "value",
+    "stats": "stats",
+    "peak": "peak"
+   }
+  },
+  "author_intent": {
+   "type": "choice",
+   "instructions": "Was the comparison on line 5 more likely intended as '<' or '<='?",
+   "criteria": {
+    "lt": "<",
+    "le": "<="
+   }
+  },
+  "ambiguous_pair": {
+   "type": "choice",
+   "instructions": "Which of these two lines is more important?",
+   "criteria": {
+    "L12": "source line 12",
+    "L16": "source line 16"
+   }
+  },
+  "coin": {
+   "type": "choice",
+   "instructions": "Pick the option that is better, if either is.",
+   "criteria": {
+    "a": "Option A",
+    "b": "Option B"
+   }
+  }
+ }
+}

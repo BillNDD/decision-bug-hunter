@@ -1,0 +1,537 @@
+{
+ "endpoint": "https://openrouter.ai/api/alpha/decisions",
+ "entries": [
+  {
+   "id": "S01",
+   "file": "S01-baseline.json",
+   "purpose": "Response shape, model string, usage and cost, id, provider, decimal places.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok"
+  },
+  {
+   "id": "S02",
+   "file": "S02-dbh-screen-object.json",
+   "purpose": "Exact DBH screening batch, state as JSON object: acceptance of names/values, answer quality.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "group": "render"
+  },
+  {
+   "id": "S03",
+   "file": "S03-dbh-screen-string.json",
+   "purpose": "Same batch, state as a JSON string.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "group": "render"
+  },
+  {
+   "id": "S04",
+   "file": "S04-dbh-screen-numbered-text.json",
+   "purpose": "Same batch, state as numbered plain text.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "group": "render"
+  },
+  {
+   "id": "S05",
+   "file": "S05-dbh-screen-policy-in-state.json",
+   "purpose": "Same batch with the policy preamble moved once into state: token saving and answer agreement.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "group": "render"
+  },
+  {
+   "id": "S06",
+   "file": "S06-count-64-per-line.json",
+   "purpose": "64 questions; per-line localization; polarity twin (line_ok should be about 1 - line_bug).",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   }
+  },
+  {
+   "id": "S07",
+   "file": "S07-count-200-objective.json",
+   "purpose": "200 questions (documented maximum) with objective truth: noul polarity and accuracy, latency, cost.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "truth": {
+    "tok_L1_def": true,
+    "tok_L1_for": false,
+    "tok_L1_if": false,
+    "tok_L1_return": false,
+    "tok_L1_kept": false,
+    "tok_L1_value": false,
+    "tok_L1_peak": false,
+    "tok_L1_total": false,
+    "tok_L1_mean": false,
+    "tok_L1_limit": true,
+    "tok_L1_append": false,
+    "tok_L1_None": false,
+    "tok_L2_def": false,
+    "tok_L2_for": true,
+    "tok_L2_if": false,
+    "tok_L2_return": false,
+    "tok_L2_kept": false,
+    "tok_L2_value": false,
+    "tok_L2_peak": true,
+    "tok_L2_total": false,
+    "tok_L2_mean": true,
+    "tok_L2_limit": true,
+    "tok_L2_append": false,
+    "tok_L2_None": false,
+    "tok_L3_def": false,
+    "tok_L3_for": false,
+    "tok_L3_if": false,
+    "tok_L3_return": false,
+    "tok_L3_kept": true,
+    "tok_L3_value": false,
+    "tok_L3_peak": false,
+    "tok_L3_total": false,
+    "tok_L3_mean": false,
+    "tok_L3_limit": false,
+    "tok_L3_append": false,
+    "tok_L3_None": false,
+    "tok_L4_def": false,
+    "tok_L4_for": true,
+    "tok_L4_if": false,
+    "tok_L4_return": false,
+    "tok_L4_kept": false,
+    "tok_L4_value": true,
+    "tok_L4_peak": false,
+    "tok_L4_total": false,
+    "tok_L4_mean": false,
+    "tok_L4_limit": false,
+    "tok_L4_append": false,
+    "tok_L4_None": false,
+    "tok_L5_def": false,
+    "tok_L5_for": false,
+    "tok_L5_if": true,
+    "tok_L5_return": false,
+    "tok_L5_kept": false,
+    "tok_L5_value": true,
+    "tok_L5_peak": false,
+    "tok_L5_total": false,
+    "tok_L5_mean": false,
+    "tok_L5_limit": true,
+    "tok_L5_append": false,
+    "tok_L5_None": false,
+    "tok_L6_def": false,
+    "tok_L6_for": false,
+    "tok_L6_if": false,
+    "tok_L6_return": false,
+    "tok_L6_kept": true,
+    "tok_L6_value": true,
+    "tok_L6_peak": false,
+    "tok_L6_total": false,
+    "tok_L6_mean": false,
+    "tok_L6_limit": false,
+    "tok_L6_append": true,
+    "tok_L6_None": false,
+    "tok_L7_def": false,
+    "tok_L7_for": false,
+    "tok_L7_if": true,
+    "tok_L7_return": false,
+    "tok_L7_kept": true,
+    "tok_L7_value": false,
+    "tok_L7_peak": false,
+    "tok_L7_total": false,
+    "tok_L7_mean": false,
+    "tok_L7_limit": false,
+    "tok_L7_append": false,
+    "tok_L7_None": false,
+    "tok_L8_def": false,
+    "tok_L8_for": false,
+    "tok_L8_if": false,
+    "tok_L8_return": true,
+    "tok_L8_kept": false,
+    "tok_L8_value": false,
+    "tok_L8_peak": false,
+    "tok_L8_total": false,
+    "tok_L8_mean": false,
+    "tok_L8_limit": false,
+    "tok_L8_append": false,
+    "tok_L8_None": true,
+    "tok_L9_def": false,
+    "tok_L9_for": false,
+    "tok_L9_if": false,
+    "tok_L9_return": false,
+    "tok_L9_kept": false,
+    "tok_L9_value": false,
+    "tok_L9_peak": false,
+    "tok_L9_total": true,
+    "tok_L9_mean": false,
+    "tok_L9_limit": false,
+    "tok_L9_append": false,
+    "tok_L9_None": false,
+    "tok_L10_def": false,
+    "tok_L10_for": true,
+    "tok_L10_if": false,
+    "tok_L10_return": false,
+    "tok_L10_kept": true,
+    "tok_L10_value": true,
+    "tok_L10_peak": false,
+    "tok_L10_total": false,
+    "tok_L10_mean": false,
+    "tok_L10_limit": false,
+    "tok_L10_append": false,
+    "tok_L10_None": false,
+    "tok_L11_def": false,
+    "tok_L11_for": false,
+    "tok_L11_if": false,
+    "tok_L11_return": false,
+    "tok_L11_kept": false,
+    "tok_L11_value": true,
+    "tok_L11_peak": false,
+    "tok_L11_total": true,
+    "tok_L11_mean": false,
+    "tok_L11_limit": false,
+    "tok_L11_append": false,
+    "tok_L11_None": false,
+    "tok_L12_def": false,
+    "tok_L12_for": false,
+    "tok_L12_if": false,
+    "tok_L12_return": false,
+    "tok_L12_kept": true,
+    "tok_L12_value": false,
+    "tok_L12_peak": false,
+    "tok_L12_total": true,
+    "tok_L12_mean": true,
+    "tok_L12_limit": false,
+    "tok_L12_append": false,
+    "tok_L12_None": false,
+    "tok_L13_def": false,
+    "tok_L13_for": false,
+    "tok_L13_if": false,
+    "tok_L13_return": false,
+    "tok_L13_kept": true,
+    "tok_L13_value": false,
+    "tok_L13_peak": true,
+    "tok_L13_total": false,
+    "tok_L13_mean": false,
+    "tok_L13_limit": false,
+    "tok_L13_append": false,
+    "tok_L13_None": false,
+    "tok_L14_def": false,
+    "tok_L14_for": true,
+    "tok_L14_if": false,
+    "tok_L14_return": false,
+    "tok_L14_kept": true,
+    "tok_L14_value": true,
+    "tok_L14_peak": false,
+    "tok_L14_total": false,
+    "tok_L14_mean": false,
+    "tok_L14_limit": false,
+    "tok_L14_append": false,
+    "tok_L14_None": false,
+    "tok_L15_def": false,
+    "tok_L15_for": false,
+    "tok_L15_if": true,
+    "tok_L15_return": false,
+    "tok_L15_kept": false,
+    "tok_L15_value": true,
+    "tok_L15_peak": true,
+    "tok_L15_total": false,
+    "tok_L15_mean": false,
+    "tok_L15_limit": false,
+    "tok_L15_append": false,
+    "tok_L15_None": false,
+    "tok_L16_def": false,
+    "tok_L16_for": false,
+    "tok_L16_if": false,
+    "tok_L16_return": false,
+    "tok_L16_kept": false,
+    "tok_L16_value": true,
+    "tok_L16_peak": true,
+    "tok_L16_total": false,
+    "tok_L16_mean": false,
+    "tok_L16_limit": false,
+    "tok_L16_append": false,
+    "tok_L16_None": false,
+    "tok_L17_return": true,
+    "tok_L17_def": false,
+    "tok_L18_return": false,
+    "tok_L18_def": false,
+    "tok_L19_return": false,
+    "tok_L19_def": false,
+    "tok_L20_return": false,
+    "tok_L20_def": true
+   }
+  },
+  {
+   "id": "S08",
+   "file": "S08-count-201.json",
+   "purpose": "201 questions: expected rejection; captures the error body.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "error"
+  },
+  {
+   "id": "S09",
+   "file": "S09-long-instruction.json",
+   "purpose": "Instruction of 13025 characters: length acceptance.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok"
+  },
+  {
+   "id": "S10",
+   "file": "S10-localize-full-212.json",
+   "purpose": "Real localize menu: 212 nested options; mass, precision, argmax, confidence.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   }
+  },
+  {
+   "id": "S10b",
+   "file": "S10b-localize-20-singletons.json",
+   "purpose": "Non-nested 20-option menu over single lines, for comparison with S10.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   }
+  },
+  {
+   "id": "S11",
+   "file": "S11-confidence-sweep.json",
+   "purpose": "30 choice questions from unambiguous to arbitrary: confidence vs top-two margin, precision, sums.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok"
+  },
+  {
+   "id": "S12",
+   "file": "S02-dbh-screen-object.json",
+   "purpose": "Test-retest: S02 repeated five times.",
+   "repeat": 5,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   }
+  },
+  {
+   "id": "S13a",
+   "file": "S13a-inject-suppress.json",
+   "purpose": "Prompt injection in the source with must-true/must-false canaries.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     6
+    ]
+   }
+  },
+  {
+   "id": "S13b",
+   "file": "S13b-inject-flood.json",
+   "purpose": "Prompt injection in the source with must-true/must-false canaries.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": []
+   }
+  },
+  {
+   "id": "S14-1",
+   "file": "S14-1-avg-bug.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": true,
+    "bug_lines": [
+     4
+    ]
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-2",
+   "file": "S14-2-avg-clean.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": false,
+    "bug_lines": []
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-3",
+   "file": "S14-3-firstpos-bug.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": true,
+    "bug_lines": [
+     2
+    ]
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-4",
+   "file": "S14-4-firstpos-clean.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": false,
+    "bug_lines": []
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-5",
+   "file": "S14-5-clamp-bug.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": true,
+    "bug_lines": [
+     2
+    ]
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-6",
+   "file": "S14-6-clamp-clean.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": false,
+    "bug_lines": []
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-7",
+   "file": "S14-7-bsearch-bug.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": true,
+    "bug_lines": [
+     8
+    ]
+   },
+   "group": "known"
+  },
+  {
+   "id": "S14-8",
+   "file": "S14-8-bsearch-clean.json",
+   "purpose": "Known-answer pair member.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok",
+   "labels": {
+    "buggy": false,
+    "bug_lines": []
+   },
+   "group": "known"
+  },
+  {
+   "id": "S15",
+   "file": "S15-jev-baseline.json",
+   "purpose": "Same as S02 against the upstream Jev judge for cross-judge comparison.",
+   "repeat": 1,
+   "optional": true,
+   "expect": "ok",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "group": "render"
+  },
+  {
+   "id": "S16",
+   "file": "S16-error-bad-model.json",
+   "purpose": "Invalid model id: error status and error body shape.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "error"
+  },
+  {
+   "id": "S17",
+   "file": "S17-score-severity.json",
+   "purpose": "Score type shape: legend, probabilities, score, confidence.",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok"
+  },
+  {
+   "id": "S18",
+   "file": "S18-zdr-probe.json",
+   "purpose": "Is the Luna route eligible for zero-data-retention routing?",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok"
+  },
+  {
+   "id": "S19",
+   "file": "S19-data-collection-deny.json",
+   "purpose": "Is the Luna route available with data_collection deny?",
+   "repeat": 1,
+   "optional": false,
+   "expect": "ok"
+  }
+ ]
+}

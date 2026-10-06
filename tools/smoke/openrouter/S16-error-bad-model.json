@@ -1,0 +1,14 @@
+{
+ "model": "openai/gpt-6-luna-decisions-does-not-exist",
+ "state": "Hello.",
+ "questions": {
+  "q": {
+   "type": "noul",
+   "instructions": "Is this a greeting?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  }
+ }
+}

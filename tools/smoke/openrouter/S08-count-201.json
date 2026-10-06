@@ -1,0 +1,1732 @@
+{
+ "model": "openai/gpt-6-luna-decisions",
+ "state": {
+  "source_sha256": "c09f192dc4079830c6958ff020fba9656d8583f90c2658b6bad4cfe1b7f3d96e",
+  "file": "summarize.py",
+  "total_lines": 22,
+  "excerpts": [
+   {
+    "start_line": 1,
+    "end_line": 22,
+    "lines": [
+     {
+      "line": 1,
+      "text": "def summarize(readings, limit):"
+     },
+     {
+      "line": 2,
+      "text": "    \"\"\"Return (count, mean, peak) for readings strictly below limit.\"\"\""
+     },
+     {
+      "line": 3,
+      "text": "    kept = []"
+     },
+     {
+      "line": 4,
+      "text": "    for value in readings:"
+     },
+     {
+      "line": 5,
+      "text": "        if value <= limit:"
+     },
+     {
+      "line": 6,
+      "text": "            kept.append(value)"
+     },
+     {
+      "line": 7,
+      "text": "    if not kept:"
+     },
+     {
+      "line": 8,
+      "text": "        return 0, 0.0, None"
+     },
+     {
+      "line": 9,
+      "text": "    total = 0"
+     },
+     {
+      "line": 10,
+      "text": "    for value in kept:"
+     },
+     {
+      "line": 11,
+      "text": "        total += value"
+     },
+     {
+      "line": 12,
+      "text": "    mean = total / len(kept)"
+     },
+     {
+      "line": 13,
+      "text": "    peak = kept[0]"
+     },
+     {
+      "line": 14,
+      "text": "    for value in kept[1:]:"
+     },
+     {
+      "line": 15,
+      "text": "        if value > peak:"
+     },
+     {
+      "line": 16,
+      "text": "            peak = value"
+     },
+     {
+      "line": 17,
+      "text": "    return len(kept), mean, peak"
+     },
+     {
+      "line": 18,
+      "text": ""
+     },
+     {
+      "line": 19,
+      "text": ""
+     },
+     {
+      "line": 20,
+      "text": "def describe(stats):"
+     },
+     {
+      "line": 21,
+      "text": "    count, mean, peak = stats"
+     },
+     {
+      "line": 22,
+      "text": "    return f\"{count} readings, mean {mean:.2f}, peak {peak}\""
+     }
+    ]
+   }
+  ],
+  "specification": {
+   "mode": "provided",
+   "lines": [
+    {
+     "line": 1,
+     "text": "Only readings strictly below the limit are kept."
+    },
+    {
+     "line": 2,
+     "text": "Return the count, mean and peak of the kept readings."
+    },
+    {
+     "line": 3,
+     "text": "Return (0, 0.0, None) when nothing is kept."
+    }
+   ]
+  },
+  "context_scope": "declared_standalone"
+ },
+ "questions": {
+  "tok_L1_def": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_for": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_if": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_return": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_kept": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_value": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_peak": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_total": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_mean": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_limit": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_append": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L1_None": {
+   "type": "noul",
+   "instructions": "Does source line 1 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_def": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_for": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_if": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_return": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_kept": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_value": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_peak": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_total": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_mean": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_limit": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_append": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L2_None": {
+   "type": "noul",
+   "instructions": "Does source line 2 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_def": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_for": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_if": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_return": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_kept": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_value": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_peak": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_total": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_mean": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_limit": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_append": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L3_None": {
+   "type": "noul",
+   "instructions": "Does source line 3 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_def": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_for": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_if": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_return": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_kept": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_value": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_peak": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_total": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_mean": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_limit": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_append": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L4_None": {
+   "type": "noul",
+   "instructions": "Does source line 4 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_def": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_for": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_if": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_return": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_kept": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_value": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_peak": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_total": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_mean": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_limit": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_append": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L5_None": {
+   "type": "noul",
+   "instructions": "Does source line 5 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_def": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_for": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_if": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_return": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_kept": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_value": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_peak": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_total": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_mean": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_limit": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_append": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L6_None": {
+   "type": "noul",
+   "instructions": "Does source line 6 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_def": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_for": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_if": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_return": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_kept": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_value": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_peak": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_total": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_mean": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_limit": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_append": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L7_None": {
+   "type": "noul",
+   "instructions": "Does source line 7 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_def": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_for": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_if": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_return": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_kept": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_value": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_peak": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_total": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_mean": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_limit": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_append": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L8_None": {
+   "type": "noul",
+   "instructions": "Does source line 8 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_def": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_for": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_if": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_return": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_kept": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_value": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_peak": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_total": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_mean": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_limit": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_append": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L9_None": {
+   "type": "noul",
+   "instructions": "Does source line 9 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_def": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_for": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_if": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_return": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_kept": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_value": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_peak": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_total": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_mean": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_limit": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_append": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L10_None": {
+   "type": "noul",
+   "instructions": "Does source line 10 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_def": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_for": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_if": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_return": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_kept": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_value": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_peak": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_total": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_mean": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_limit": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_append": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L11_None": {
+   "type": "noul",
+   "instructions": "Does source line 11 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_def": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_for": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_if": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_return": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_kept": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_value": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_peak": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_total": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_mean": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_limit": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_append": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L12_None": {
+   "type": "noul",
+   "instructions": "Does source line 12 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_def": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_for": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_if": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_return": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_kept": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_value": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_peak": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_total": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_mean": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_limit": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_append": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L13_None": {
+   "type": "noul",
+   "instructions": "Does source line 13 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_def": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_for": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_if": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_return": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_kept": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_value": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_peak": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_total": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_mean": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_limit": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_append": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L14_None": {
+   "type": "noul",
+   "instructions": "Does source line 14 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_def": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_for": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_if": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_return": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_kept": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_value": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_peak": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_total": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_mean": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_limit": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_append": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L15_None": {
+   "type": "noul",
+   "instructions": "Does source line 15 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_def": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_for": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'for' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_if": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'if' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_return": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_kept": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'kept' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_value": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'value' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_peak": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'peak' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_total": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'total' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_mean": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'mean' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_limit": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'limit' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_append": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'append' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L16_None": {
+   "type": "noul",
+   "instructions": "Does source line 16 contain 'None' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L17_return": {
+   "type": "noul",
+   "instructions": "Does source line 17 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L17_def": {
+   "type": "noul",
+   "instructions": "Does source line 17 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L18_return": {
+   "type": "noul",
+   "instructions": "Does source line 18 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L18_def": {
+   "type": "noul",
+   "instructions": "Does source line 18 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L19_return": {
+   "type": "noul",
+   "instructions": "Does source line 19 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L19_def": {
+   "type": "noul",
+   "instructions": "Does source line 19 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L20_return": {
+   "type": "noul",
+   "instructions": "Does source line 20 contain 'return' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L20_def": {
+   "type": "noul",
+   "instructions": "Does source line 20 contain 'def' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  },
+  "tok_L21_count": {
+   "type": "noul",
+   "instructions": "Does source line 21 contain 'count' as a whole word (exact case)?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  }
+ }
+}
