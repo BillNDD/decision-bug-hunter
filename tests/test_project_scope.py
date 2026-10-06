@@ -26,12 +26,14 @@ class TestScopeContract(unittest.TestCase):
         self.target = self.root / 'target.py'
         self.target.write_text('def f(x):\n    return x / 0\n', encoding='utf-8')
         self.out = self.root / 'out'
-        self._saved_key = os.environ.pop('DBH_TEST_SECRET', None)
-        self.addCleanup(self._restore_key)
+        self._saved = {name: os.environ.pop(name, None)
+                       for name in ('DBH_TEST_SECRET', 'OPENAI_API_KEY')}
+        self.addCleanup(self._restore_keys)
 
-    def _restore_key(self):
-        if self._saved_key is not None:
-            os.environ['DBH_TEST_SECRET'] = self._saved_key
+    def _restore_keys(self):
+        for name, value in self._saved.items():
+            if value is not None:
+                os.environ[name] = value
 
     def run_main(self, *extra):
         err = io.StringIO()
@@ -71,7 +73,7 @@ class TestScopeContract(unittest.TestCase):
             core.scan(source(12), None, context_scope="bogus")
 
     def test_three_modes_pass_scope_validation(self):
-        # With no Decisions adapter each stops at availability, never at scope.
+        # Without a credential each stops at availability, never at scope.
         cases = [('--scope', 'standalone'), ('--scope', 'isolate'),
                  ('--scope', 'project', '--project-root', str(self.root))]
         for extra in cases:

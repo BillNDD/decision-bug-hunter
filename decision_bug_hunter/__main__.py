@@ -16,7 +16,7 @@ from .core import Config, Source, format_findings, scan
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
 from .providers import ValidatedGateway
-from .decisions import DecisionsProvider
+from .decisions import CREDENTIAL_VARIABLE, DecisionsProvider
 from .repository import ProjectIndex
 
 
@@ -124,6 +124,9 @@ def write_new(path: Path, text: str) -> None:
 
 def failure(code: str) -> int:
     print(f"Scan failed ({code}).", file=sys.stderr)
+    if code == "provider_unavailable":
+        print(f"Set {CREDENTIAL_VARIABLE} in the environment to enable the hosted "
+              "Decisions adapter; see README.md.", file=sys.stderr)
     return 2
 
 

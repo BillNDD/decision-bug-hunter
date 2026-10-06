@@ -14,8 +14,9 @@ import time
 from typing import Any, Protocol
 import uuid
 
-from .protocol import (ProviderError, _json, _metadata, encode_request, plain,
-                       validate_answer_objects, validate_usage, _rounding_profile)
+from .protocol import (ERROR_CODES, ProviderError, _json, _metadata, encode_request,
+                       plain, validate_answer_objects, validate_usage,
+                       _rounding_profile)
 
 
 @dataclass(frozen=True)
@@ -51,11 +52,16 @@ class ProviderRequest:
 
 @dataclass(frozen=True)
 class ProviderResponse:
-    """Provider-normalized local answers. Unknown usage stays None."""
+    """Provider-normalized local answers. Unknown usage stays None.
+
+    `error` carries a fixed failure code for a documented whole-batch
+    rejection learned after usage; the gateway journals both.
+    """
 
     answers: dict[str, Any]
     usage: dict[str, int] | None = None
     complete: bool = True
+    error: str | None = None
 
 
 class DecisionProvider(Protocol):
@@ -278,13 +284,19 @@ class ValidatedGateway:
                 raise ProviderError("response_schema")
             if not response.complete:
                 raise ProviderError("response_truncated")
+            if response.error is not None:
+                if type(response.error) is not str or response.error not in ERROR_CODES:
+                    raise ProviderError("response_schema")
+                raise ProviderError(response.error)
             if time.monotonic() - started >= timeout:
                 raise ProviderError("deadline_exceeded")
             answers = validate_answer_objects(response.answers, expected, self.rounding_places)
             self.check_sensitive(answers, receipt["usage"])
         except ProviderError as exc:
             error = exc.code
-            if error in {"transport_failed", "deadline_exceeded", "interrupted"}:
+            # A rejected credential cannot succeed later in this run either.
+            if error in {"transport_failed", "deadline_exceeded", "interrupted",
+                         "http_unauthorized"}:
                 self._blocked = True
         except Exception:
             error = "transport_failed"

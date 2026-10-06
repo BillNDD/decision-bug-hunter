@@ -4,6 +4,7 @@ from copy import deepcopy
 from decimal import Decimal
 import io
 import json
+import os
 from pathlib import Path
 import socket
 import tempfile
@@ -18,6 +19,12 @@ from decision_bug_hunter.protocol import ProviderError, QUESTION, encode_request
 from decision_bug_hunter.providers import (ProviderIdentity, ProviderRequest,
                                           ProviderResponse, ValidatedGateway)
 from tests.support import FixtureProvider
+
+
+def without_credential():
+    """The hosted adapter reads OPENAI_API_KEY only; tests clear it explicitly."""
+    environment = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+    return patch.dict("os.environ", environment, clear=True)
 
 
 class SyntheticProvider:
@@ -79,7 +86,8 @@ class ProviderBoundaryTests(unittest.TestCase):
     def test_unavailable_before_any_source_read_output_or_network(self):
         output = self.root / "outputs"
         out, err = io.StringIO(), io.StringIO()
-        with patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")), \
+        with without_credential(), \
+                patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")), \
                 patch.object(Source, "read", side_effect=AssertionError("source read forbidden")), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["secret-target-name", "--scope", "standalone", "--output-dir", str(output)])
@@ -90,14 +98,14 @@ class ProviderBoundaryTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_unavailable_empty_library_scan_cannot_be_complete(self):
-        gateway = ValidatedGateway(DecisionsProvider(), self.root / "receipts")
+        gateway = ValidatedGateway(DecisionsProvider(environ={}), self.root / "receipts")
         with self.assertRaises(ProviderError) as caught:
             scan(Source.from_text(""), gateway, context_scope="declared_standalone")
         self.assertEqual(caught.exception.code, "provider_unavailable")
         self.assertFalse((self.root / "receipts").exists())
 
-    def test_unavailable_direct_adapter_and_gateway_never_read_credentials(self):
-        provider = DecisionsProvider()
+    def test_unavailable_adapter_reads_credentials_only_at_construction(self):
+        provider = DecisionsProvider(environ={})
         gateway = ValidatedGateway(provider, self.root / "receipts")
         with patch.dict("os.environ", {"OPENAI_API_KEY": "offline-ignored-sentinel"}), \
                 patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")):

@@ -13,7 +13,8 @@ import zipfile
 
 def run(argv, cwd, *, expected=0):
     env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+    for name in ("PYTHONPATH", "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"):
+        env.pop(name, None)
     result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
     if result.returncode != expected:
         raise RuntimeError("distribution_command_failed")
@@ -29,6 +30,8 @@ def safe_names(names):
             raise RuntimeError("unnecessary_archive_member")
         if name.endswith(("transport.py", "jev.py", ".pyc")):
             raise RuntimeError("unexpected_upstream_transport")
+        if parts.name == ".env" or parts.name.endswith((".pem", ".key")):
+            raise RuntimeError("unexpected_private_file")
 
 
 def main():
@@ -78,7 +81,8 @@ def main():
                       "--scope", "standalone", "--output-dir", "outputs"], root, expected=2)
         if "provider_unavailable" not in failed.stderr or failed.stdout or (root / "outputs").exists():
             raise RuntimeError("installed_provider_gate_failed")
-    print("Distribution: wheel contents, sdist contents, fresh install, resource import, CLI help, unavailable gate passed.")
+    print("Distribution: wheel contents, sdist contents, fresh install, resource import, "
+          "CLI help, unavailable gate passed.")
 
 
 if __name__ == "__main__":

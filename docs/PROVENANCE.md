@@ -23,9 +23,9 @@ relation and refutation thresholds remain 0.80, 0.70 and 0.80. They are uncalibr
 
 Changed: distribution/package/CLI identity, pure local protocol extraction,
 provider provenance, strict-by-default probability mass, generic single-attempt
-receipt gateway, unavailable Decisions adapter, packaging scope, and fixtures
-that formerly patched Jev transport. Legacy internal Noul/Choice mechanics are
-documented as engine requirements rather than a Decisions service schema.
+receipt gateway, packaging scope, and fixtures that formerly patched Jev
+transport. Legacy internal Noul/Choice mechanics are documented as engine
+requirements rather than a Decisions service schema.
 
 Excluded: Jev HTTP endpoint/model/credential loading, hosted worker/transport,
 provider-specific transport tests, live acceptance/campaign/witness machinery,
@@ -40,11 +40,18 @@ full outcome gate. Six misses include empty-input division, a half-open bound,
 loop early return, unit conversion, a cross-file limit and SQL NULL semantics.
 These Jev development results do not transfer to Decisions or DBH.
 
+## Decisions documentation
+
+The hosted adapter added in `0.1.0b1` was written from the public
+[Decisions guide](https://developers.openai.com/api/docs/guides/decisions),
+[API reference](https://developers.openai.com/api/reference/resources/decisions)
+and the [changelog](https://developers.openai.com/api/docs/changelog) entry of
+2026-10-06 announcing the public beta with `gpt-6-luna`. The transport design
+mirrors the upstream Jev adapter's fixed-origin, strict-framing, no-retry
+pattern, reimplemented for the documented Decisions shapes. No OpenAI SDK
+code is used or vendored. No provider account access was tested.
+
 This preparation does not claim a novel detection algorithm or new scientific
 effectiveness result. Fresh deterministic regressions establish reproducible
-local behavior only; actual-service and held-out evidence remain separate gates.
-
-The [official announcement](https://openai.com/index/devday-2026-recap/) establishes
-Luna-backed finite predefined answers with text/image context and limited preview
-on September 29, 2026. It does not supply the missing implementation contract.
-No provider account access was tested. See [release gates](RELEASE_GATES.md).
+local behavior only; live-service and held-out evidence remain separate gates.
+See [release gates](RELEASE_GATES.md).

@@ -54,6 +54,8 @@ ERROR_CODES = frozenset({
     "choice_argmax_mismatch",
     "invalid_probability_profile", "question_budget_exhausted",
     "call_budget_exhausted", "run_deadline_exceeded", "interrupted",
+    "http_unauthorized", "http_rate_limited", "http_redirect", "http_rejected",
+    "http_server_error", "response_refused",
 })
 QUESTION = {
     "type": "noul",

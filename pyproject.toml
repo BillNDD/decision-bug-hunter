@@ -5,16 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "decision-bug-hunter"
 dynamic = ["version"]
-description = "Bounded source triage with a provider-independent judge contract"
+description = "Bounded first-pass source triage using the OpenAI Decisions API"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{name = "Decision Bug Hunter contributors"}]
 requires-python = ">=3.11"
 dependencies = []
+keywords = ["static-analysis", "bug-triage", "openai", "decisions-api"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Repository = "https://github.com/BillNDD/decision-bug-hunter"
+Issues = "https://github.com/BillNDD/decision-bug-hunter/issues"
+Upstream = "https://github.com/BillNDD/jev-bug-hunter"
 
 [project.optional-dependencies]
-dev = ["ruff>=0.14,<1", "mypy>=1.19,<2", "build>=1.3,<2"]
+dev = ["ruff>=0.14,<1", "mypy>=1.19,<2", "build>=1.3,<2", "setuptools>=77"]
 
 [project.scripts]
 decision-bug-hunter = "decision_bug_hunter.__main__:main"
