@@ -55,7 +55,7 @@ SUMMARIZE_SPEC = ("Only readings strictly below the limit are kept.\n"
 SUMMARIZE_BUG_LINES = [5]
 
 KNOWN = [
-    ("avg-bug", True, [4], "Return the arithmetic mean of values; return 0.0 for an empty list.",
+    ("avg-bug", True, [5], "Return the arithmetic mean of values; return 0.0 for an empty list.",
      "def average(values):\n    total = 0\n    for value in values:\n        total += value\n"
      "    return total / len(values)\n"),
     ("avg-clean", False, [], "Return the arithmetic mean of values; return 0.0 for an empty list.",
