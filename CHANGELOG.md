@@ -150,6 +150,8 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   routes through the shipped exchange, with a sanitizer for promoting
   observed fixtures.
 - `tools/eval`: the 34-case labeled development catalog and its runner.
+- `tools/bench`: an offline benchmark with golden fingerprints and a
+  regression gate (see `docs/performance.md`).
 - The offline test suite refuses real sockets. `tools/check_distribution.py`
   checks both archives, a keyless wheel install with the route-selection and
   `provider_unavailable` gates, and the unpacked sdist's own test suite. The
