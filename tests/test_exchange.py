@@ -395,6 +395,9 @@ class ErrorBodyTests(ExchangeCase):
                           "retry-after", "x-ratelimit-remaining"})
         self.assertEqual(outcome.header("X-Generation-Id"), "gen-dec-1")
         self.assertIsNone(outcome.header("cf-ray"))
+        # Dropped headers keep only their names, and cf-ray not even that.
+        self.assertEqual(outcome.dropped_header_names, ("server", "set-cookie"))
+        self.assertNotIn("edge", repr(outcome.dropped_header_names))
 
 
 if __name__ == "__main__":

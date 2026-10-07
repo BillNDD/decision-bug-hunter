@@ -56,6 +56,10 @@ KEPT_HEADERS = frozenset({"content-type", "content-length", "transfer-encoding",
                           "content-encoding", "connection", "retry-after",
                           "x-request-id", "x-generation-id"})
 _KEPT_PREFIX = "x-ratelimit-"
+#: Never named, not even in ``Outcome.dropped_header_names``: the suffix of
+#: Cloudflare's ``cf-ray`` value is the edge's airport code, i.e. the caller's
+#: region (ADR-11(2)).
+UNNAMED_HEADERS = frozenset({"cf-ray"})
 _KEPT_VALUE = re.compile(r"[ -~]{0,256}")
 _HEADER_NAME = re.compile(r"[A-Za-z0-9-]{1,64}")
 _HEADER_VALUE = re.compile(r"[ -~]{0,8192}")
@@ -119,6 +123,10 @@ class Outcome:
     late: bool = False
     bytes_sent: int = 0
     response_bytes: int = 0
+    #: Lower-case names of the headers that were dropped, sorted and distinct;
+    #: never their values, never ``UNNAMED_HEADERS``. Diagnostic only (the
+    #: smoke runner reports them); receipts do not carry it.
+    dropped_header_names: tuple[str, ...] = ()
 
     def header(self, name: str) -> str | None:
         name = name.lower()
@@ -322,14 +330,19 @@ def read_error_body(response: http.client.HTTPResponse, deadline: Deadline,
     return raw, "ok"
 
 
-def _kept_headers(response: http.client.HTTPResponse) -> tuple[tuple[str, str], ...]:
+def _kept_headers(response: http.client.HTTPResponse
+                  ) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
+    """Allow-listed (name, value) pairs, and the sorted names of the rest."""
     kept: list[tuple[str, str]] = []
+    dropped: set[str] = set()
     for name, value in response.getheaders():
         lower = name.lower()
         if ((lower in KEPT_HEADERS or lower.startswith(_KEPT_PREFIX))
                 and _KEPT_VALUE.fullmatch(value)):
             kept.append((lower, value.strip()))
-    return tuple(kept)
+        elif lower not in UNNAMED_HEADERS and _HEADER_NAME.fullmatch(lower):
+            dropped.add(lower)
+    return tuple(kept), tuple(sorted(dropped))
 
 
 class HttpsExchange:
@@ -413,7 +426,7 @@ class HttpsExchange:
                 response = _Response(_ReaderSource(io.BufferedReader(raw)),  # type: ignore[arg-type]
                                      0, "POST")
                 response.begin()
-                kept = _kept_headers(response)
+                kept, dropped = _kept_headers(response)
                 if response.status == 200:
                     content = read_success_body(response)
                     error_raw: bytes | None = None
@@ -430,7 +443,8 @@ class HttpsExchange:
                 now = self.clock()
                 return Outcome(response.status, kept, content, error_raw, state, reused,
                                max(0.0, now - started), late=now >= deadline.at,
-                               bytes_sent=bytes_sent, response_bytes=raw.count)
+                               bytes_sent=bytes_sent, response_bytes=raw.count,
+                               dropped_header_names=dropped)
             except (OSError, http.client.HTTPException, ValueError) as exc:
                 since = None if sent_at is None else max(0.0, self.clock() - sent_at)
                 failure = ExchangeError(phase, _kind(exc), reused=reused,
