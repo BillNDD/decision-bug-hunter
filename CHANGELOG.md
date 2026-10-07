@@ -13,8 +13,9 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   `gpt-6-luna`, `OPENAI_API_KEY`) and `--provider openrouter`
   (`POST https://openrouter.ai/api/alpha/decisions`, model
   `openai/gpt-6-luna-decisions`, `OPENROUTER_API_KEY`). No other model is
-  supported. Both routes were verified live on 2026-10-06 and 2026-10-07
-  (smoke suites and the 34-case development catalog); the OpenAI-direct
+  supported. Both routes were verified live with smoke suites and the
+  34-case development catalog: OpenRouter on 2026-10-06 and 2026-10-07,
+  OpenAI direct on 2026-10-07. The OpenAI-direct
   adapter needed no change after its first live contact.
 - Explicit route selection with `--provider` or `DBH_PROVIDER`; never
   inferred from which key is set. Without a route the CLI exits 3 with
