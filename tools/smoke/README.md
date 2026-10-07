@@ -21,8 +21,10 @@ the default was reverted (see `docs/VALIDATION.md`).
 
 The full OpenRouter suite is 48 requests. Its run on 2026-10-07 used about
 230,600 input tokens and cost $0.0231 at the listed $0.10 per 1M input
-tokens. The direct OpenAI suite has not been run against the live service.
-Results of the OpenRouter runs are summarized in `docs/VALIDATION.md`.
+tokens. The direct OpenAI suite (O01 to O04, 5 requests) ran on 2026-10-07:
+19,717 input tokens, about $0.002 at list price (OpenAI reports usage but
+no cost); the 4 answer batches validated and O04 returned the expected 400.
+Results of both routes' runs are summarized in `docs/VALIDATION.md`.
 
 ## Operator rules
 

@@ -147,11 +147,67 @@ class DocumentationTests(unittest.TestCase):
         gate8 = next(line for line in gates.splitlines() if line.startswith("| 8 |"))
         self.assertIn("Satisfied (development suite only)", gate8)
         for needle in ("451,412", "683,136", "$0.0451", "$0.0683", "$0.0025",
-                       "about $0.99"):
+                       "449,566", "$0.0450", "1,199,357", "$0.1200", "about $1.16",
+                       "445,685", "654,342", "1,100,027", "about $0.11", "about $1.27"):
             with self.subTest(needle):
                 self.assertIn(needle, validation)
-        self.assertIn("about $0.99", gates)
+        self.assertIn("about $1.27", gates)
         self.assertIn("Final evaluation at the release code", flat(read("README.md")))
+
+    def test_mass_gate_default_is_documented_with_its_evidence(self):
+        from decision_bug_hunter.core import DEFAULT_CHOICE_GATE, Config
+        self.assertEqual(DEFAULT_CHOICE_GATE, "mass")
+        self.assertEqual(Config().choice_gate, "mass")
+        self.assertEqual(Config().state_layout, "v1")
+        readme = flat(read("README.md"))
+        evidence = readme.split("## Evidence and limits", 1)[1]
+        shipped = evidence.split("Shipped defaults", 1)[1].split("Final evaluation", 1)[0]
+        self.assertIn("`--choice-gate mass`, state layout v1, canaries on", shipped)
+        for row in ("| Defective programs detected | 15/16 | 15/16 | 16/16 | 14/16 |",
+                    "| Individual defects covered | 16/17 | 17/17 | 17/17 | 17/17 |",
+                    "| Corrected controls clear | 16/16 | 16/16 | 16/16 | 16/16 |",
+                    "| Missing evidence marked incomplete | 1/2 | 1/2 | 0/2 | 1/2 |",
+                    "| Entire cases | 32/34 | 32/34 | 32/34 | 31/34 |",
+                    "| Calls / cost | 214 / $0.0450 | 312 / $0.0683 | 211 / about $0.045 "
+                    "(estimated) | 296 / about $0.065 (estimated) |"):
+            with self.subTest(row):
+                self.assertIn(row, shipped)
+        variants = evidence.split("Measured variants", 1)[1]
+        self.assertIn("| legacy-v1 + `--choice-gate legacy` | 31/34 |", variants)
+        self.assertIn("211 calls, $0.0451", variants)
+        self.assertIn("Reverses the mass-gate gain", variants)
+        validation = flat(read("docs/VALIDATION.md"))
+        self.assertIn("### Default decisions", validation)
+        self.assertIn("`--state-layout v2` stays opt-in", validation)
+        changelog = flat(read("CHANGELOG.md"))
+        self.assertIn("`--choice-gate` (default `mass`)", changelog)
+        # No commit hashes in the public docs (the history is rewritten
+        # before publishing).
+        for name in PUBLIC_DOCS:
+            with self.subTest(name):
+                self.assertIsNone(re.search(r"commit `[0-9a-f]{7,40}`", read(name)))
+
+    def test_openai_direct_route_is_documented_as_live_verified(self):
+        for name in ("README.md", "docs/PROVIDER_CONTRACT.md", "docs/VALIDATION.md",
+                     "tools/smoke/README.md"):
+            text = flat(read(name))
+            with self.subTest(name):
+                for stale in ("has not been exercised live", "No live request has been made",
+                              "has not been run against the live service",
+                              "pinned only by offline fixtures built"):
+                    self.assertNotIn(stale, text)
+        gates = read("docs/RELEASE_GATES.md")
+        for number in (2, 5, 6):
+            row = next(line for line in gates.splitlines()
+                       if line.startswith(f"| {number} |"))
+            with self.subTest(gate=number):
+                self.assertIn("both routes", row)
+        validation = flat(read("docs/VALIDATION.md"))
+        for needle in ("### OpenAI-direct smoke findings", "76 answers", "`x-request-id` on all 5",
+                       "`http_rejected`"):
+            with self.subTest(needle):
+                self.assertIn(needle, validation)
+        self.assertIn("about $0.002", flat(read("tools/smoke/README.md")))
 
     def test_readme_cost_bounds_match_the_code(self):
         from decision_bug_hunter import openrouter

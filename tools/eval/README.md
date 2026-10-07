@@ -30,11 +30,14 @@ python tools/eval/run_catalog.py --summarize smoke-results/eval-YYYYmmdd-HHMMSS
 Arguments after `--` go to every CLI invocation; `--provider` is required
 there for a live run. The runner reads no key itself: the CLI reads the
 selected route's key from the environment. A live run bills that route; each
-case runs with `--max-calls 32` (96 for the two 70-line cases), and a full
-run of the shipped defaults on OpenRouter cost $0.0451 (legacy-v1) and
-$0.0683 (scoped-v2-beta) on 2026-10-07.
+case runs with `--max-calls 32` (96 for the two 70-line cases). A full run
+of the shipped defaults cost $0.0450 (legacy-v1) and $0.0683
+(scoped-v2-beta) on OpenRouter, and about $0.045 and $0.065 at list price on
+OpenAI direct, on 2026-10-07.
 
 Output goes to `smoke-results/eval-<UTC time>/` (git-ignored, or `--out`):
 `results.json`, one saved report per case under `reports/`, and
 `summary.md` with the outcome table, calls, tokens and the summed
-provider-reported cost. Results so far are in `docs/VALIDATION.md`.
+provider-reported cost. OpenAI direct reports no cost, so on that route the
+summary shows $0; estimate the spend as input tokens x $0.0000001. Results
+so far are in `docs/VALIDATION.md`.

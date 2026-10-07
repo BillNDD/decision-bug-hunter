@@ -72,13 +72,35 @@ that request again, and the scan is incomplete. Controls count toward
 `--max-questions` and the cost bound. `--canaries off` sends the previous
 request bytes exactly.
 
+### Localization gate
+
+Under legacy-v1, a localization choice answer passes through the gate set
+by `--choice-gate` (`Config.choice_gate`, default `mass`). `mass` reads the
+whole probability vector: it selects up to `--localization-beam-width`
+maximal line runs whose lower-bound per-line overlap mass reaches
+`--choice-mass` (default 0.5), and only while `none` plus `unlocalized`
+(plus any undisplayed mass) stays below one half; one menu is asked per
+target. `legacy` accepts an option when min(confidence, p[choice]) reaches
+`--choice-confidence` and re-asks with a shrunken menu after each pick.
+Rank, context and action choices always use the legacy rule, and
+scoped-v2-beta does not gate localization. The report configuration records
+`choice_gate` unless it is `legacy`; with `--choice-gate legacy` and
+`--canaries off` a run reproduces the pre-beta request bytes and reports.
+
 ## Route 1: OpenAI direct (`--provider openai`)
 
 `POST https://api.openai.com/v1/decisions`, bearer authentication with
 `OPENAI_API_KEY`, optional `OpenAI-Organization` / `OpenAI-Project` headers
 from `OPENAI_ORG_ID` / `OPENAI_PROJECT_ID`. Model `gpt-6-luna` only. This
-route is implemented from the public documentation of 2026-10-06 and is
-pinned by offline fixtures; it has not been exercised live.
+route is implemented from the public documentation of 2026-10-06, pinned by
+offline fixtures, and was exercised live on 2026-10-07 (a 5-request smoke
+suite and two 34-case catalog runs; see [VALIDATION.md](VALIDATION.md)):
+the model echo and usage without a cost field on every 200, and
+`x-request-id` on every response, matched this description; every choice
+vector had exact mass at two decimals with the choice equal to the argmax,
+the confidence followed the same identity as on OpenRouter, and an unknown
+request field returned 400 (`http_rejected`). Its 401, 429, 5xx and refusal
+handling are pinned by fixtures only.
 
 | Local | Request | Answer | Local result |
 |---|---|---|---|

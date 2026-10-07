@@ -7,9 +7,9 @@ citations. One more tool in the toolshed, not the whole workshop.
 
 **`0.1.0b1` is an experimental beta.** DBH is Decisions-only: its one judge
 is the OpenAI Decisions model, reached either directly or through OpenRouter.
-It supports no other model. The OpenRouter route has been exercised live (see
-[Evidence and limits](#evidence-and-limits)); the direct OpenAI route is
-pinned only by offline fixtures built from the public documentation.
+It supports no other model. Both routes have been exercised live with
+smoke requests and the 34-case development suite (see
+[Evidence and limits](#evidence-and-limits)).
 
 ## How it works
 
@@ -221,15 +221,19 @@ OpenRouter-only options combined with `--provider openai` stop the scan with
 Both routes list the model at $0.10 per million input tokens and bill no
 output tokens (price table dated 2026-10-06; check the provider's current
 price yourself). OpenRouter reports the cost of every request, and in every
-observed response it equaled input tokens x $0.0000001.
+observed response it equaled input tokens x $0.0000001. OpenAI direct
+reports usage but no cost, so on that route DBH records the list-price
+estimate (input tokens x $0.0000001).
 
-Observed costs (OpenRouter, 2026-10-06 and 2026-10-07):
+Observed costs (2026-10-06 and 2026-10-07):
 
 - One screening request of a short file, about 8,500 input tokens: $0.00085.
 - Across the 34-case development suite with the shipped defaults, one call
   averaged about 2,100 input tokens ($0.0002), and one case about $0.0013
-  (legacy-v1, 211 calls, $0.0451 for all 34 cases) or $0.0020
-  (scoped-v2-beta, 312 calls, $0.0683).
+  (legacy-v1: 214 calls and $0.0450 for all 34 cases on OpenRouter, 211
+  calls and about $0.045 estimated on OpenAI direct) or about $0.002
+  (scoped-v2-beta: 312 calls and $0.0683 on OpenRouter, 296 calls and about
+  $0.065 estimated on OpenAI direct).
 - Judge controls (`--canaries on`, the default) add about 19 percent input
   tokens: two extra questions per request, each carrying the policy text.
   `--canaries off` removes them.
@@ -257,8 +261,9 @@ Other limits: source files up to 16 MiB and 200,000 lines; specifications
 up to 8 KiB and 2,000 lines. Image input is not used. Nothing is silently
 truncated.
 
-On the hardened smoke run requests took 0.14 to 0.33 s each over a reused
-connection. A run stops dispatching when `--run-deadline-seconds` (default
+On the hardened OpenRouter smoke run requests took 0.14 to 0.33 s each over
+a reused connection; on OpenAI direct the first request took 1.53 s and the
+next ones 0.14 to 0.19 s. A run stops dispatching when `--run-deadline-seconds` (default
 1800 s) leaves less than a reserve of max(3 s, 1.5 x p95 of recent request
 times); those requests are recorded as `run_deadline_reserved` and the scan
 is incomplete.
@@ -428,63 +433,83 @@ labeled development catalog, shipped in the sdist; see
 
 ## Evidence and limits
 
-All live evidence comes from the OpenRouter route on 2026-10-06 and
-2026-10-07. No live request has been made through `api.openai.com`.
+All live evidence comes from 2026-10-06 and 2026-10-07: smoke suites and
+catalog runs on OpenRouter, and a 5-request smoke suite plus two catalog
+runs on OpenAI direct.
 
 The catalog below is a small public development suite of 34 synthetic
 cases (16 defective programs with 17 planted defects, 16 corrected
 controls, 2 cases that lack needed evidence). It was used while developing
 DBH, it is not held out, and n = 34 cannot support precision, recall or
 calibration claims. Answers are deterministic per request, so each
-configuration was run once.
+configuration was run once per route.
 
-Shipped defaults (state layout v1, canaries on):
+Shipped defaults (`--choice-gate mass`, state layout v1, canaries on):
 
-| Outcome | legacy-v1 | scoped-v2-beta |
-|---|---:|---:|
-| Defective programs detected | 14/16 | 15/16 |
-| Individual defects covered | 15/17 | 17/17 |
-| Corrected controls clear | 16/16 | 16/16 |
-| Missing evidence marked incomplete | 1/2 | 1/2 |
-| Entire cases | 31/34 | 32/34 |
-| Calls / cost | 211 / $0.0451 | 312 / $0.0683 |
+| Outcome | OpenRouter legacy-v1 | OpenRouter scoped-v2-beta | OpenAI direct legacy-v1 | OpenAI direct scoped-v2-beta |
+|---|---:|---:|---:|---:|
+| Defective programs detected | 15/16 | 15/16 | 16/16 | 14/16 |
+| Individual defects covered | 16/17 | 17/17 | 17/17 | 17/17 |
+| Corrected controls clear | 16/16 | 16/16 | 16/16 | 16/16 |
+| Missing evidence marked incomplete | 1/2 | 1/2 | 0/2 | 1/2 |
+| Entire cases | 32/34 | 32/34 | 32/34 | 31/34 |
+| Calls / cost | 214 / $0.0450 | 312 / $0.0683 | 211 / about $0.045 (estimated) | 296 / about $0.065 (estimated) |
 
-Final evaluation at the release code (commit `f612116`): identical to the
-table above for both policies (answers are deterministic per request), at
-211 calls, 451,412 input tokens and $0.0451 (legacy-v1) and 312 calls,
-683,136 input tokens and $0.0683 (scoped-v2-beta). A 10-request release
-smoke subset ($0.0025) returned 200 for every request with every judge
-control passing.
+The two routes ask the same questions but encode them differently: OpenAI
+direct folds the yes/no criteria into each question's instructions and
+sends the state as a JSON string in `input`, while OpenRouter sends the
+local envelope natively. The same model therefore gives somewhat different
+answers, and results differ between the routes.
 
-Misses under the defaults: a defect in a cross-file helper (legacy-v1 only),
-a second defect localized too broadly (legacy-v1) or left unresolved
-(scoped-v2-beta) in a 70-line file, and a project case with a missing helper
-reported complete instead of incomplete (both policies).
+Final evaluation at the release code: OpenRouter legacy-v1 ran with
+`--choice-gate mass` passed explicitly (the only later code change makes it
+the default), at 214 calls, 449,566 input tokens and $0.0450. The mass gate
+does not apply to scoped-v2-beta, which sends the same requests under
+either gate, so its OpenRouter column is the release run under the earlier
+default: 312 calls, 683,136 input tokens and $0.0683. The OpenAI-direct
+columns ran with the same shipped defaults (445,685 and 654,342 input
+tokens). A 10-request OpenRouter release smoke subset ($0.0025) returned
+200 for every request with every judge control passing.
 
-Measured opt-in variants (one run each, same suite):
+Misses under the defaults: on OpenRouter, a defect in a cross-file helper
+(legacy-v1), a 70-line file with two defects that ended incomplete with
+unresolved localization (scoped-v2-beta) and a project case with a missing
+helper reported complete instead of incomplete (both policies). On OpenAI direct, both cases that
+lack needed evidence reported complete (legacy-v1); under scoped-v2-beta
+the cross-file helper case and the 70-line case ended incomplete through
+conflicting or unresolved answers, and the missing-helper case reported
+complete.
+
+Measured variants (OpenRouter, one run each, same suite):
 
 | Configuration | Cases | Notes |
 |---|---:|---|
-| legacy-v1 + `--choice-gate mass` | 32/34 | Fixes the broad localization; controls 16/16; same cost |
-| legacy-v1 + `--policy-placement state` | 32/34 | Catches the cross-file defect and marks the missing helper incomplete; the 70-line pair ends unresolved (controls 15/16, no false finding); 18% fewer input tokens |
+| legacy-v1 + `--choice-gate legacy` | 31/34 | The earlier default: localizes the second 70-line defect only as a broad region; controls 16/16; 211 calls, $0.0451 |
+| legacy-v1 + `--policy-placement state` | 32/34 | Catches the cross-file defect and marks the missing helper incomplete; the 70-line pair ends unresolved (controls 15/16, no false finding); 191 calls, $0.0328, the cheapest measured |
+| legacy-v1 + `--choice-gate legacy --policy-placement state` | 32/34 | Same outcomes as the row above; 219 calls, 18% fewer input tokens than `--choice-gate legacy` alone |
 | scoped-v2-beta + `--policy-placement state` | 32/34 | Marks the missing helper incomplete; the 70-line control ends unresolved; 31% fewer input tokens, 237 calls |
-| legacy-v1 + `--choice-gate mass --policy-placement state` | 32/34 | Cheapest: 191 calls, $0.0328 |
-| `--localization-menu singletons` | 31/34 legacy, 32/34 scoped | No change in outcomes |
-| `--require-verification` | 30/34 legacy, 31/34 scoped | Drops one true finding per policy; controls were already clear |
-| `--state-layout v2` | 31/34 legacy, 29/34 scoped | Adds false findings on clean controls; the reason v1 is the default |
+| `--localization-menu singletons` | 32/34 legacy, 32/34 scoped | No change in outcomes (31/34 legacy with `--choice-gate legacy`) |
+| `--require-verification` | 30/34 legacy (with `--choice-gate legacy`), 31/34 scoped | Drops one true finding per policy; controls were already clear |
+| `--state-layout v2` | 31/34 legacy, 29/34 scoped | Reverses the mass-gate gain: under legacy-v1 the second 70-line defect is again broad and one clean program is flagged (controls 15/16); under scoped-v2-beta two clean controls are flagged; the reason v1 is the default |
 
-The localization variants and the v2 layout were measured before canaries
-existed (equivalent to `--canaries off`); the others with canaries on.
+The localization-menu variants were measured before canaries existed
+(equivalent to `--canaries off`); the others with canaries on.
 `--choice-rounding-caps` and `--polarity-twin` have no catalog measurement.
-None of these variants is the default, because a default that moves
-findings needs held-out labeled evidence that does not exist yet.
+The mass gate became the default after the live comparison (32/34 against
+31/34 under OpenRouter legacy-v1, controls 16/16 in both, about the same
+cost). That choice rests on this development suite alone: a default that
+moves findings would ideally have held-out labeled evidence, which does not
+exist yet. The other variants stay opt-in.
 
 Other live observations (OpenRouter smoke runs, 32 and 48 requests): answers
 were byte-identical across repeated requests; four planted bugs all
 screened above their clean twins (a preview on 8 files, not calibration);
 two crude prompt-injection attempts neither suppressed a real bug nor
-flooded a clean function. No refusal was observed, so the refusal handling
-is pinned only by fixtures.
+flooded a clean function. On the OpenAI-direct smoke run all 4 answer
+batches validated (76 answers); every choice vector summed to exactly 1 at
+two decimals with the choice equal to the argmax, and the confidence
+followed the same identity as on OpenRouter. No refusal was observed on
+either route, so the refusal handling is pinned only by fixtures.
 
 Limits: returned probabilities are operating heuristics, and the report,
 relation and refutation thresholds (0.80, 0.70, 0.80) are uncalibrated.

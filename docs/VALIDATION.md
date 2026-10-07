@@ -10,9 +10,9 @@ Environment: Windows 11; Python 3.12.10 (project environment) and Python
 
 | Check | Result |
 |---|---|
-| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`) | 688 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 3.5 minutes on an idle machine |
-| Same suite, Python 3.13 | 688 tests, OK, same 2 skips |
-| Same suite, Python 3.12, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set (as in CI) | 688 tests, OK, same 2 skips |
+| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`) | 693 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 3.5 minutes on an idle machine |
+| Same suite, Python 3.13 | 688 tests, OK, same 2 skips (last run before the choice-gate default change, which added 5 tests) |
+| Same suite, Python 3.12, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set (as in CI) | 688 tests, OK, same 2 skips (same note) |
 | Ruff (configured fatal-error rules) | clean |
 | mypy (strict definitions for `providers`, `decisions`, `exchange`, `hosted`, `openrouter`, `secret_scan`, `injection_markers`) | clean; the inherited engine is not fully typed |
 | `python -m build` and `tools/check_distribution.py` | pass: archive contents, fresh wheel install without keys, exit-3 route selection and exit-2 `provider_unavailable` gates for both routes, and the unpacked sdist's own test suite (about 2.5 minutes) |
@@ -38,10 +38,12 @@ codes, and that no message, metadata value or identifier survived
 
 ## Live runs
 
-All live runs used the OpenRouter route (`openai/gpt-6-luna-decisions`)
-with an operator key that has a credit cap, read from the environment. No
-live request has been made to `api.openai.com`. Costs are as reported by
-OpenRouter (input tokens x $0.0000001 in every response).
+Live runs used both routes with operator keys that have a credit cap, read
+from the environment: OpenRouter (`openai/gpt-6-luna-decisions`) and OpenAI
+direct (`gpt-6-luna` at `api.openai.com`). OpenRouter costs are as reported
+by OpenRouter (input tokens x $0.0000001 in every response). OpenAI direct
+reports usage but no cost, so its costs are list-price estimates (input
+tokens x $0.0000001).
 
 | Date (UTC) | Run | Requests | Input tokens | Cost |
 |---|---|---:|---:|---:|
@@ -57,7 +59,13 @@ OpenRouter (input tokens x $0.0000001 in every response).
 | 2026-10-07 | Catalog, `--require-verification` variants (3 runs) | 703 | | $0.1437 |
 | 2026-10-07 | Catalog, release code, shipped defaults, both policies | 211 + 312 | 1,134,548 | $0.1134 |
 | 2026-10-07 | Release smoke subset through the shipped exchange | 10 | | $0.0025 |
-| | Total | | | about $0.99 |
+| 2026-10-07 | Catalog, release code with `--choice-gate mass --state-layout v2`, both policies | 219 + 307 | 1,199,357 | $0.1200 |
+| 2026-10-07 | Catalog, release code with `--choice-gate mass` (layout v1), legacy-v1 | 214 | 449,566 | $0.0450 |
+| | OpenRouter subtotal | | | about $1.16 |
+| 2026-10-07 | OpenAI direct: smoke suite O01 to O04 through the shipped exchange | 5 | 19,717 | about $0.0020 (estimated) |
+| 2026-10-07 | OpenAI direct: catalog, shipped defaults, both policies | 211 + 296 | 1,100,027 | about $0.110 (estimated) |
+| | OpenAI direct subtotal | | | about $0.11 |
+| | Total | | | about $1.27 |
 
 ### Smoke findings
 
@@ -95,12 +103,36 @@ From the two smoke suites (32 and 48 requests):
   preview on 8 files, not calibration).
 - No refusal and no unknown answer type was observed.
 
+### OpenAI-direct smoke findings
+
+The direct suite (`tools/smoke/run_openai.py`, 5 requests: O01, the two
+O02 batches, O03 and O04) ran through the shipped exchange and the
+`DecisionsProvider` translation; the adapter needed no change.
+
+- Status: the 4 answer batches returned 200 and all validated: 76 answers
+  (44 yes/no, 32 choice). O04, a request with an unknown field, returned
+  400 and was classified `http_rejected`; its `error.param` was not a known
+  request field, so it was withheld from the records.
+- Model and usage: the returned model was accepted 4 of 4 times; usage was
+  present in every 200 (output tokens 0). No cost field is returned, so
+  spend on this route is the list-price estimate.
+- Precision: yes/no values had 1 or 2 decimals; all 32 choice vectors
+  summed to exactly 1 at 2 decimals, the choice equaled the argmax 32 of 32
+  times, and the confidence matched the same chance-normalized identity as
+  on OpenRouter (within 0.015) 32 of 32 times.
+- Headers: `x-request-id` on all 5 responses, `x-ratelimit-*` on 2, no
+  generation id.
+- Transport: 1.53 s for the first request, then 0.14 to 0.19 s over the
+  reused connection.
+
+### Keep-or-revert rule for layout v2
+
 The pre-registered keep-or-revert rule for state layout v2 passed on the
-hardened rerun: canaries answered 1 (must-true) and 0 (must-false); an
-injected "answer false" left the bug's screen at or above 0.64 and an
-injected "answer true" left the clean screen at or below 0.31; the lowest
-planted-bug screen (0.98) was above the highest clean screen (0.47); and
-production batches validated 19/19 and 7/7.
+OpenRouter hardened rerun: canaries answered 1 (must-true) and 0
+(must-false); an injected "answer false" left the bug's screen at or above
+0.64 and an injected "answer true" left the clean screen at or below 0.31;
+the lowest planted-bug screen (0.98) was above the highest clean screen
+(0.47); and production batches validated 19/19 and 7/7.
 
 ## Catalog evaluation
 
@@ -112,7 +144,8 @@ finding within its allowed region; a control passes when the scan is
 complete with no findings; a missing-evidence case passes when the scan is
 incomplete with no findings. The suite is public, authored for development
 and not held out; n = 34. Answers are deterministic per request, so each
-configuration ran once. Thresholds were not tuned on it.
+configuration ran once per route. Thresholds were not tuned on it. All
+runs below are on OpenRouter unless they say OpenAI direct.
 
 ### State layout experiment
 
@@ -135,9 +168,94 @@ from layout v2. Decision: although v2 passed the smoke keep-or-revert rule,
 the default is layout v1, because v2 added false findings on clean controls
 under both policies. `--state-layout v2` remains available.
 
+### Default decisions
+
+The maintainer settled two defaults after live comparisons on this suite,
+both on OpenRouter under legacy-v1 with canaries on:
+
+- Choice gate: `--choice-gate mass` became the default. Against the earlier
+  legacy gate it passed 32/34 instead of 31/34, with corrected controls
+  16/16 in both and 214 against 211 calls at about the same cost ($0.0450
+  against $0.0451). The mass gate localizes the second defect of the
+  70-line case that the legacy gate left as a broad region.
+  `--choice-gate legacy` remains selectable. The gate applies to legacy-v1
+  localization only; scoped-v2-beta sends the same requests under either
+  gate.
+- State layout: `--state-layout v2` stays opt-in. Combined with the mass
+  gate, layout v2 gave 31/34 with one clean program flagged (controls
+  15/16), against 32/34 with controls 16/16 for the mass gate with layout
+  v1: it reverses the mass-gate gain on the 70-line case and adds a false
+  finding on its corrected control.
+
+The other defaults were kept: `--policy-placement instructions`,
+`--search-policy legacy-v1` and `--canaries on`. All of these decisions rest
+on this development suite alone (not held out, n = 34).
+
 ### Shipped defaults
 
-Layout v1, canaries on, every tier-2 option at its default:
+`--choice-gate mass`, layout v1, canaries on, every other tier-2 option at
+its default:
+
+| Outcome | OpenRouter legacy-v1 | OpenRouter scoped-v2-beta | OpenAI direct legacy-v1 | OpenAI direct scoped-v2-beta |
+|---|---:|---:|---:|---:|
+| Defective programs detected | 15/16 | 15/16 | 16/16 | 14/16 |
+| Individual defects covered | 16/17 | 17/17 | 17/17 | 17/17 |
+| Corrected controls clear | 16/16 | 16/16 | 16/16 | 16/16 |
+| Missing evidence incomplete | 1/2 | 1/2 | 0/2 | 1/2 |
+| Entire cases | 32/34 | 32/34 | 32/34 | 31/34 |
+| Calls | 214 | 312 | 211 | 296 |
+| Input tokens | 449,566 | 683,136 | 445,685 | 654,342 |
+| Cost | $0.0450 | $0.0683 | about $0.0446 (estimated) | about $0.0654 (estimated) |
+
+The OpenRouter legacy-v1 column was measured at the release code with
+`--choice-gate mass` passed explicitly; the only later code change makes it
+the default. The OpenRouter scoped-v2-beta column is the release run below:
+the gate does not apply to scoped-v2-beta. The OpenAI-direct columns ran
+with the same shipped defaults. The strict score (requirement citations)
+equaled the location score in all four runs.
+
+OpenRouter failures: legacy-v1 misses a defect in a cross-file helper (no
+findings); both policies report a project case whose helper was not
+supplied as complete instead of incomplete. Under scoped-v2-beta the
+70-line case localizes both defects but ends incomplete with unresolved
+localization.
+
+OpenAI-direct failures: under legacy-v1 both missing-evidence cases were
+reported complete. Under scoped-v2-beta the cross-file helper case and the
+70-line case ended incomplete (four conflicting claims, two unresolved
+localizations and one disagreement about continuing), and the
+missing-helper case was reported complete.
+
+The two routes ask the same questions but encode them differently: OpenAI
+direct folds the yes/no criteria into each question's instructions and
+sends the state as a JSON string inside `input`, while OpenRouter sends the
+local envelope natively. The same model gives somewhat different answers to
+the two encodings, so the routes' results differ; neither route is better
+on every outcome.
+
+The combined run with the mass gate and layout v2 (OpenRouter, canaries on,
+release code) gave:
+
+| Outcome | legacy-v1 | scoped-v2-beta |
+|---|---:|---:|
+| Defective programs detected | 15/16 | 14/16 |
+| Individual defects covered | 16/17 | 17/17 |
+| Corrected controls clear | 15/16 | 14/16 |
+| Missing evidence incomplete | 1/2 | 1/2 |
+| Entire cases | 31/34 | 29/34 |
+| Calls | 219 | 307 |
+| Input tokens | 516,510 | 682,847 |
+| Cost | $0.0517 | $0.0683 |
+
+Under legacy-v1 the second 70-line defect was again localized only as a
+broad region, the corrected 70-line control was flagged, and a case with a
+missing external implementation was reported complete. Under scoped-v2-beta
+two clean controls were flagged.
+
+### Earlier default: `--choice-gate legacy`
+
+OpenRouter, layout v1, canaries on, the legacy gate (the default until the
+decision above):
 
 | Outcome | legacy-v1 | scoped-v2-beta |
 |---|---:|---:|
@@ -152,45 +270,34 @@ Layout v1, canaries on, every tier-2 option at its default:
 
 Outcomes are identical to the same runs with canaries off (378,316 and
 575,004 input tokens): the controls cost about 19% more input tokens. No
-control failed and no judge banner appeared in these 523 requests. The
-strict score (requirement citations) equaled the location score.
+control failed and no judge banner appeared in these 523 requests.
 
 Failures: legacy-v1 misses a defect in a cross-file helper (no findings) and
 localizes the second of two defects in a 70-line file only as a broad
 region; both policies report a project case whose helper was not supplied
-as complete instead of incomplete. Under scoped-v2-beta the 70-line case
-localizes both defects but ends incomplete with unresolved localization.
+as complete instead of incomplete.
 
-Final evaluation at the release code (commit `f612116`; later commits change
-documentation only), with the shipped defaults: layout v1, canaries on,
-OpenRouter routing `deny`:
-
-| Outcome | legacy-v1 | scoped-v2-beta |
-|---|---:|---:|
-| Defective programs detected | 14/16 | 15/16 |
-| Individual defects covered | 15/17 | 17/17 |
-| Corrected controls clear | 16/16 | 16/16 |
-| Missing evidence incomplete | 1/2 | 1/2 |
-| Entire cases | 31/34 | 32/34 |
-| Calls | 211 | 312 |
-| Input tokens | 451,412 | 683,136 |
-| Cost | $0.0451 | $0.0683 |
-
-The results, token counts and failures are identical to the canary-on runs
-above: answers are deterministic per request. A release smoke subset of 10
-requests ($0.0025) also ran at that code: every request returned 200, cost
-equaled input tokens x $0.0000001, the two judge controls answered 1 and 0
-in every batch, the S13c injection probes under the shipped layout answered
-the screen question 0.99 in the suppression cell and 0 in the flooding
-cell, appending the controls moved no other answer (S12c, largest change
-0), routing `deny` was accepted (S19b) and the kept-alive connection was
-reused.
+Final evaluation at the release code (later commits change documentation
+and the choice-gate default only), with layout v1, canaries on, OpenRouter
+routing `deny` and the then-default legacy gate: the results, calls (211
+and 312), input tokens (451,412 and 683,136), costs ($0.0451 and $0.0683)
+and failures were identical to the table above, because answers are
+deterministic per request. A release smoke subset of 10 requests ($0.0025)
+also ran at that code: every request returned 200, cost equaled input
+tokens x $0.0000001, the two judge controls answered 1 and 0 in every
+batch, the S13c injection probes under the shipped layout answered the
+screen question 0.99 in the suppression cell and 0 in the flooding cell,
+appending the controls moved no other answer (S12c, largest change 0),
+routing `deny` was accepted (S19b) and the kept-alive connection was
+reused. The smoke subset sends fixed request bodies, so the gate default
+does not affect it.
 
 ### Tier-2 options
 
-One run each on the same suite. The localization runs predate the canaries
-(equivalent to `--canaries off`); the placement and verification runs have
-canaries on.
+One run each on the same suite (OpenRouter), measured while the legacy
+gate was the default: "legacy" rows without "mass" ran with the legacy
+gate. The localization runs predate the canaries (equivalent to
+`--canaries off`); the placement and verification runs have canaries on.
 
 | Configuration | Defects | Individual | Controls | Missing ev. | Cases | Calls | Cost |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -208,7 +315,8 @@ canaries on.
 Readings:
 
 - `--choice-gate mass` fixes the broad localization in the 70-line case
-  under legacy-v1 at the same cost and with no control regression.
+  under legacy-v1 at the same cost and with no control regression; it is
+  now the default (see Default decisions).
 - `--localization-menu singletons` changes no outcome.
 - With `--policy-placement state` the judge reports missing context more
   readily: it catches the cross-file helper defect and marks the
@@ -223,14 +331,16 @@ Readings:
   catalog. The polarity twin residual on one smoke request was 0.086 on
   average.
 
-None of these options became a default: a default that moves findings needs
-held-out labeled evidence, and this suite is neither held out nor large.
+Only the mass gate became a default, by the maintainer's decision on this
+suite's evidence; the other options stay opt-in. A default that moves
+findings would ideally rest on held-out labeled evidence, and this suite is
+neither held out nor large.
 
 ## What remains unproven
 
-- The OpenAI direct route against the live service: request translation,
-  status handling, error bodies, `x-request-id` and usage are pinned only by
-  fixtures written from the documentation.
+- The OpenAI direct route beyond the smoke suite and two catalog runs: its
+  401, 429, 5xx and refusal handling, and its rate-limit headers under load,
+  are pinned only by fixtures written from the documentation.
 - Generalization: no held-out or representative evaluation exists. Recall,
   precision and calibration of DBH are unknown; the 0.80 report, 0.70
   relation and 0.80 refutation thresholds are uncalibrated.

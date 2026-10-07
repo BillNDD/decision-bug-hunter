@@ -13,7 +13,9 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   `gpt-6-luna`, `OPENAI_API_KEY`) and `--provider openrouter`
   (`POST https://openrouter.ai/api/alpha/decisions`, model
   `openai/gpt-6-luna-decisions`, `OPENROUTER_API_KEY`). No other model is
-  supported.
+  supported. Both routes were verified live on 2026-10-06 and 2026-10-07
+  (smoke suites and the 34-case development catalog); the OpenAI-direct
+  adapter needed no change after its first live contact.
 - Explicit route selection with `--provider` or `DBH_PROVIDER`; never
   inferred from which key is set. Without a route the CLI exits 3 with
   `NEED_USER_INPUT provider`; without the route's key it exits 2 with
@@ -104,19 +106,28 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 - Question pack 5.0.0 with two state layouts: `v1` (default) and `v2`
   (`--state-layout v2`), which starts the state with the DBH-written fields
   and warns about envelope imitation. Layout v1 is the default because v2
-  added false findings on clean controls in the development suite.
+  added false findings on clean controls in the development suite and,
+  combined with the mass gate, reversed its gain (31/34 against 32/34).
   Requirement questions use corrected wording in both layouts.
 - `--policy-placement state`: the policy text is sent once in the state; on
   OpenRouter such requests may hold 200 questions and 48 KiB. Default
   `instructions`.
-- `--choice-gate mass` with `--choice-mass` (default `legacy`, 0.5),
-  `--localization-menu singletons` (default `intervals`) and
-  `--choice-rounding-caps` (default off).
+- Localization gate `--choice-gate` (default `mass`) with `--choice-mass`
+  (default 0.5): legacy-v1 localization selects line runs whose per-line
+  overlap mass reaches the threshold. It became the default after a live
+  comparison on the development suite (32/34 against 31/34 for the earlier
+  gate, controls 16/16 in both); `--choice-gate legacy` restores the earlier
+  min(confidence, p[choice]) gate. scoped-v2-beta does not gate
+  localization. Also `--localization-menu singletons` (default `intervals`)
+  and `--choice-rounding-caps` (default off).
 - `--require-verification` (default off): only suspicions with a second
   look are findings; the rest are listed as `unverified_suspicions`.
 - `--polarity-twin` (default off): a diagnostic that never changes findings.
-- Report configuration lists the opt-in options only when they differ from
-  their defaults; the default request bytes and reports are pinned by tests.
+- Report configuration lists the tier-2 options only when they differ from
+  their pre-beta values, so default reports record `choice_gate: "mass"`.
+  Runs with `--choice-gate legacy` and `--canaries off` reproduce the
+  pre-beta request bytes and reports; tests pin both those and the shipped
+  defaults.
 
 ### Reports, receipts and output
 
