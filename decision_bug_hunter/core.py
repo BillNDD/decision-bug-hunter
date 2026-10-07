@@ -334,7 +334,7 @@ def _coverage(spans, count):
 
 
 def scan(source, gateway, config=Config(), spec=None, project=None,
-         context_scope=None, *, deadline_at=None):
+         context_scope=None, *, deadline_at=None, secret_scan=None):
     """Public API. The gateway must implement validated evaluate().
 
     *project* is an optional ProjectIndex used only as bounded evidence supply;
@@ -347,6 +347,10 @@ def scan(source, gateway, config=Config(), spec=None, project=None,
     The caller owns *gateway*: this function does not close it. Use
     ``with ValidatedGateway(provider, receipt_dir) as gateway:`` around one or more scans to
     finish provider cleanup when the caller's work ends.
+
+    *secret_scan* is the caller's record of its credential-shape scan
+    (``{"target": "clean" | "overridden", "project_files_skipped": n}``),
+    copied into the report; None means the caller did not scan.
     """
     if context_scope is None:
         raise ValueError("context_scope is required: project | "
@@ -360,7 +364,8 @@ def scan(source, gateway, config=Config(), spec=None, project=None,
         gateway.require_available()
     from .engine import Search
     return Search(source, gateway, config, spec, project=project,
-                  context_scope=context_scope, deadline_at=deadline_at).run()
+                  context_scope=context_scope, deadline_at=deadline_at,
+                  secret_scan=secret_scan).run()
 
 
 def format_findings(result: dict) -> str:

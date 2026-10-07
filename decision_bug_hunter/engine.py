@@ -153,8 +153,23 @@ def _spend(value):
     return result
 
 
+SECRET_SCAN_TARGETS = ("clean", "overridden")
+
+
+def _secret_scan_record(value):
+    """The caller's secret-scan record (ADR-10), exactly two known fields."""
+    if value is None:
+        return None
+    if (type(value) is not dict or set(value) != {"target", "project_files_skipped"}
+            or value["target"] not in SECRET_SCAN_TARGETS
+            or _count(value["project_files_skipped"]) is None):
+        raise ValueError("invalid_secret_scan")
+    return {"target": value["target"],
+            "project_files_skipped": value["project_files_skipped"]}
+
+
 def digest(value):
-    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    raw =json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -171,9 +186,11 @@ def _copy_validated_answers(answers):
 
 class Search:
     def __init__(self, source, gateway, config, spec, project=None,
-                 context_scope="declared_standalone", deadline_at=None):
+                 context_scope="declared_standalone", deadline_at=None,
+                 secret_scan=None):
         if not isinstance(source, Source) or not isinstance(config, Config):
             raise ValueError("invalid_scan_arguments")
+        self.secret_scan = _secret_scan_record(secret_scan)
         self.spec_source = spec if isinstance(spec, Source) else (
             Source.from_text(spec) if type(spec) is str else None)
         if isinstance(spec, Source):
@@ -1709,7 +1726,8 @@ class Search:
                      "support_paths": sorted({row["origin"] for row in self.support[s]}),
                      **annotations[s]}
                     for s in sorted(selected)]
-        result = {"schema_version": 6 if self.scoped else 5, "tool_version": __version__, "contract": CONTRACT_VERSION,
+        # b1 report shape (WP-08): legacy 7, scoped 8; handoff 4 / 5.
+        result = {"schema_version": 8 if self.scoped else 7, "tool_version": __version__, "contract": CONTRACT_VERSION,
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
                 "model": getattr(self.gw, "model_id", None),
                 "synthetic": getattr(self.gw, "synthetic", None),
@@ -1766,6 +1784,8 @@ class Search:
                 "evidence_searches": self.evidence_searches,
                 "relationships": self.relationships,
                 "decision_actions": self.action_trace,
+                "secret_scan": (dict(self.secret_scan)
+                                if self.secret_scan is not None else None),
                 "project": ({"files_considered": self.project.files_considered,
                               "files_loaded": self.project.files_loaded,
                               "bytes_loaded": self.project.bytes_loaded,
@@ -1779,7 +1799,8 @@ class Search:
                               "unreadable_directories": self.project.unreadable_directories,
                               "limited_line_count": self.project.limited_line_count,
                               "deadline_exceeded": self.project.deadline_exceeded,
-                              "skipped_cache_dirs": self.project.skipped_cache_dirs}
+                              "skipped_cache_dirs": self.project.skipped_cache_dirs,
+                              "skipped_secret_content": self.project.skipped_secret_content}
                              if self.project is not None else None)}
         result["handoff"] = compact_report(result)
         if self.scoped:

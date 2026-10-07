@@ -8,6 +8,7 @@ import stat
 import time
 
 from .core import Source
+from .secret_scan import scan_lines
 
 _SKIP_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache",
@@ -74,6 +75,7 @@ class ProjectIndex:
     limited_line_count: bool = False
     deadline_exceeded: bool = False
     skipped_cache_dirs: int = 0
+    skipped_secret_content: int = 0
 
     @classmethod
     def read(cls, root, *, primary_path=None, encoding="utf-8-sig",
@@ -83,6 +85,9 @@ class ProjectIndex:
 
         Files that fail strict decoding, contain NULs, exceed the per-file bound, or
         are not regular files are skipped. Reaching file/total limits is explicit.
+        A file whose text holds a credential-shaped token (``secret_scan``) is
+        skipped and counted in ``skipped_secret_content``; its bytes are not
+        counted as loaded.
         """
         if type(max_files) is not int or not 1 <= max_files <= 10000:
             raise ValueError("invalid_project_file_limit")
@@ -102,6 +107,7 @@ class ProjectIndex:
         limited_file_count = limited_total_bytes = False
         limited = False
         unreadable_files = unreadable_directories = skipped_cache_dirs = 0
+        skipped_secret_content = 0
         limited_line_count = deadline_exceeded = False
         def traversal_error(_error):
             nonlocal unreadable_directories, limited
@@ -185,6 +191,11 @@ class ProjectIndex:
                     if actual > remaining:
                         limited = limited_total_bytes = True
                         continue
+                    # Secret safety by content (ADR-10(3)): evidence is
+                    # optional, so a file with a hit is never sent at all.
+                    if scan_lines(source.lines):
+                        skipped_secret_content += 1
+                        continue
                     entries.append(ProjectEntry(rel, source))
                     loaded += 1
                     total += actual
@@ -199,4 +210,4 @@ class ProjectIndex:
                    limited, skipped, skipped_secret, skipped_size,
                    limited_file_count, limited_total_bytes, unreadable_files,
                    unreadable_directories, limited_line_count, deadline_exceeded,
-                   skipped_cache_dirs)
+                   skipped_cache_dirs, skipped_secret_content)

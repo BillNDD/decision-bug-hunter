@@ -24,6 +24,7 @@ from .hosted import CREDENTIAL_VARIABLES
 from .openrouter import (CREDENTIAL_VARIABLE as OPENROUTER_CREDENTIAL_VARIABLE,
                          DEFAULT_ROUTING, ROUTING_CHOICES)
 from .repository import CACHEDIR_SIGNATURE, ProjectIndex
+from . import secret_scan
 
 #: Explicit route selection; never inferred from which key happens to be set.
 PROVIDER_VARIABLE = "DBH_PROVIDER"
@@ -149,6 +150,11 @@ def parser() -> argparse.ArgumentParser:
                         help="Stop before any attempt (retries included) whose cost bound "
                              "could take reported, estimated and unknown-usage spend above "
                              "USD (default: unset).")
+    result.add_argument("--allow-secrets", action="store_true",
+                        help="Send the file and specification even when they hold "
+                             "credential-shaped text (default: refuse with "
+                             "secret_detected). Project files with such text are "
+                             "always skipped.")
     return result
 
 
@@ -201,6 +207,9 @@ def failure(code: str, provider: str | None = None) -> int:
         # The value is never echoed.
         print(f"{PROVIDER_VARIABLE} must be one of: {', '.join(PROVIDER_CHOICES)}.",
               file=sys.stderr)
+    elif code == "secret_detected":
+        print("Remove the credential-shaped text, or pass --allow-secrets if it is "
+              "not a live credential; nothing was sent.", file=sys.stderr)
     elif code == "routing_invalid":
         # Name the variables only; their values are never printed.
         print(f"{ORGANIZATION_VARIABLE} or {PROJECT_VARIABLE} is set but is not a "
@@ -269,6 +278,30 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
         "openrouter", model=model,
         routing=getattr(args, "openrouter_routing", DEFAULT_ROUTING),
         zdr=bool(getattr(args, "openrouter_zdr", False)))
+
+
+def check_secrets(source: Source, spec: Source | None, allow: bool) -> str:
+    """Scan the target and specification before anything else uses them.
+
+    Returns ``"clean"`` or, with *allow*, ``"overridden"``; otherwise a hit
+    raises ``secret_detected`` after naming pattern ids and line numbers
+    (never the matched text) on stderr.
+    """
+    found = False
+    for label, item in (("file", source), ("specification", spec)):
+        if item is None:
+            continue
+        hits = secret_scan.scan_lines(item.lines)
+        if hits:
+            found = True
+            print(secret_scan.describe(label, hits), file=sys.stderr)
+    if not found:
+        return "clean"
+    if not allow:
+        raise ProviderError("secret_detected")
+    print("--allow-secrets: the credential-shaped text above will be sent.",
+          file=sys.stderr)
+    return "overridden"
 
 
 def make_gateway(provider, receipt_dir, **kwargs):
@@ -343,6 +376,7 @@ def execute(args: argparse.Namespace) -> int:
             max_bytes=8192, max_lines=2000,
         )
         spec = spec_source
+    target_scan = check_secrets(source, spec, bool(getattr(args, "allow_secrets", False)))
     parent = args.output_dir.resolve()
     project = None
     if args.scope == "project":
@@ -388,7 +422,10 @@ def execute(args: argparse.Namespace) -> int:
                       context_scope={"project": "project",
                                      "standalone": "declared_standalone",
                                      "isolate": "owner_isolated"}[args.scope],
-                      deadline_at=deadline_at)
+                      deadline_at=deadline_at,
+                      secret_scan={"target": target_scan,
+                                   "project_files_skipped":
+                                       project.skipped_secret_content if project else 0})
     finally:
         # The CLI owns this gateway. Finish cleanup before saving or printing
         # any complete report; a library scan instead borrows its gateway.

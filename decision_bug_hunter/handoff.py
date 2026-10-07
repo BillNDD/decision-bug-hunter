@@ -405,12 +405,16 @@ def compact_report(report):
         if f["limitations"]:
             row["limitations"] = f["limitations"]
         rows.append(row)
-    return {"schema_version": 3 if report["schema_version"] == 6 else 2, "source": report["source"],
+    # b1 shape (WP-08): scoped report 8 -> handoff 5, legacy 7 -> 4.
+    return {"schema_version": 5 if report["schema_version"] == 8 else 4, "source": report["source"],
             "specification": report["specification"],
             "specification_mode": report["specification_mode"],
             "scan_status": report["scan_status"],
             "handoff_status": report["handoff_status"],
-            "status": report["status"], "basis": "static-model-assessment-only",
+            "status": report["status"],
+            # A fixed DBH code or None (ADR-8(5)); never provider text.
+            "stop_reason": report.get("stop_reason"),
+            "basis": "static-model-assessment-only",
             "line_numbering": "one-based-inclusive", "findings": rows}
 
 
