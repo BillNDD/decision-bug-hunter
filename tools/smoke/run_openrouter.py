@@ -14,7 +14,7 @@ cents at the listed $0.10 per 1M input tokens).
 
     python tools/smoke/run_openrouter.py --dry-run
     python tools/smoke/run_openrouter.py --env-file ~/.hermes/.env
-    python tools/smoke/run_openrouter.py --only S01,S02 --include-optional
+    python tools/smoke/run_openrouter.py --only S01,S02
     python tools/smoke/run_openrouter.py --summarize smoke-results/openrouter-YYYYmmdd-HHMMSS
 """
 from __future__ import annotations
@@ -92,8 +92,7 @@ def run(args) -> Path:
     manifest = json.loads((SUITE / "manifest.json").read_text(encoding="utf-8"))
     only = {s.strip() for s in args.only.split(",")} if args.only else None
     entries = [e for e in manifest["entries"]
-               if (only is None or e["id"] in only) and (args.include_optional or not e["optional"]
-                                                          or (only and e["id"] in only))]
+               if only is None or e["id"] in only]
     total_bytes = sum((SUITE / e["file"]).stat().st_size * e["repeat"] for e in entries)
     requests = sum(e["repeat"] for e in entries)
     print(f"{requests} request(s), {total_bytes} bytes, about {total_bytes // 4} input tokens, "
@@ -260,13 +259,13 @@ def summarize(out: Path) -> None:
         return {}
 
     base = noul_map("S02")
-    for sid in ("S03", "S04", "S05", "S15"):
+    for sid in ("S03", "S04", "S05"):
         other = noul_map(sid)
         common = [n for n in base if n in other and base[n] is not None and other[n] is not None]
         if common:
             diffs = [abs(base[n] - other[n]) for n in common]
             lines.append(f"- {sid} vs S02 noul: mean |diff| {statistics.fmean(diffs):.4f}, max {max(diffs):.4f} over {len(common)}")
-    for sid in ("S02", "S03", "S04", "S05", "S15"):
+    for sid in ("S02", "S03", "S04", "S05"):
         rows = by_id.get(sid, [])
         if rows and rows[0][2]:
             screens = {n: v for n, v in noul_map(sid).items() if n.startswith("screen_")}
@@ -314,7 +313,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="OpenRouter Decisions smoke suite")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--only", help="Comma-separated ids, e.g. S01,S02,S14-1")
-    parser.add_argument("--include-optional", action="store_true", help="Also run S15 (Jev).")
     parser.add_argument("--env-file", help="Read only OPENROUTER_API_KEY from this dotenv file.")
     parser.add_argument("--out", help="Output directory (default smoke-results/openrouter-<UTC stamp>).")
     parser.add_argument("--timeout", type=float, default=120.0)

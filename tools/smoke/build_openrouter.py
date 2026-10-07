@@ -22,7 +22,6 @@ from decision_bug_hunter.protocol import QUESTION  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "openrouter"
 LUNA = "openai/gpt-6-luna-decisions"
-JEV = "typesafe/jev-1.13"
 SCOPE = "declared_standalone"
 
 SUMMARIZE = '''\
@@ -153,7 +152,7 @@ def build() -> list[dict]:
         path.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n",
                         encoding="utf-8", newline="\n")
         entries.append({"id": sid, "file": path.name, "purpose": purpose, "repeat": 1,
-                        "optional": False, "expect": "ok", **meta})
+                        "expect": "ok", **meta})
 
     # S01: OpenRouter's own documented example, pointed at Luna.
     add("S01", "baseline", body(
@@ -290,7 +289,7 @@ def build() -> list[dict]:
         "30 choice questions from unambiguous to arbitrary: confidence vs top-two margin, precision, sums.")
 
     entries.append({"id": "S12", "file": "S02-dbh-screen-object.json", "purpose":
-                    "Test-retest: S02 repeated five times.", "repeat": 5, "optional": False,
+                    "Test-retest: S02 repeated five times.", "repeat": 5,
                     "expect": "ok", "labels": labels})
 
     # S13: injection, suppression and flooding, with canaries.
@@ -319,9 +318,6 @@ def build() -> list[dict]:
         add(f"S14-{index}", name, body(st, qs), "Known-answer pair member.",
             labels={"buggy": buggy, "bug_lines": bug_lines}, group="known")
 
-    add("S15", "jev-baseline", body(state, screen, model=JEV),
-        "Same as S02 against the upstream Jev judge for cross-judge comparison.", optional=True,
-        labels=labels, group="render")
     add("S16", "error-bad-model", body("Hello.", {"q": yes_no("Is this a greeting?")},
                                        model="openai/gpt-6-luna-decisions-does-not-exist"),
         "Invalid model id: error status and error body shape.", expect="error")

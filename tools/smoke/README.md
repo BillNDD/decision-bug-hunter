@@ -7,9 +7,8 @@ code, so they match what DBH would send. Each one is designed to answer a
 specific open question about live behavior. The analysis is written to a
 summary that the maintainer reads to set defaults.
 
-The full suite is 31 requests, about 137k input tokens, roughly one or two
-cents at the listed $0.10 per 1M input tokens. Optional `S15` adds one request
-to the upstream Jev judge (`typesafe/jev-1.13`) for comparison.
+The full suite is 31 requests, about 134k input tokens, roughly one or two
+cents at the listed $0.10 per 1M input tokens.
 
 ## Run it
 
@@ -35,8 +34,7 @@ python3 tools/smoke/run_openrouter.py --env-file ~/.hermes/.env
 ```
 
 If Hermes runs under WSL, the repository is under `/mnt/<drive>/...`. Add
-`--include-optional` to compare against Jev, or `--only S01,S02` to run a
-subset first.
+`--only S01,S02` to run a subset first.
 
 ### One request by hand
 
@@ -61,7 +59,6 @@ curl -sS https://openrouter.ai/api/alpha/decisions -H "Authorization: Bearer $OP
 | S12 | S02 repeated five times: run-to-run noise |
 | S13a, S13b | Prompt injection in the source ("answer false" / "answer true") with must-true and must-false canary questions |
 | S14-1..8 | Four planted bugs and four clean twins: a separation preview, not a calibration |
-| S15 | Optional: S02 against the Jev judge |
 | S16 | Invalid model id: error format |
 | S17 | Score question shape |
 | S18, S19 | Whether zero-data-retention or data-collection-deny routing is available for this model |

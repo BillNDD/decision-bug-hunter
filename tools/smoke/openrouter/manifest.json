@@ -6,7 +6,6 @@
    "file": "S01-baseline.json",
    "purpose": "Response shape, model string, usage and cost, id, provider, decimal places.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok"
   },
   {
@@ -14,7 +13,6 @@
    "file": "S02-dbh-screen-object.json",
    "purpose": "Exact DBH screening batch, state as JSON object: acceptance of names/values, answer quality.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -28,7 +26,6 @@
    "file": "S03-dbh-screen-string.json",
    "purpose": "Same batch, state as a JSON string.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -42,7 +39,6 @@
    "file": "S04-dbh-screen-numbered-text.json",
    "purpose": "Same batch, state as numbered plain text.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -56,7 +52,6 @@
    "file": "S05-dbh-screen-policy-in-state.json",
    "purpose": "Same batch with the policy preamble moved once into state: token saving and answer agreement.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -70,7 +65,6 @@
    "file": "S06-count-64-per-line.json",
    "purpose": "64 questions; per-line localization; polarity twin (line_ok should be about 1 - line_bug).",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -83,7 +77,6 @@
    "file": "S07-count-200-objective.json",
    "purpose": "200 questions (documented maximum) with objective truth: noul polarity and accuracy, latency, cost.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "truth": {
     "tok_L1_def": true,
@@ -293,7 +286,6 @@
    "file": "S08-count-201.json",
    "purpose": "201 questions: expected rejection; captures the error body.",
    "repeat": 1,
-   "optional": false,
    "expect": "error"
   },
   {
@@ -301,7 +293,6 @@
    "file": "S09-long-instruction.json",
    "purpose": "Instruction of 13025 characters: length acceptance.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok"
   },
   {
@@ -309,7 +300,6 @@
    "file": "S10-localize-full-212.json",
    "purpose": "Real localize menu: 212 nested options; mass, precision, argmax, confidence.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -322,7 +312,6 @@
    "file": "S10b-localize-20-singletons.json",
    "purpose": "Non-nested 20-option menu over single lines, for comparison with S10.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -335,7 +324,6 @@
    "file": "S11-confidence-sweep.json",
    "purpose": "30 choice questions from unambiguous to arbitrary: confidence vs top-two margin, precision, sums.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok"
   },
   {
@@ -343,7 +331,6 @@
    "file": "S02-dbh-screen-object.json",
    "purpose": "Test-retest: S02 repeated five times.",
    "repeat": 5,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -356,7 +343,6 @@
    "file": "S13a-inject-suppress.json",
    "purpose": "Prompt injection in the source with must-true/must-false canaries.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": [
@@ -369,7 +355,6 @@
    "file": "S13b-inject-flood.json",
    "purpose": "Prompt injection in the source with must-true/must-false canaries.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "bug_lines": []
@@ -380,7 +365,6 @@
    "file": "S14-1-avg-bug.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": true,
@@ -395,7 +379,6 @@
    "file": "S14-2-avg-clean.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": false,
@@ -408,7 +391,6 @@
    "file": "S14-3-firstpos-bug.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": true,
@@ -423,7 +405,6 @@
    "file": "S14-4-firstpos-clean.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": false,
@@ -436,7 +417,6 @@
    "file": "S14-5-clamp-bug.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": true,
@@ -451,7 +431,6 @@
    "file": "S14-6-clamp-clean.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": false,
@@ -464,7 +443,6 @@
    "file": "S14-7-bsearch-bug.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": true,
@@ -479,7 +457,6 @@
    "file": "S14-8-bsearch-clean.json",
    "purpose": "Known-answer pair member.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok",
    "labels": {
     "buggy": false,
@@ -488,25 +465,10 @@
    "group": "known"
   },
   {
-   "id": "S15",
-   "file": "S15-jev-baseline.json",
-   "purpose": "Same as S02 against the upstream Jev judge for cross-judge comparison.",
-   "repeat": 1,
-   "optional": true,
-   "expect": "ok",
-   "labels": {
-    "bug_lines": [
-     5
-    ]
-   },
-   "group": "render"
-  },
-  {
    "id": "S16",
    "file": "S16-error-bad-model.json",
    "purpose": "Invalid model id: error status and error body shape.",
    "repeat": 1,
-   "optional": false,
    "expect": "error"
   },
   {
@@ -514,7 +476,6 @@
    "file": "S17-score-severity.json",
    "purpose": "Score type shape: legend, probabilities, score, confidence.",
    "repeat": 1,
-   "optional": false,
    "expect": "ok"
   },
   {
@@ -522,7 +483,6 @@
    "file": "S18-zdr-probe.json",
    "purpose": "Is the Luna route eligible for zero-data-retention routing?",
    "repeat": 1,
-   "optional": false,
    "expect": "ok"
   },
   {
@@ -530,7 +490,6 @@
    "file": "S19-data-collection-deny.json",
    "purpose": "Is the Luna route available with data_collection deny?",
    "repeat": 1,
-   "optional": false,
    "expect": "ok"
   }
  ]
