@@ -88,7 +88,8 @@ class ProviderBoundaryTests(unittest.TestCase):
                 patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")), \
                 patch.object(Source, "read", side_effect=AssertionError("source read forbidden")), \
                 redirect_stdout(out), redirect_stderr(err):
-            code = cli.main(["secret-target-name", "--scope", "standalone", "--output-dir", str(output)])
+            code = cli.main(["secret-target-name", "--scope", "standalone", "--provider", "openai",
+                             "--output-dir", str(output)])
         self.assertEqual(code, 2)
         self.assertEqual(out.getvalue(), "")
         self.assertIn("provider_unavailable", err.getvalue())

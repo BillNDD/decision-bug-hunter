@@ -260,7 +260,7 @@ class CliHygieneTests(unittest.TestCase):
             with self.subTest(variable=variable):
                 output = self.root / f"out-{variable}"
                 out, err = io.StringIO(), io.StringIO()
-                argv = [str(self.source), "--scope", "standalone",
+                argv = [str(self.source), "--scope", "standalone", "--provider", "openai",
                         "--output-dir", str(output)]
                 with clean_provider_env(OPENAI_API_KEY=KEY, **{variable: sentinel}), \
                         redirect_stdout(out), redirect_stderr(err):

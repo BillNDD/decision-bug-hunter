@@ -56,6 +56,13 @@ ERROR_CODES = frozenset({
     "call_budget_exhausted", "run_deadline_exceeded", "interrupted",
     "http_unauthorized", "http_rate_limited", "http_redirect", "http_rejected",
     "http_server_error", "response_refused", "routing_invalid",
+    # Route abstraction (ADR-1, ADR-2(2)); response_vector_missing is the
+    # reserved answer-scoped code for a choice without its vector.
+    "connect_failed", "http_request_timeout", "http_quota_exhausted",
+    "http_payment_required", "http_forbidden", "route_unavailable",
+    "routing_no_endpoint", "http_overloaded", "http_unavailable",
+    "http_provider_timeout", "provider_error_in_body", "provider_moderated",
+    "invalid_provider", "response_vector_missing",
 })
 QUESTION = {
     "type": "noul",
@@ -78,12 +85,22 @@ QUESTION = {
 
 
 class ProviderError(RuntimeError):
-    """Safe fixed code only; failed calls never become invented probabilities."""
+    """Safe fixed code only; failed calls never become invented probabilities.
 
-    def __init__(self, code: str):
+    Hosted adapters may attach a ``classification`` (submission class,
+    Retry-After, blocking) and ``info``: receipt-only structural fields that
+    the gateway re-validates. Neither ever appears in ``str(error)``.
+    """
+
+    classification = None
+    info = None
+
+    def __init__(self, code: str, *, classification=None, info=None):
         valid = type(code) is str and code in ERROR_CODES
         self.code = code if valid else "internal_error"
         super().__init__(self.code)
+        self.classification = classification
+        self.info = info
 
 
 def _snapshot(value, depth=0):

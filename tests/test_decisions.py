@@ -23,7 +23,7 @@ from decision_bug_hunter.decisions import (DecisionsProvider, translate_request,
                                            translate_response)
 from decision_bug_hunter.protocol import ProviderError, QUESTION, _json, encode_request
 from decision_bug_hunter.providers import ProviderRequest, ValidatedGateway
-from tests.fakes import FakeClock, Raise, Reply, ScriptedHTTPS
+from tests.fakes import ConnectFailure, FakeClock, Raise, Reply, ScriptedHTTPS, SendFailure
 from tests.support import FixtureProvider, clean_provider_env
 
 
@@ -121,8 +121,12 @@ class TranslationTests(unittest.TestCase):
         self.assertEqual(response.answers["where"], {
             "type": "choice", "choice": "L1-1", "confidence": Decimal("0.93"),
             "probabilities": {"L1-1": Decimal("0.95"), "none": Decimal("0.05")}})
+        self.assertEqual(response.order_mismatch, 0)
         reordered = translate_response(documented(answers=(CHOSEN, PREDICATE)), QUESTIONS)
         self.assertEqual(reordered.answers, response.answers)
+        # Association is by name; a different order is counted, never fatal.
+        self.assertEqual(reordered.order_mismatch, 1)
+        self.assertEqual(list(reordered.answers), ["screen", "where"])
 
     def test_usage_is_known_only_from_documented_counters(self):
         self.assertIsNone(translate_response(documented(usage=None), QUESTIONS).usage)
@@ -241,15 +245,20 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertEqual(outcome.code, code)
                 self.assertIsNone(receipt["answers"])
 
-    def test_status_codes_map_to_fixed_codes_and_bodies_are_never_read(self):
+    def test_status_codes_map_to_fixed_codes_and_error_bodies_are_bounded(self):
+        # A body that echoes the key is withheld before parsing; nothing of it,
+        # nor the Location value, reaches the receipt (ADR-8).
         body = KEY.encode() + b" private error body"
         headers = (f"Location: https://elsewhere.invalid/{KEY}\r\n"
                    f"Content-Type: application/json\r\nContent-Length: {len(body)}")
-        for status, code in ((301, "http_redirect"), (302, "http_redirect"),
-                             (400, "http_rejected"), (401, "http_unauthorized"),
-                             (403, "http_unauthorized"), (404, "http_rejected"),
-                             (429, "http_rate_limited"), (500, "http_server_error"),
-                             (503, "http_server_error")):
+        for status, code, possible in (
+                (301, "http_redirect", True), (302, "http_redirect", True),
+                (400, "http_rejected", True), (401, "http_unauthorized", True),
+                (402, "http_rejected", True), (403, "http_forbidden", True),
+                (404, "route_unavailable", True), (408, "http_request_timeout", False),
+                (413, "request_too_large", True), (429, "http_rate_limited", False),
+                (500, "http_server_error", True), (503, "http_server_error", True),
+                (529, "http_server_error", True)):
             with self.subTest(status=status):
                 outcome, receipt, *_ = self.exchange(body, status=status, headers=headers)
                 self.assertEqual(outcome.code, code)
@@ -257,8 +266,26 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertIsNone(outcome.__context__)
                 self.assertEqual((receipt["status"], receipt["error"]), ("failed", code))
                 self.assertIsNone(receipt["usage"])
-                self.assertTrue(receipt["submission_possible"])
+                # ADR-2(2): rejected-unprocessed and not-sent classes only.
+                self.assertIs(receipt["submission_possible"], possible)
+                self.assertEqual(receipt["provider_error"]["error_body"], "withheld_sensitive")
                 self.assertNotIn(KEY, json.dumps(receipt))
+                self.assertNotIn("elsewhere", json.dumps(receipt))
+        # OpenAI's 503 server_is_overloaded and the 429 quota set are matched
+        # exactly on error.code or error.type; the message is never kept.
+        for status, error, code in (
+                (503, {"type": "server_error", "code": "server_is_overloaded"}, "http_overloaded"),
+                (429, {"type": "insufficient_quota", "code": None}, "http_quota_exhausted"),
+                (429, {"type": "requests", "code": "billing_not_active"}, "http_quota_exhausted"),
+                (429, {"type": "requests", "code": "rate_limit_exceeded"}, "http_rate_limited")):
+            with self.subTest(error=error):
+                raw = json.dumps({"error": {**error, "message": "private-message"}}).encode()
+                outcome, receipt, *_ = self.exchange(
+                    raw, status=status,
+                    headers=f"Content-Type: application/json\r\nContent-Length: {len(raw)}")
+                self.assertEqual(outcome.code, code)
+                self.assertEqual(receipt["provider_error"]["error_body"], "ok")
+                self.assertNotIn("private-message", json.dumps(receipt))
 
     def test_unauthorized_blocks_the_gateway_without_a_second_request(self):
         outcome, _, script, _, gateway = self.exchange(
@@ -283,6 +310,24 @@ class AdapterExchangeTests(unittest.TestCase):
         self.assertEqual((len(script.connects), script.closed[0]), (2, 0))
 
     def test_timeout_and_transport_failures_have_fixed_codes_and_no_context(self):
+        # Connect-phase failures and a send failure on a fresh connection
+        # never delivered a complete request (ADR-2(2)).
+        for step in (ConnectFailure(socket.gaierror(KEY)), ConnectFailure(ssl.SSLError(KEY)),
+                     ConnectFailure(ConnectionRefusedError(KEY)), SendFailure(BrokenPipeError(KEY))):
+            with self.subTest(step=type(step).__name__, error=type(step.error).__name__):
+                script, exchange = scripted([step])
+                gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}, exchange=exchange),
+                                           self.root / "receipts")
+                self.addCleanup(gateway.close)
+                with no_network(), self.assertRaises(ProviderError) as caught:
+                    gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
+                self.assertEqual(caught.exception.code, "connect_failed")
+                self.assertIsNone(caught.exception.__context__)
+                receipt = json.loads(Path(gateway.last_receipt).read_text(encoding="utf-8"))
+                self.assertIs(receipt["submission_possible"], False)
+                self.assertEqual(receipt["submission"], "not_sent")
+                self.assertIn(receipt["provider_error"]["phase"], {"connect", "send"})
+                self.assertNotIn(KEY, json.dumps(receipt))
         # Injected at the receive phase, after the request was sent.
         for failure, code in ((socket.timeout(KEY), "deadline_exceeded"),
                               (TimeoutError(KEY), "deadline_exceeded"),
@@ -469,6 +514,7 @@ class AvailabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, clean_provider_env(), no_network(), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["secret-target-name", "--scope", "standalone",
+                             "--provider", "openai",
                              "--output-dir", str(Path(td) / "outputs")])
             self.assertFalse((Path(td) / "outputs").exists())
         self.assertEqual((code, out.getvalue()), (2, ""))
@@ -543,7 +589,7 @@ class EndToEndCliTests(unittest.TestCase):
             with patch.dict(os.environ, {"OPENAI_API_KEY": KEY}), \
                     patch.object(cli, "make_provider", side_effect=make_provider), \
                     no_network(), redirect_stdout(out), redirect_stderr(err):
-                code = cli.main([str(target), "--scope", "standalone",
+                code = cli.main([str(target), "--scope", "standalone", "--provider", "openai",
                                  "--output-dir", str(root / "runs"), "--no-whole-file",
                                  "--no-bug-lenses", "--max-action-steps", "0"])
             self.assertEqual(code, 1, err.getvalue())

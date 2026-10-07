@@ -15,9 +15,12 @@ Only the latest beta release receives fixes.
 
 ## Credentials
 
-The CLI reads `OPENAI_API_KEY` (`tools/eval` only runs the CLI); the operator
-smoke tools in `tools/smoke` read `OPENROUTER_API_KEY`. Neither key is ever
-written to receipts, reports, errors or request bodies. If you believe a key
+The CLI reads `OPENAI_API_KEY` or `OPENROUTER_API_KEY` according to
+`--provider` (or `DBH_PROVIDER`); it never picks a provider because a key
+happens to be set. Every configured key, selected or not, is checked against
+the files it would send. `tools/eval` only runs the CLI; the operator smoke
+tools in `tools/smoke` read `OPENROUTER_API_KEY`. No key is ever written to
+receipts, reports, errors or request bodies. If you believe a key
 was exposed anyway, revoke it at the provider first, then check your shell
 history and any run directories you shared. A key with a small credit limit
 reduces the cost of an accidental leak.

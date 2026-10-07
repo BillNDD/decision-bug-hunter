@@ -94,6 +94,11 @@ class Search:
         self.evidence_refs = {}
         self.context_reassessed_states = set()
         self.request_origins, self.failed_requests = {}, {}
+        # Judgments and failures are keyed by (route, model, request hash):
+        # request_sha256 hashes the local envelope, identical on every route.
+        self.route_key = (getattr(gateway, "provider_id", "custom-unverified"),
+                          getattr(gateway, "model_id", None))
+        self.models_returned, self.answer_order_mismatch = set(), 0
         self.search_memos = {}
         self._root_packets = None
         self.scoped = None
@@ -178,17 +183,18 @@ class Search:
             if failed is not None:
                 self.issue("question_too_large", region, phase)
                 continue
-            if key in self.cache:
+            ckey = (*self.route_key, key)
+            if ckey in self.cache:
                 # Never return cache-owned mutable dictionaries to a caller.
-                result.update(_copy_validated_answers(self.cache[key]))
+                result.update(_copy_validated_answers(self.cache[ckey]))
                 self.cache_hits += 1
                 self.events.append({"phase": "judgment_reuse", "request_sha256": key,
-                                    "origin": self.request_origins[key]})
+                                    "origin": self.request_origins[ckey]})
                 continue
-            if key in self.failed_requests:
-                self.issue(self.failed_requests[key], region, phase)
+            if ckey in self.failed_requests:
+                self.issue(self.failed_requests[ckey], region, phase)
                 self.events.append({"phase": "failed_request_not_retried",
-                                    "request_sha256": key, "origin": self.request_origins[key]})
+                                    "request_sha256": key, "origin": self.request_origins[ckey]})
                 continue
             error = None
             if self.calls >= self.cfg.max_calls:
@@ -228,7 +234,7 @@ class Search:
                     qid: str(Fraction(len(raw["probabilities"]), 2 * 10 ** places))
                     for qid, raw in answers.items()
                     if raw["type"] == "choice" and places is not None}
-                self.cache[key] = answers
+                self.cache[ckey] = answers
                 result.update(_copy_validated_answers(answers))
                 self.validated_questions += len(batch)
                 row.update(status="validated", answers=plain(answers))
@@ -241,6 +247,11 @@ class Search:
                 self.issue(error, region, phase)
             stats = getattr(self.gw, "last_call_stats", None)
             usage = None
+            if type(stats) is dict and stats.get("request_sha256") == key:
+                if type(stats.get("model_returned")) is str:
+                    self.models_returned.add(stats["model_returned"])
+                if stats.get("answer_order_mismatch") is True:
+                    self.answer_order_mismatch += 1
             if (type(stats) is dict and stats.get("request_sha256") == key
                     and stats.get("usage") is not None):
                 try:
@@ -256,10 +267,10 @@ class Search:
                 for name in ("input_tokens", "output_tokens"):
                     self.usage[name] += usage[name]
             self.trace.append(row)
-            self.request_origins[key] = {"sequence": row["sequence"], "request_sha256": key,
-                                         "question_ids": list(batch), "status": row["status"]}
+            self.request_origins[ckey] = {"sequence": row["sequence"], "request_sha256": key,
+                                          "question_ids": list(batch), "status": row["status"]}
             if error:
-                self.failed_requests[key] = error
+                self.failed_requests[ckey] = error
             if self.expired(region, phase):
                 break
         if origins is not None:
@@ -267,8 +278,8 @@ class Search:
                 if failed is not None:
                     origins.append({"request_sha256": None, "question_ids": [failed],
                                     "status": "preflight-failed", "sequence": None})
-                elif key in self.request_origins:
-                    origins.append(deepcopy(self.request_origins[key]))
+                elif (*self.route_key, key) in self.request_origins:
+                    origins.append(deepcopy(self.request_origins[(*self.route_key, key)]))
                 else:
                     origins.append({"request_sha256": key, "question_ids": list(batch),
                                     "status": "not-dispatched", "sequence": None})
@@ -283,8 +294,8 @@ class Search:
                                     "status": "preflight-failed", "sequence": None})
                     continue
                 key = hashlib.sha256(wire).hexdigest()
-                if key in self.request_origins:
-                    origins.append(deepcopy(self.request_origins[key]))
+                if (*self.route_key, key) in self.request_origins:
+                    origins.append(deepcopy(self.request_origins[(*self.route_key, key)]))
                 else:
                     origins.append({"request_sha256": key, "question_ids": list(batch),
                                     "status": "not-dispatched", "sequence": None})
@@ -1436,6 +1447,13 @@ class Search:
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
                 "model": getattr(self.gw, "model_id", None),
                 "synthetic": getattr(self.gw, "synthetic", None),
+                # Route provenance (ADR-1(6)): identifiers only, never ids of
+                # individual generations, which stay in receipts.
+                "provenance": {"route": self.route_key[0],
+                               "model_requested": self.route_key[1],
+                               "models_returned": sorted(self.models_returned),
+                               "model_returned_changed": len(self.models_returned) > 1,
+                               "answer_order_mismatch": self.answer_order_mismatch},
                 "question_pack_sha256": self.pack_hash,
                 "source": {"name": self.source.name,
                            "sha256": self.source.sha256,

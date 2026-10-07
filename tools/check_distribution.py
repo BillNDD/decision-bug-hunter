@@ -13,7 +13,8 @@ import zipfile
 
 def run(argv, cwd, *, expected=0):
     env = dict(os.environ)
-    for name in ("PYTHONPATH", "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"):
+    for name in ("PYTHONPATH", "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID",
+                 "OPENROUTER_API_KEY", "DBH_PROVIDER"):
         env.pop(name, None)
     result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
     if result.returncode != expected:
@@ -44,7 +45,9 @@ def main():
         names = wheel.namelist()
         safe_names(names)
         for name in ("decision_bug_hunter/providers.py", "decision_bug_hunter/decisions.py",
-                     "decision_bug_hunter/protocol.py", "decision_bug_hunter/question_pack.json"):
+                     "decision_bug_hunter/openrouter.py", "decision_bug_hunter/hosted.py",
+                     "decision_bug_hunter/exchange.py", "decision_bug_hunter/protocol.py",
+                     "decision_bug_hunter/question_pack.json"):
             if name not in names:
                 raise RuntimeError("missing_runtime_resource")
         if not any(name.endswith("/LICENSE") for name in names):
@@ -77,12 +80,20 @@ def main():
         help_result = run([str(python), "-I", "-m", "decision_bug_hunter", "--help"], root)
         if "decision-bug-hunter" not in help_result.stdout:
             raise RuntimeError("missing_cli_identity")
-        failed = run([str(python), "-I", "-m", "decision_bug_hunter", "absent-source.py",
-                      "--scope", "standalone", "--output-dir", "outputs"], root, expected=2)
-        if "provider_unavailable" not in failed.stderr or failed.stdout or (root / "outputs").exists():
-            raise RuntimeError("installed_provider_gate_failed")
+        scan = [str(python), "-I", "-m", "decision_bug_hunter", "absent-source.py",
+                "--scope", "standalone", "--output-dir", "outputs"]
+        for provider in ("openai", "openrouter"):
+            failed = run(scan + ["--provider", provider], root, expected=2)
+            if ("provider_unavailable" not in failed.stderr or failed.stdout
+                    or (root / "outputs").exists()):
+                raise RuntimeError("installed_provider_gate_failed")
+        # No route selected: the caller must choose the data processor.
+        unselected = run(scan, root, expected=3)
+        if ("NEED_USER_INPUT provider" not in unselected.stderr or unselected.stdout
+                or (root / "outputs").exists()):
+            raise RuntimeError("installed_provider_selection_gate_failed")
     print("Distribution: wheel contents, sdist contents, fresh install, resource import, "
-          "CLI help, unavailable gate passed.")
+          "CLI help, provider selection and unavailable gates passed.")
 
 
 if __name__ == "__main__":

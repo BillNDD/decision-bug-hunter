@@ -56,6 +56,8 @@ ENVIRONMENT_SENSITIVE = (
     "tests.test_cli",
     "tests.test_project_scope",
     "tests.test_provider_ownership",
+    "tests.test_routes.SelectionTests",
+    "tests.test_routes.CliRouteTests",
 )
 
 
@@ -264,7 +266,8 @@ class ScriptedHttpsTests(unittest.TestCase):
     def test_scripted_hosted_adapter_failures_map_to_fixed_codes(self):
         cases = ((Reply(status=503, body=b"{}"), "http_server_error"),
                  (Reply(body=openai_body(ANSWERS), delay_before=120.0), "deadline_exceeded"),
-                 (ConnectFailure(), "transport_failed"))
+                 # A refused connection never delivered the request (WP-05).
+                 (ConnectFailure(), "connect_failed"))
         for step, code in cases:
             with self.subTest(code=code), tempfile.TemporaryDirectory() as td:
                 script = ScriptedHTTPS([step])
@@ -301,7 +304,7 @@ class FakeTimeTests(unittest.TestCase):
 class ProviderSeamTests(unittest.TestCase):
     def test_make_provider_returns_the_hosted_adapter(self):
         with clean_provider_env():
-            provider = cli.make_provider(argparse.Namespace())
+            provider = cli.make_provider(argparse.Namespace(provider="openai"))
         self.assertIsInstance(provider, DecisionsProvider)
         with self.assertRaises(ProviderError) as caught:
             provider.require_available()

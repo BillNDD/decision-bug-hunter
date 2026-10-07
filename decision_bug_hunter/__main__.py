@@ -15,10 +15,23 @@ import time
 from .core import Config, Source, format_findings, scan
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
-from .providers import ValidatedGateway, validate_call_deadline
+from .providers import ROUTES, ValidatedGateway, validate_call_deadline
+from . import providers
 from .decisions import (CREDENTIAL_VARIABLE, ORGANIZATION_VARIABLE, PROJECT_VARIABLE,
                         DecisionsProvider)
+from .hosted import CREDENTIAL_VARIABLES
+from .openrouter import (CREDENTIAL_VARIABLE as OPENROUTER_CREDENTIAL_VARIABLE,
+                         DEFAULT_ROUTING, ROUTING_CHOICES)
 from .repository import CACHEDIR_SIGNATURE, ProjectIndex
+
+#: Explicit route selection; never inferred from which key happens to be set.
+PROVIDER_VARIABLE = "DBH_PROVIDER"
+PROVIDER_CHOICES = tuple(ROUTES)
+_CREDENTIALS = {"openai": CREDENTIAL_VARIABLE, "openrouter": OPENROUTER_CREDENTIAL_VARIABLE}
+ACCOUNT_DEFAULT_DISCLOSURE = (
+    "OpenRouter routing: account default. The request carries no data_collection "
+    "deny and no fallback restriction; your OpenRouter account settings decide "
+    "which providers may receive the source.")
 
 
 class SafeParser(argparse.ArgumentParser):
@@ -111,6 +124,20 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--no-whole-file", action="store_true")
     result.add_argument("--output-dir", type=Path,
                         default=Path("dbh_runs"))
+    result.add_argument("--provider", choices=PROVIDER_CHOICES, default=None,
+                        help="Required route: openai (OPENAI_API_KEY, api.openai.com) or "
+                             "openrouter (OPENROUTER_API_KEY, openrouter.ai); "
+                             f"or set {PROVIDER_VARIABLE}. Never inferred.")
+    result.add_argument("--model", default=None,
+                        help="Allow-listed model id for the route (default: gpt-6-luna "
+                             "for openai, openai/gpt-6-luna-decisions for openrouter).")
+    result.add_argument("--openrouter-routing", choices=ROUTING_CHOICES,
+                        default=DEFAULT_ROUTING,
+                        help="deny (default) sends allow_fallbacks false and "
+                             "data_collection deny; account-default omits them.")
+    result.add_argument("--openrouter-zdr", action="store_true",
+                        help="Also request zero-data-retention endpoints (none "
+                             "existed on 2026-10-06).")
     result.add_argument("--deadline-seconds", type=float, default=30.0)
     result.add_argument("--run-deadline-seconds", type=float, default=300.0,
                         help="Cooperative run work deadline, including indexing; hosted calls use remaining time.")
@@ -152,11 +179,20 @@ def make_output_parent(parent: Path) -> bool:
     return True
 
 
-def failure(code: str) -> int:
+def failure(code: str, provider: str | None = None) -> int:
     print(f"Scan failed ({code}).", file=sys.stderr)
     if code == "provider_unavailable":
-        print(f"Set {CREDENTIAL_VARIABLE} in the environment to enable the hosted "
-              "Decisions adapter; see README.md.", file=sys.stderr)
+        if provider in _CREDENTIALS:
+            print(f"Set {_CREDENTIALS[provider]} in the environment to enable the "
+                  f"{provider} route; see README.md.", file=sys.stderr)
+        else:
+            print(f"Set {CREDENTIAL_VARIABLE} (--provider openai) or "
+                  f"{OPENROUTER_CREDENTIAL_VARIABLE} (--provider openrouter) in the "
+                  "environment; see README.md.", file=sys.stderr)
+    elif code == "invalid_provider":
+        # The value is never echoed.
+        print(f"{PROVIDER_VARIABLE} must be one of: {', '.join(PROVIDER_CHOICES)}.",
+              file=sys.stderr)
     elif code == "routing_invalid":
         # Name the variables only; their values are never printed.
         print(f"{ORGANIZATION_VARIABLE} or {PROJECT_VARIABLE} is set but is not a "
@@ -170,13 +206,61 @@ def need_user_input(field: str, hint: str) -> int:
     return 3
 
 
-def make_provider(args: argparse.Namespace) -> DecisionsProvider:
+class ProviderChoiceNeeded(Exception):
+    """No route was selected; the caller must choose the data processor."""
+
+
+def selected_provider(args: argparse.Namespace,
+                      environ: dict[str, str] | None = None) -> str:
+    """``--provider``, else ``DBH_PROVIDER``; never inferred from set keys.
+
+    An unknown ``DBH_PROVIDER`` raises ``invalid_provider``; neither source
+    raises ``ProviderChoiceNeeded``.
+    """
+    choice = getattr(args, "provider", None)
+    if choice is not None:
+        if choice not in PROVIDER_CHOICES:
+            raise ProviderError("invalid_provider")
+        return str(choice)
+    env = os.environ if environ is None else environ
+    value = env.get(PROVIDER_VARIABLE, "")
+    if not value:
+        raise ProviderChoiceNeeded()
+    if value not in PROVIDER_CHOICES:
+        raise ProviderError("invalid_provider")
+    return value
+
+
+def provider_choice_hint(environ: dict[str, str] | None = None) -> str:
+    """Route names and the names (never values) of credential variables set."""
+    env = os.environ if environ is None else environ
+    present = [name for name in CREDENTIAL_VARIABLES if env.get(name)]
+    return " | ".join(PROVIDER_CHOICES) + f" (set: {', '.join(present) or 'none'})"
+
+
+def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
     """The provider for this run; the single construction point tests replace.
 
-    The hosted OpenAI Decisions adapter is the only route today. Construction
-    reads the environment once and never touches the network.
+    Selection is explicit (``--provider`` or ``DBH_PROVIDER``); ``--model``
+    is checked against the route's allow-list. Construction reads the
+    environment once and never touches the network.
     """
-    return DecisionsProvider()
+    route = selected_provider(args)
+    args.selected_provider = route
+    model = getattr(args, "model", None)
+    if route == "openai":
+        if (getattr(args, "openrouter_routing", DEFAULT_ROUTING) != DEFAULT_ROUTING
+                or getattr(args, "openrouter_zdr", False)):
+            # OpenRouter privacy options never silently apply to another route.
+            raise ProviderError("invalid_request")
+        if model is None:
+            # The documented construction, kept as the patchable name.
+            return DecisionsProvider()
+        return providers.make_provider("openai", model=model)
+    return providers.make_provider(
+        "openrouter", model=model,
+        routing=getattr(args, "openrouter_routing", DEFAULT_ROUTING),
+        zdr=bool(getattr(args, "openrouter_zdr", False)))
 
 
 def make_gateway(provider, receipt_dir, **kwargs):
@@ -233,9 +317,15 @@ def execute(args: argparse.Namespace) -> int:
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.
     call_deadline = validate_call_deadline(args.deadline_seconds)
-    # Availability is checked before source reads, indexing, or output writes.
-    provider = make_provider(args)
+    # The route is the caller's explicit choice of data processor; it and
+    # availability are checked before source reads, indexing, or output writes.
+    try:
+        provider = make_provider(args)
+    except ProviderChoiceNeeded:
+        return need_user_input("provider", provider_choice_hint())
     provider.require_available()
+    if getattr(provider, "routing", None) == "account-default":
+        print(ACCOUNT_DEFAULT_DISCLOSURE, file=sys.stderr)
     source = Source.read(args.file, encoding=args.encoding)
     spec = None
     if args.spec_file is not None:
@@ -349,7 +439,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return execute(args)
     except ProviderError as error:
-        return failure(error.code)
+        return failure(error.code, getattr(args, "selected_provider", None)
+                       or getattr(args, "provider", None))
     except (UnicodeError, LookupError):
         return failure("input_encoding_error")
     except OSError:

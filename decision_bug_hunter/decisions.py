@@ -7,23 +7,29 @@ standard library: one HTTPS request per local batch through
 connection per provider, an absolute per-call deadline), no SDK, no retry,
 no backoff, no redirect following, no proxy, no image input and no fallback
 model. The credential is read from the environment once, at construction,
-and never enters request bodies, receipts, reports or error text. HTTP error
-bodies are never read or journaled.
+and never enters request bodies, receipts, reports or error text.
+
+A non-200 body is read only when it is small JSON free of every configured
+credential, and only structural fields are kept from it (``error.type``,
+``error.code`` and, on 400/422, an ``error.param`` path into DBH-authored
+request structure); the message never is (ADR-8).
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from decimal import Decimal
 import json
-import math
 import os
 import re
 from typing import Any
 
-from .exchange import ExchangeError, HttpsExchange
+from .exchange import HttpsExchange, Outcome
+from .hosted import (HostedProvider, ModelSpec, RouteSpec, identifier, model_echo_ok,
+                     model_returned, token)
 from .protocol import (CONTRACT_VERSION, MAX_RESPONSE_BYTES, ProviderError,
                        _constant, _decimal, _json, _pairs, _secret_in,
                        validate_questions)
-from .providers import ProviderIdentity, ProviderRequest, ProviderResponse
+from .providers import ProviderResponse
 
 
 PROVIDER_NAME = "openai-decisions"
@@ -37,11 +43,25 @@ PROJECT_VARIABLE = "OPENAI_PROJECT_ID"
 # Local bound on the translated body. The local envelope is at most 24 KiB;
 # translation adds only names, type tags and the two predicate criteria.
 MAX_BODY_BYTES = 64 * 1024
-# Credentials and routing identifiers are single-line printable ASCII tokens.
-_HEADER_TOKEN = re.compile(r"[!-~]{1,4096}\Z")
 _PREDICATE_FORMAT = "{instructions}\nAnswer true if: {true}\nAnswer false if: {false}"
-_STATUS_CODES = {401: "http_unauthorized", 403: "http_unauthorized",
-                 429: "http_rate_limited"}
+#: A dated snapshot of the requested model: ``-YYYYMMDD`` or ``-YYYY-MM-DD``.
+_ECHO_SUFFIXES = (re.compile(r"-[0-9]{8}"), re.compile(r"-[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+#: Matched exactly on ``error.code`` or ``error.type`` of a 429 (ADR-2(2)).
+QUOTA_CODES = frozenset({"insufficient_quota", "billing_hard_limit_reached",
+                         "billing_not_active"})
+OVERLOADED_CODE = "server_is_overloaded"
+_ERROR_TOKEN = re.compile(r"[a-z0-9_.-]{1,64}\Z")
+_PARAM_SEGMENT = re.compile(r"([a-z_]{1,32})(?:\[[0-9]{1,3}\])?\Z")
+_PARAM_FIRST = frozenset({"model", "input", "questions", "safety_identifier"})
+_PARAM_LATER = frozenset({"type", "name", "instructions", "choices", "levels", "value",
+                          "description", "label", "role", "content", "text"})
+
+ROUTE = RouteSpec(
+    name=PROVIDER_NAME, selector="openai", host=HOST, path=PATH,
+    credential_variable=CREDENTIAL_VARIABLE,
+    models=(ModelSpec(MODEL, price_in_per_mtok=Decimal("0.10"),
+                      price_out_upper_per_mtok=Decimal("0")),),
+    default_model=MODEL, port=PORT)
 
 
 def _question(name: str, question: Mapping[str, Any]) -> dict[str, Any]:
@@ -57,7 +77,7 @@ def _question(name: str, question: Mapping[str, Any]) -> dict[str, Any]:
                         for value, description in criteria.items()]}
 
 
-def _translate(payload: bytes) -> tuple[bytes, dict[str, Any]]:
+def _translate(payload: bytes, model: str = MODEL) -> tuple[bytes, dict[str, Any]]:
     if type(payload) is not bytes:
         raise ProviderError("invalid_request")
     try:
@@ -72,7 +92,7 @@ def _translate(payload: bytes) -> tuple[bytes, dict[str, Any]]:
     try:
         # The shared evidence is the exact state fragment of the local
         # envelope, so one request hash describes both representations.
-        body = {"model": MODEL, "input": _json(data["state"]).decode("utf-8"),
+        body = {"model": model, "input": _json(data["state"]).decode("utf-8"),
                 "questions": [_question(name, question)
                               for name, question in questions.items()]}
         wire = _json(body)
@@ -110,8 +130,12 @@ def _table(entries: Any) -> dict[str, Any]:
     return table
 
 
-def _answers(items: Any, questions: Mapping[str, Any]) -> dict[str, Any]:
-    """Associate answers by echoed name; every expected name exactly once."""
+def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
+    """Associate answers by echoed name; every expected name exactly once.
+
+    Returns the answers in question order and 1 when they arrived in a
+    different order (counted, never fatal: association is by name).
+    """
     if type(items) is not list:
         raise ProviderError("response_schema")
     result: dict[str, Any] = {}
@@ -141,21 +165,89 @@ def _answers(items: Any, questions: Mapping[str, Any]) -> dict[str, Any]:
         # A declined question withholds the whole atomic batch; nothing is
         # substituted for the missing judgment.
         raise ProviderError("response_refused")
-    return result
+    mismatch = int(list(result) != list(questions))
+    return {name: result[name] for name in questions}, mismatch
+
+
+def param_path(value: Any) -> str | None:
+    """``error.param`` only as a path of known DBH request field names.
+
+    The first segment names a top-level request field, later ones nested
+    question fields; each may carry one index of up to three digits; at
+    most four segments. Such a path cannot carry source text or a key.
+    """
+    if type(value) is not str:
+        return None
+    parts = value.split(".")
+    if not 1 <= len(parts) <= 4:
+        return None
+    for index, part in enumerate(parts):
+        match = _PARAM_SEGMENT.fullmatch(part)
+        if match is None or match.group(1) not in (_PARAM_LATER if index else _PARAM_FIRST):
+            return None
+    return value
+
+
+def error_fields(status: int, error: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Receipt-only structural fields of an OpenAI error object (ADR-8(2))."""
+    fields: dict[str, Any] = {}
+    if error is None:
+        return fields
+    for key, name in (("type", "error_type"), ("code", "error_code")):
+        value = error.get(key)
+        if type(value) is str and _ERROR_TOKEN.fullmatch(value):
+            fields[name] = value
+    if status in (400, 422) and error.get("param") is not None:
+        path = param_path(error["param"])
+        if path is None:
+            fields["param_withheld"] = True
+        else:
+            fields["param"] = path
+    return fields
+
+
+def _names(error: Mapping[str, Any] | None, values: Iterable[str]) -> bool:
+    if error is None:
+        return False
+    wanted = frozenset(values)
+    return any(type(error.get(key)) is str and error[key] in wanted
+               for key in ("code", "type"))
+
+
+def status_code(status: int, error: Mapping[str, Any] | None = None) -> str:
+    """The OpenAI-direct status table (ADR-2(2))."""
+    if 300 <= status < 400:
+        return "http_redirect"
+    fixed = {401: "http_unauthorized", 403: "http_forbidden", 404: "route_unavailable",
+             408: "http_request_timeout", 413: "request_too_large"}
+    if status in fixed:
+        return fixed[status]
+    if status == 429:
+        return "http_quota_exhausted" if _names(error, QUOTA_CODES) else "http_rate_limited"
+    if status == 503 and _names(error, (OVERLOADED_CODE,)):
+        return "http_overloaded"
+    if status >= 500:
+        return "http_server_error"
+    return "http_rejected"
 
 
 def translate_response(raw: bytes, questions: Mapping[str, Any],
-                       api_key: str = "") -> ProviderResponse:
+                       api_key: str | Iterable[str] = "") -> ProviderResponse:
     """Documented response bytes to a local ``ProviderResponse``.
 
-    Usage learned from a well-formed envelope is retained even when the
-    answers are rejected; that rejection travels as ``ProviderResponse.error``
-    so the gateway journals both. Undocumented fields are ignored, never kept.
-    The gateway still validates every returned answer object exactly.
+    ``api_key`` is the credential, or every configured credential, that must
+    not appear in the body. Usage learned from a well-formed envelope is
+    retained even when the answers are rejected; that rejection travels as
+    ``ProviderResponse.error`` so the gateway journals both. A 200 carrying
+    ``error`` and no ``answers`` is ``provider_error_in_body``. Undocumented
+    fields are ignored, never kept. The gateway still validates every
+    returned answer object exactly.
     """
+    credentials = tuple(item for item in ((api_key,) if isinstance(api_key, str)
+                                          else api_key) if item)
     if type(raw) is not bytes or len(raw) > MAX_RESPONSE_BYTES:
         raise ProviderError("response_too_large")
-    if api_key and _secret_in(api_key, [raw]):
+    if any(_secret_in(credential, [raw]) for credential in credentials):
         raise ProviderError("response_sensitive")
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs,
@@ -164,58 +256,32 @@ def translate_response(raw: bytes, questions: Mapping[str, Any],
         raise
     except Exception:
         raise ProviderError("response_invalid_json") from None
-    if api_key and _secret_in(api_key, [data]):
+    if any(_secret_in(credential, [data]) for credential in credentials):
         raise ProviderError("response_sensitive")
-    if type(data) is not dict or "answers" not in data:
+    if type(data) is not dict:
+        raise ProviderError("response_schema")
+    provenance: dict[str, Any] = {}
+    returned = model_returned(data.get("model"))
+    if returned is not None:
+        provenance["model_returned"] = returned
+    if "answers" not in data:
+        if "error" in data:
+            error = data["error"] if type(data["error"]) is dict else None
+            return ProviderResponse({}, _usage(data.get("usage")), True,
+                                    "provider_error_in_body",
+                                    provenance={**provenance, **error_fields(200, error)})
         raise ProviderError("response_schema")
     usage = _usage(data.get("usage"))
     try:
-        model = data.get("model")
-        if type(model) is not str or (model != MODEL and not model.startswith(MODEL + "-")):
+        if not model_echo_ok(data.get("model"), MODEL, _ECHO_SUFFIXES):
             raise ProviderError("response_model")
-        answers = _answers(data["answers"], questions)
+        answers, mismatch = _answers(data["answers"], questions)
     except ProviderError as exc:
-        return ProviderResponse({}, usage, True, exc.code)
-    return ProviderResponse(answers, usage)
+        return ProviderResponse({}, usage, True, exc.code, provenance=provenance)
+    return ProviderResponse(answers, usage, provenance=provenance, order_mismatch=mismatch)
 
 
-def _status_error(status: int) -> str:
-    if status in _STATUS_CODES:
-        return _STATUS_CODES[status]
-    if 300 <= status < 400:
-        return "http_redirect"
-    if status >= 500:
-        return "http_server_error"
-    return "http_rejected"
-
-
-def _exchange(exchange: HttpsExchange, body: bytes, headers: Mapping[str, str],
-              timeout: float) -> bytes:
-    """One HTTPS POST to the fixed documented origin; nothing is retried.
-
-    The deadline is absolute from now: connect, TLS, send and every receive
-    share it. Error-code mapping is unchanged from the single-shot adapter.
-    """
-    error: str | None = None
-    try:
-        outcome = exchange.post(body, headers, exchange.deadline(timeout))
-    except ExchangeError as exc:
-        error = "deadline_exceeded" if exc.kind == "timeout" else "transport_failed"
-    if error is not None:
-        # Raised outside the handler: no exception text or context is attached.
-        raise ProviderError(error)
-    if outcome.status != 200:
-        raise ProviderError(_status_error(outcome.status))
-    return outcome.body
-
-
-def _token(value: Any) -> str | None:
-    if type(value) is not str or not _HEADER_TOKEN.fullmatch(value):
-        return None
-    return value
-
-
-class DecisionsProvider:
+class DecisionsProvider(HostedProvider):
     """Hosted adapter; construction reads the environment and nothing else.
 
     Without a usable ``OPENAI_API_KEY`` every operation raises
@@ -226,25 +292,21 @@ class DecisionsProvider:
     journaled or printed. Later environment changes are not read.
     """
 
-    identity = ProviderIdentity(PROVIDER_NAME, model=MODEL)
+    route = ROUTE
 
     def __init__(self, api_key: str | None = None, *,
                  environ: Mapping[str, str] | None = None,
-                 exchange: HttpsExchange | None = None) -> None:
+                 exchange: HttpsExchange | None = None,
+                 model: str | None = None) -> None:
+        super().__init__(api_key, environ=environ, exchange=exchange, model=model)
         env: Mapping[str, str] = os.environ if environ is None else environ
-        # One exchange, hence one TLS context and connection, per provider.
-        # Nothing is built or opened until the first dispatch.
-        self._exchange = exchange if exchange is not None else HttpsExchange(
-            HOST, PATH, port=PORT)
-        key = env.get(CREDENTIAL_VARIABLE, "") if api_key is None else api_key
-        self._api_key = _token(key)
         self._routing: dict[str, str] = {}
         self._routing_invalid = False
         for variable, header in ((ORGANIZATION_VARIABLE, "OpenAI-Organization"),
                                  (PROJECT_VARIABLE, "OpenAI-Project")):
             value = env.get(variable, "")
             if value:
-                if _token(value) is None:
+                if token(value) is None:
                     self._routing_invalid = True
                 else:
                     self._routing[header] = value
@@ -253,35 +315,24 @@ class DecisionsProvider:
             self._routing = {}
 
     def require_available(self) -> None:
-        if self._api_key is None:
-            raise ProviderError("provider_unavailable")
+        super().require_available()
         if self._routing_invalid:
             raise ProviderError("routing_invalid")
 
-    def check_sensitive(self, *values: Any) -> None:
-        """Reject the literal active credential anywhere in local data."""
-        if self._api_key is not None and _secret_in(self._api_key, values):
-            raise ProviderError("sensitive_input")
+    def encode(self, payload: bytes) -> tuple[bytes, dict[str, Any]]:
+        return _translate(payload, self.model_spec.id)
 
-    def decide(self, request: ProviderRequest) -> ProviderResponse:
-        self.require_available()
-        assert self._api_key is not None
-        if type(request) is not ProviderRequest:
-            raise ProviderError("invalid_request")
-        timeout = request.timeout_seconds
-        if type(timeout) not in (int, float) or not math.isfinite(timeout):
-            raise ProviderError("invalid_deadline")
-        if timeout <= 0:
-            raise ProviderError("deadline_exceeded")
-        body, questions = _translate(request.payload)
-        if _secret_in(self._api_key, [body]):
-            raise ProviderError("sensitive_input")
-        headers = {"Authorization": "Bearer " + self._api_key,
-                   "Content-Type": "application/json", "Accept": "application/json",
-                   "Accept-Encoding": "identity", **self._routing}
-        raw = _exchange(self._exchange, body, headers, float(timeout))
-        return translate_response(raw, questions, self._api_key)
+    def extra_headers(self) -> dict[str, str]:
+        return dict(self._routing)
 
-    def close(self) -> None:
-        """Close the kept-alive connection, if any; the provider stays usable."""
-        self._exchange.close()
+    def decode(self, raw: bytes, questions: Mapping[str, Any],
+               outcome: Outcome) -> ProviderResponse:
+        return translate_response(raw, questions, self._credentials)
+
+    def status_error(self, status: int, error: dict[str, Any] | None,
+                     outcome: Outcome) -> tuple[str, dict[str, Any]]:
+        return status_code(status, error), error_fields(status, error)
+
+    def header_ids(self, outcome: Outcome) -> dict[str, Any]:
+        request_id = identifier(outcome.header("x-request-id"))
+        return {} if request_id is None else {"request_id": request_id}
