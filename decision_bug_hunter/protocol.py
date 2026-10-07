@@ -49,6 +49,7 @@ _MASS_DECIMAL_SLACK = Decimal("1e-12")
 _HALF_QUANTA = tuple(Decimal((0, (5,), -places - 1)) for places in range(9))
 _ZERO = Decimal(0)
 _QUESTION_NAME = re.compile(r"[A-Za-z0-9_.-]{1,96}\Z")
+_QUESTION_NAME_FULLMATCH = _QUESTION_NAME.fullmatch
 _QUESTION_FIELDS = frozenset({"type", "instructions", "criteria"})
 _NOUL_CRITERIA = frozenset({"true", "false"})
 _NOUL_FIELDS = frozenset({"type", "noul"})
@@ -146,10 +147,19 @@ def _snapshot(value, depth=0):
         return value
     if type(value) is float and math.isfinite(value):
         return value
+    # The recursive call returns a str, bool, int or None child unchanged, so
+    # while the child's depth is within the limit it is copied here instead.
+    # At the limit the call still runs and raises the depth error.
+    inline = depth < 32
     if type(value) is list:
-        return [_snapshot(item, depth + 1) for item in value]
-    if type(value) is dict and all(type(key) is str for key in value):
-        return {key: _snapshot(item, depth + 1) for key, item in value.items()}
+        return [item if inline and (item is None or type(item) in (str, bool, int))
+                else _snapshot(item, depth + 1) for item in value]
+    if type(value) is dict:
+        for key in value:
+            if type(key) is not str:
+                raise ProviderError("invalid_request")
+        return {key: item if inline and (item is None or type(item) in (str, bool, int))
+                else _snapshot(item, depth + 1) for key, item in value.items()}
     raise ProviderError("invalid_request")
 
 
@@ -305,10 +315,14 @@ def validate_questions(questions, max_questions=MAX_QUESTIONS):
     if type(questions) is not dict or not 1 <= len(questions) <= max_questions:
         raise ProviderError("invalid_request")
     for qid, q in questions.items():
-        if (type(qid) is not str or not _QUESTION_NAME.fullmatch(qid)
-                or type(q) is not dict or q.keys() != _QUESTION_FIELDS
-                or type(q["instructions"]) is not str or not q["instructions"].strip()
-                or len(q["instructions"].encode("utf-8")) > 12000):
+        if (type(qid) is not str or not _QUESTION_NAME_FULLMATCH(qid)
+                or type(q) is not dict or q.keys() != _QUESTION_FIELDS):
+            raise ProviderError("invalid_request")
+        # For every str, "not t.strip()" is "not t or t.isspace()", and an
+        # ASCII str has one UTF-8 byte per character, so encode only otherwise.
+        text = q["instructions"]
+        if (type(text) is not str or not text or text.isspace()
+                or (len(text) if text.isascii() else len(text.encode("utf-8"))) > 12000):
             raise ProviderError("invalid_request")
         c = q["criteria"]
         if type(c) is not dict:
@@ -322,9 +336,9 @@ def validate_questions(questions, max_questions=MAX_QUESTIONS):
         else:
             raise ProviderError("invalid_request")
         for key, text in c.items():
-            if (type(key) is not str or not _QUESTION_NAME.fullmatch(key)
-                    or type(text) is not str or not text.strip()
-                    or len(text.encode("utf-8")) > 12000):
+            if (type(key) is not str or not _QUESTION_NAME_FULLMATCH(key)
+                    or type(text) is not str or not text or text.isspace()
+                    or (len(text) if text.isascii() else len(text.encode("utf-8"))) > 12000):
                 raise ProviderError("invalid_request")
 
 
