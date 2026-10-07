@@ -10,9 +10,9 @@ Environment: Windows 11; Python 3.12.10 (project environment) and Python
 
 | Check | Result |
 |---|---|
-| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`) | 683 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 3.5 minutes on an idle machine |
-| Same suite, Python 3.13 | 683 tests, OK, same 2 skips |
-| Same suite, Python 3.12, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set (as in CI) | 683 tests, OK, same 2 skips |
+| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`) | 688 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 3.5 minutes on an idle machine |
+| Same suite, Python 3.13 | 688 tests, OK, same 2 skips |
+| Same suite, Python 3.12, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set (as in CI) | 688 tests, OK, same 2 skips |
 | Ruff (configured fatal-error rules) | clean |
 | mypy (strict definitions for `providers`, `decisions`, `exchange`, `hosted`, `openrouter`, `secret_scan`, `injection_markers`) | clean; the inherited engine is not fully typed |
 | `python -m build` and `tools/check_distribution.py` | pass: archive contents, fresh wheel install without keys, exit-3 route selection and exit-2 `provider_unavailable` gates for both routes, and the unpacked sdist's own test suite (about 2.5 minutes) |
@@ -55,7 +55,9 @@ OpenRouter (input tokens x $0.0000001 in every response).
 | 2026-10-07 | Catalog, canaries on by default, both policies | 211 + 312 | 1,134,548 | $0.1134 |
 | 2026-10-07 | Catalog, `--policy-placement state` variants (3 runs) | 647 | | $0.1169 |
 | 2026-10-07 | Catalog, `--require-verification` variants (3 runs) | 703 | | $0.1437 |
-| | Total | | | about $0.88 |
+| 2026-10-07 | Catalog, release code, shipped defaults, both policies | 211 + 312 | 1,134,548 | $0.1134 |
+| 2026-10-07 | Release smoke subset through the shipped exchange | 10 | | $0.0025 |
+| | Total | | | about $0.99 |
 
 ### Smoke findings
 
@@ -159,9 +161,30 @@ region; both policies report a project case whose helper was not supplied
 as complete instead of incomplete. Under scoped-v2-beta the 70-line case
 localizes both defects but ends incomplete with unresolved localization.
 
-Final evaluation at the release commit: [PENDING: to be filled in from the
-final release evaluation: both policies, cases, controls, calls, input
-tokens, cost].
+Final evaluation at the release code (commit `f612116`; later commits change
+documentation only), with the shipped defaults: layout v1, canaries on,
+OpenRouter routing `deny`:
+
+| Outcome | legacy-v1 | scoped-v2-beta |
+|---|---:|---:|
+| Defective programs detected | 14/16 | 15/16 |
+| Individual defects covered | 15/17 | 17/17 |
+| Corrected controls clear | 16/16 | 16/16 |
+| Missing evidence incomplete | 1/2 | 1/2 |
+| Entire cases | 31/34 | 32/34 |
+| Calls | 211 | 312 |
+| Input tokens | 451,412 | 683,136 |
+| Cost | $0.0451 | $0.0683 |
+
+The results, token counts and failures are identical to the canary-on runs
+above: answers are deterministic per request. A release smoke subset of 10
+requests ($0.0025) also ran at that code: every request returned 200, cost
+equaled input tokens x $0.0000001, the two judge controls answered 1 and 0
+in every batch, the S13c injection probes under the shipped layout answered
+the screen question 0.99 in the suppression cell and 0 in the flooding
+cell, appending the controls moved no other answer (S12c, largest change
+0), routing `deny` was accepted (S19b) and the kept-alive connection was
+reused.
 
 ### Tier-2 options
 

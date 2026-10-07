@@ -38,7 +38,7 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   cap, and one absolute deadline per call covering connect (shared across
   resolved addresses), TLS, send and every read. `--deadline-seconds`
   defaults to 30 (at most 300).
-- Per-route status tables with submission classes; new codes include
+- Per-route status tables with submission classes; status codes include
   `connect_failed`, `http_request_timeout`, `http_quota_exhausted`,
   `http_payment_required`, `http_forbidden`, `provider_moderated`,
   `route_unavailable`, `routing_no_endpoint`, `http_overloaded`,
@@ -70,7 +70,7 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 - Strict choice mass (within 10^-12) is the default; every live vector
   observed summed to exactly 1. `--choice-rounding-places N` is opt-in and
   `--strict-choice-mass` is a no-op kept for compatibility.
-- Reports gain `answer_defects`, `refusals`, `possible_suppression`,
+- Reports include `answer_defects`, `refusals`, `possible_suppression`,
   `judge_diagnostics`, `banners` and an always-`uncalibrated`
   `calibration` record. The CLI prints a `Judge warning` line for a banner.
 
@@ -78,7 +78,7 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
 - Every attempt receipt records `cost_usd`, `cost_source`
   (`provider_reported`, `list_price_estimate` or `none`) and
-  `cost_bound_usd`. Reports gain `spend`; a scan on a shared gateway reports
+  `cost_bound_usd`. Reports include `spend`; a scan on a shared gateway reports
   its own share and, when different, `gateway_totals`.
 - `--max-cost USD` refuses any attempt, retries included, whose bound could
   take spend above the limit (`cost_budget_exhausted`). A stderr line
@@ -121,7 +121,7 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 ### Reports, receipts and output
 
 - Report schema 7 (legacy-v1) and 8 (scoped-v2-beta); handoff schema 4 and
-  5, with `stop_reason`. Reports gain `provenance`, `attempts_transmitted`,
+  5, with `stop_reason`. Reports include `provenance`, `attempts_transmitted`,
   `retries`, `stop_reason`, `secret_scan`, `controls`, and, when relevant,
   `injection_markers`, `request_geometry` and `unverified_suspicions`.
 - Receipt schema 2: route, requested and returned model, upstream provider,

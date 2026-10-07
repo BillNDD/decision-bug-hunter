@@ -157,7 +157,7 @@ opt-in, and most were measured live only on a small development suite; see
 | `--project-root` | unset | Related directory; required with `--scope project`, forbidden otherwise. |
 | `--spec-file` | unset | Requirements text (at most 8 KiB and 2,000 lines). Without it, intent is inferred from the file. |
 | `--encoding` | `utf-8-sig` | Encoding of the file, specification and project files. |
-| `--model` | unset | Model id; must be the route's one allowed model (`gpt-6-luna` or `openai/gpt-6-luna-decisions`). |
+| `--model` | unset | Model id; when unset, the route's model is used (`gpt-6-luna` for `openai`, `openai/gpt-6-luna-decisions` for `openrouter`). If given, it must be that model. |
 | `--openrouter-routing` | `deny` | `deny` sends `allow_fallbacks: false` and `data_collection: deny`; `account-default` omits them. OpenRouter only. |
 | `--openrouter-zdr` | off | Also request zero-data-retention endpoints. OpenRouter only. |
 | `--search-policy` | `legacy-v1` | `scoped-v2-beta` adds scoped verification, explicit refutation and exploratory beams. |
@@ -238,10 +238,11 @@ state may hold 200 questions and 48 KiB. Responses are capped at 256 KiB.
 
 DBH bounds an attempt whose usage is unknown at its wire bytes plus 64
 tokens per question: about $0.0029 for a full 24 KiB, 64-question request
-and about $0.007 at the 64 KiB wire cap, which only translated OpenAI
-bodies or 200-question state-placement requests approach. Under the default
+and about $0.007 to $0.008 at the 64 KiB wire cap (65,536 bytes plus
+200 x 64 tokens, at $0.0000001 each), which only translated OpenAI bodies
+or 200-question state-placement requests approach. Under the default
 1000-call limit a scan of full-size requests would therefore cost about $3,
-and at most about $7, plus one possible duplicate charge for each
+and at most about $8, plus one possible duplicate charge for each
 stale-connection retry. Real requests
 are much smaller. For a hard limit pass `--max-cost USD`: before every
 attempt, retries included, DBH adds the reported cost, the list-price
@@ -389,6 +390,9 @@ required: `project` (with `project=ProjectIndex`), `declared_standalone` or
 (`RetryPolicy.none()` for `--no-retry`), `max_cost=` (a `Decimal`) and
 `deadline_seconds=`; `Config` takes the engine options above
 (`canaries`, `state_layout`, `policy_placement`, `choice_gate`, and so on).
+When you set `policy_placement="state"` in `Config`, pass the same
+`policy_placement=` to `make_provider(...)` too: the provider sets the
+raised OpenRouter caps (200 questions, 48 KiB) that the CLI uses.
 A library `scan()` does not run the secret scan on the target; call
 `decision_bug_hunter.secret_scan.scan_lines` yourself first. A caller-owned
 gateway with the same interface can replace the hosted one for offline
@@ -442,8 +446,12 @@ Shipped defaults (state layout v1, canaries on):
 | Entire cases | 31/34 | 32/34 |
 | Calls / cost | 211 / $0.0451 | 312 / $0.0683 |
 
-Final release-commit evaluation: **[PENDING: to be filled in from the final
-release evaluation]**.
+Final evaluation at the release code (commit `f612116`): identical to the
+table above for both policies (answers are deterministic per request), at
+211 calls, 451,412 input tokens and $0.0451 (legacy-v1) and 312 calls,
+683,136 input tokens and $0.0683 (scoped-v2-beta). A 10-request release
+smoke subset ($0.0025) returned 200 for every request with every judge
+control passing.
 
 Misses under the defaults: a defect in a cross-file helper (legacy-v1 only),
 a second defect localized too broadly (legacy-v1) or left unresolved

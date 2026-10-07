@@ -134,6 +134,56 @@ class DocumentationTests(unittest.TestCase):
         headings = re.findall(r"^## (.+)$", read("CHANGELOG.md"), re.M)
         self.assertEqual(headings, [f"{__version__} (unreleased)"])
 
+    def test_public_docs_have_no_placeholders(self):
+        for name in (*PUBLIC_DOCS, "docs/PROVENANCE.md"):
+            text = read(name)
+            with self.subTest(name):
+                self.assertNotIn("PENDING", text)
+                self.assertNotIn("**Pending.**", text)
+
+    def test_release_evaluation_is_recorded(self):
+        validation = flat(read("docs/VALIDATION.md"))
+        gates = read("docs/RELEASE_GATES.md")
+        gate8 = next(line for line in gates.splitlines() if line.startswith("| 8 |"))
+        self.assertIn("Satisfied (development suite only)", gate8)
+        for needle in ("451,412", "683,136", "$0.0451", "$0.0683", "$0.0025",
+                       "about $0.99"):
+            with self.subTest(needle):
+                self.assertIn(needle, validation)
+        self.assertIn("about $0.99", gates)
+        self.assertIn("Final evaluation at the release code", flat(read("README.md")))
+
+    def test_readme_cost_bounds_match_the_code(self):
+        from decision_bug_hunter import openrouter
+        from decision_bug_hunter.providers import attempt_cost_bound
+        spec = openrouter.ROUTE.models[0]
+        full = attempt_cost_bound(spec.max_envelope_bytes, spec.max_questions,
+                                  spec.price_in_per_mtok, spec.price_out_upper_per_mtok)
+        wire = attempt_cost_bound(openrouter.MAX_BODY_BYTES,
+                                  spec.state_placement_max_questions,
+                                  spec.price_in_per_mtok, spec.price_out_upper_per_mtok)
+        readme = flat(read("README.md"))
+        self.assertEqual(round(full, 4), Decimal("0.0029"))
+        self.assertIn("about $0.0029 for a full 24 KiB, 64-question request", readme)
+        self.assertEqual(round(wire, 3), Decimal("0.008"))
+        self.assertIn("about $0.007 to $0.008 at the 64 KiB wire cap", readme)
+        self.assertEqual(round(wire * 1000), 8)
+        self.assertIn("at most about $8", readme)
+
+    def test_library_use_names_policy_placement_for_make_provider(self):
+        import inspect
+        from decision_bug_hunter.providers import make_provider
+        self.assertIn("policy_placement", inspect.signature(make_provider).parameters)
+        section = read("README.md").split("## Library use", 1)[1]
+        library = flat(section.split("\n## ", 1)[0])
+        self.assertIn("pass the same `policy_placement=` to `make_provider(...)`", library)
+
+    def test_changelog_describes_rather_than_diffs(self):
+        changelog = flat(read("CHANGELOG.md"))
+        for phrase in ("Reports gain", "new codes include"):
+            with self.subTest(phrase):
+                self.assertNotIn(phrase, changelog)
+
     def test_relative_links_in_public_docs_resolve(self):
         for name in (*PUBLIC_DOCS, "docs/PROVENANCE.md"):
             base = ROOT.joinpath(name).parent
