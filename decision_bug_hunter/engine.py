@@ -21,12 +21,27 @@ from .core import contiguous_candidates, _window_count, _window_at
 from .evidence import EvidenceRef, evidence_label, fitting_pair_state, excerpt
 from .protocol import (ProviderError, encode_request, plain, validate_answer_objects, validate_usage,
                   CONTRACT_VERSION, MAX_REQUEST_BYTES, DEFAULT_CHOICE_ROUNDING_PLACES)
+from .providers import Classification, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
                         evidence_noul, LENS_KINDS)
 
 
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
+#: Gateway refusals that never reached the provider and end the run's dispatch.
+_DISPATCH_REFUSALS = frozenset({"run_deadline_reserved", "provider_stopped"})
+
+
+def _permanent(exc):
+    """Whether a failed request would fail the same way if asked again (ADR-2(9))."""
+    given = getattr(exc, "classification", None)
+    if type(given) is Classification and given.code == exc.code:
+        return given.permanent
+    return classify(exc.code).permanent
+
+
+def _count(value):
+    return value if type(value) is int and value >= 0 else None
 
 
 def digest(value):
@@ -93,7 +108,10 @@ class Search:
         self.action_requirement_stats = {}
         self.evidence_refs = {}
         self.context_reassessed_states = set()
-        self.request_origins, self.failed_requests = {}, {}
+        # failed_requests: key -> {"code", "permanent"}; a transient failure
+        # may be asked once more (ADR-2(9)), recorded in ``reasked``.
+        self.request_origins, self.failed_requests, self.reasked = {}, {}, set()
+        self.dispatch_refused = None
         # Judgments and failures are keyed by (route, model, request hash):
         # request_sha256 hashes the local envelope, identical on every route.
         self.route_key = (getattr(gateway, "provider_id", "custom-unverified"),
@@ -124,7 +142,20 @@ class Search:
             self.issues.append(item)
             candidates.append(item)
 
+    def stop_reason(self):
+        reason = getattr(self.gw, "stop_reason", None)
+        return reason if type(reason) is str else None
+
     def expired(self, region, phase):
+        if self.stop_reason() is not None:
+            # A blocked or breaker-stopped provider ends dispatch: one
+            # whole-file limitation, no further calls, rows or usage.
+            self.issue("provider_stopped", Span(1, max(1, len(self.source.lines))),
+                       "provider")
+            return True
+        if self.dispatch_refused is not None:
+            self.issue(self.dispatch_refused, region, phase)
+            return True
         if time.monotonic() < self.deadline_at:
             return False
         self.issue("run_deadline_exceeded", region, phase)
@@ -192,11 +223,19 @@ class Search:
                                     "origin": self.request_origins[ckey]})
                 continue
             if ckey in self.failed_requests:
-                self.issue(self.failed_requests[ckey], region, phase)
-                self.events.append({"phase": "failed_request_not_retried",
-                                    "request_sha256": key, "origin": self.request_origins[ckey]})
-                continue
-            error = None
+                pin = self.failed_requests[ckey]
+                if pin["permanent"] or ckey in self.reasked:
+                    self.issue(pin["code"], region, phase)
+                    self.events.append({"phase": "failed_request_not_retried",
+                                        "request_sha256": key,
+                                        "origin": self.request_origins[ckey]})
+                    continue
+                # A transient failure recurs while the provider still runs:
+                # ask once more, then pin for the rest of the run.
+                self.reasked.add(ckey)
+                self.events.append({"phase": "failed_request_reasked", "request_sha256": key,
+                                    "origin": self.request_origins[ckey]})
+            error, permanent = None, False
             if self.calls >= self.cfg.max_calls:
                 error = "call_budget_exhausted"
             elif self.questions + len(batch) > self.cfg.max_questions:
@@ -243,6 +282,14 @@ class Search:
                 # exceptions are real defects and must reach the CLI's
                 # unexpected_error.
                 error = exc.code
+                if error in _DISPATCH_REFUSALS:
+                    # Refused before any receipt or byte: not a call.
+                    self.calls -= 1
+                    self.questions -= len(batch)
+                    self.dispatch_refused = error
+                    self.issue(error, region, phase)
+                    break
+                permanent = _permanent(exc)
                 row["error"] = error
                 self.issue(error, region, phase)
             stats = getattr(self.gw, "last_call_stats", None)
@@ -252,10 +299,13 @@ class Search:
                     self.models_returned.add(stats["model_returned"])
                 if stats.get("answer_order_mismatch") is True:
                     self.answer_order_mismatch += 1
-            if (type(stats) is dict and stats.get("request_sha256") == key
-                    and stats.get("usage") is not None):
+            # Retried requests report the usage summed over their attempts.
+            known = None
+            if type(stats) is dict and stats.get("request_sha256") == key:
+                known = stats.get("logical_usage", stats.get("usage"))
+            if known is not None:
                 try:
-                    usage = validate_usage(stats.get("usage"))
+                    usage = validate_usage(known)
                 except ProviderError as exc:
                     row["usage_error"] = exc.code
                     self.issue(exc.code, region, phase + "-usage")
@@ -270,7 +320,7 @@ class Search:
             self.request_origins[ckey] = {"sequence": row["sequence"], "request_sha256": key,
                                           "question_ids": list(batch), "status": row["status"]}
             if error:
-                self.failed_requests[ckey] = error
+                self.failed_requests[ckey] = {"code": error, "permanent": permanent}
             if self.expired(region, phase):
                 break
         if origins is not None:
@@ -1477,6 +1527,13 @@ class Search:
                     a["handoff_incomplete"] for a in annotations.values()) else "complete"),
                 "status": "complete" if complete else "incomplete",
                 "calls_attempted": self.calls, "questions_attempted": self.questions,
+                # Attempts and retries come from the gateway (ADR-2(10));
+                # a custom gateway without them reports None.
+                "attempts_transmitted": _count(getattr(self.gw, "attempts_transmitted", None)),
+                "retries": _count(getattr(self.gw, "retries", None)),
+                "stop_reason": self.stop_reason(),
+                "stopped_at_sequence": (_count(getattr(self.gw, "stopped_at_sequence", None))
+                                        if self.stop_reason() is not None else None),
                 "usage": dict(self.usage),
                 "questions_validated": self.validated_questions,
                 "cache_hits": self.cache_hits, "windows_planned": self.window_count,

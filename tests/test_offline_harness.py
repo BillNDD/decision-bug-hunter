@@ -23,7 +23,7 @@ from decision_bug_hunter import decisions
 from decision_bug_hunter.core import Source
 from decision_bug_hunter.decisions import DecisionsProvider
 from decision_bug_hunter.protocol import ProviderError, QUESTION, validate_answer_objects
-from decision_bug_hunter.providers import ValidatedGateway
+from decision_bug_hunter.providers import RetryPolicy, ValidatedGateway
 from tests import network_guard
 from tests.fakes import (ConnectFailure, FakeClock, FakeSleep, Reply, ScriptedHTTPS,
                          SendFailure, Silence, seeded_rng)
@@ -274,9 +274,10 @@ class ScriptedHttpsTests(unittest.TestCase):
                 exchange = script.exchange(decisions.HOST, decisions.PATH)
                 with patch.object(socket, "create_connection",
                                   side_effect=AssertionError("real connector")):
+                    # One attempt: this maps codes; retries are tested in test_retries.
                     gateway = ValidatedGateway(
                         DecisionsProvider(KEY, environ={}, exchange=exchange),
-                        Path(td) / "receipts")
+                        Path(td) / "receipts", retry_policy=RetryPolicy.none())
                     with self.assertRaises(ProviderError) as caught:
                         gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
                     gateway.close()

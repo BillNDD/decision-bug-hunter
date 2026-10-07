@@ -219,15 +219,29 @@ class ProviderBoundaryTests(unittest.TestCase):
         self.assertGreater(provider.requests[0].timeout_seconds, 0)
         self.assertLessEqual(provider.requests[0].timeout_seconds, 5)
 
-    def test_late_answer_is_failed_and_usage_retained(self):
-        gateway, _ = self.gateway(ProviderResponse(self.good, {"input_tokens": 1, "output_tokens": 1}))
-        # Clock reads: deadline fixed, dispatch, late check, elapsed.
-        with patch("decision_bug_hunter.providers.time.monotonic",
-                   side_effect=[1.0, 1.0, 32.0, 32.0]):
-            with self.assertRaises(ProviderError) as caught:
-                self.evaluate(gateway)
-        self.assertEqual(caught.exception.code, "deadline_exceeded")
-        self.assertEqual(self.saved(gateway)["usage"]["input_tokens"], 1)
+    def test_late_complete_answer_is_kept_marked_late_and_not_blocking(self):
+        # ADR-2(7): a complete 200 after the deadline was paid for; it is
+        # accepted with ``late: true`` (it used to be discarded and block).
+        gateway, provider = self.gateway(
+            ProviderResponse(self.good, {"input_tokens": 1, "output_tokens": 1}))
+        clock = [1.0]
+        original = provider.decide
+
+        def slow(request):
+            clock[0] += 31.0
+            return original(request)
+
+        provider.decide = slow
+        with patch("decision_bug_hunter.providers.time.monotonic", side_effect=lambda: clock[0]):
+            answers = self.evaluate(gateway)
+        self.assertIn("q", answers)
+        saved = self.saved(gateway)
+        self.assertIs(saved["late"], True)
+        self.assertEqual(saved["status"], "validated")
+        self.assertEqual(saved["usage"]["input_tokens"], 1)
+        self.assertIsNone(gateway.stop_reason)
+        self.evaluate(gateway)
+        self.assertEqual(len(provider.requests), 2)
 
     def test_initial_journal_failure_prevents_dispatch(self):
         gateway, provider = self.gateway()

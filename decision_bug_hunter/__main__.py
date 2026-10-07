@@ -15,7 +15,7 @@ import time
 from .core import Config, Source, format_findings, scan
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
-from .providers import ROUTES, ValidatedGateway, validate_call_deadline
+from .providers import ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline
 from . import providers
 from .decisions import (CREDENTIAL_VARIABLE, ORGANIZATION_VARIABLE, PROJECT_VARIABLE,
                         DecisionsProvider)
@@ -139,8 +139,11 @@ def parser() -> argparse.ArgumentParser:
                         help="Also request zero-data-retention endpoints (none "
                              "existed on 2026-10-06).")
     result.add_argument("--deadline-seconds", type=float, default=30.0)
-    result.add_argument("--run-deadline-seconds", type=float, default=300.0,
+    result.add_argument("--run-deadline-seconds", type=float, default=1800.0,
                         help="Cooperative run work deadline, including indexing; hosted calls use remaining time.")
+    result.add_argument("--no-retry", action="store_true",
+                        help="One attempt per request: no retries after connect failures, "
+                             "rate limits, overload or a stale keep-alive connection.")
     return result
 
 
@@ -364,6 +367,8 @@ def execute(args: argparse.Namespace) -> int:
         provider, run_dir / "receipts", deadline_seconds=call_deadline,
         rounding_places=(None if args.strict_choice_mass
                          else args.choice_rounding_places),
+        retry_policy=RetryPolicy.none() if getattr(args, "no_retry", False) else RetryPolicy(),
+        progress=sys.stderr,
     )
     result = None
     try:
@@ -419,6 +424,10 @@ def execute(args: argparse.Namespace) -> int:
     write_new(run_dir / "ranges.txt", ranges_text)
     sys.stdout.write({"compact": findings_text, "ranges": ranges_text,
                       "json": handoff_text}[args.output_format])
+    if result.get("stop_reason"):
+        # A fixed DBH code; never a provider message.
+        print(f"Provider stopped ({result['stop_reason']}); remaining work was not sent.",
+              file=sys.stderr)
     complete = result["status"] == "complete"
     count = len(result["findings"])
     status = "complete" if complete else "incomplete"

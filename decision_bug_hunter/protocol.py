@@ -63,6 +63,8 @@ ERROR_CODES = frozenset({
     "routing_no_endpoint", "http_overloaded", "http_unavailable",
     "http_provider_timeout", "provider_error_in_body", "provider_moderated",
     "invalid_provider", "response_vector_missing",
+    # Retries, reserve and the breaker (ADR-2(5), (7), (8)).
+    "run_deadline_reserved", "provider_stopped",
 })
 QUESTION = {
     "type": "noul",

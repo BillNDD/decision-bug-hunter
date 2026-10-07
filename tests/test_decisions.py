@@ -22,8 +22,9 @@ from decision_bug_hunter import decisions, providers
 from decision_bug_hunter.decisions import (DecisionsProvider, translate_request,
                                            translate_response)
 from decision_bug_hunter.protocol import ProviderError, QUESTION, _json, encode_request
-from decision_bug_hunter.providers import ProviderRequest, ValidatedGateway
-from tests.fakes import ConnectFailure, FakeClock, Raise, Reply, ScriptedHTTPS, SendFailure
+from decision_bug_hunter.providers import ProviderRequest, RetryPolicy, ValidatedGateway
+from tests.fakes import (ConnectFailure, FakeClock, FakeSleep, Raise, Reply, ScriptedHTTPS,
+                         SendFailure, seeded_rng)
 from tests.support import FixtureProvider, clean_provider_env
 
 
@@ -143,11 +144,13 @@ class AdapterExchangeTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
 
     def exchange(self, body=None, *, status=200, headers=None, failure=None,
-                 state=STATE, environ=None, later=()):
-        """One gateway attempt through a scripted HTTPS connection.
+                 state=STATE, environ=None, later=(), retry_policy=None, sleep=None):
+        """One gateway call through a scripted HTTPS connection.
 
         ``failure`` is raised by the first receive after the request is sent;
-        ``later`` scripts further steps for follow-up calls.
+        ``later`` scripts further steps for follow-up calls. The gateway makes
+        one attempt unless ``retry_policy`` says otherwise: these tests map
+        statuses to codes, and retries are pinned in test_retries.
         """
         if failure is not None:
             first = Reply(events=[Raise(failure)])
@@ -156,7 +159,10 @@ class AdapterExchangeTests(unittest.TestCase):
         script, exchange = scripted([first, *later])
         provider = DecisionsProvider(KEY, environ={} if environ is None else environ,
                                      exchange=exchange)
-        gateway = ValidatedGateway(provider, self.root / "receipts")
+        gateway = ValidatedGateway(
+            provider, self.root / "receipts",
+            retry_policy=RetryPolicy.none() if retry_policy is None else retry_policy,
+            sleep=sleep, rng=seeded_rng())
         self.addCleanup(gateway.close)
         # A frozen gateway clock: the call deadline is absolute from before the
         # dispatching receipt, so journal time would otherwise shrink it.
@@ -288,15 +294,38 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertNotIn("private-message", json.dumps(receipt))
 
     def test_unauthorized_blocks_the_gateway_without_a_second_request(self):
+        # ADR-2(6): a blocked gateway repeats its original blocking code
+        # (it used to say transport_failed) and reports the stop reason.
         outcome, _, script, _, gateway = self.exchange(
-            b"", status=401, headers="Content-Type: application/json\r\nContent-Length: 0")
+            b"", status=401, headers="Content-Type: application/json\r\nContent-Length: 0",
+            retry_policy=RetryPolicy())
         self.assertEqual(outcome.code, "http_unauthorized")
         with no_network(), self.assertRaises(ProviderError) as caught:
             gateway.evaluate({**STATE, "sequence": 2}, QUESTIONS, metadata=METADATA)
-        self.assertEqual(caught.exception.code, "transport_failed")
+        self.assertEqual(caught.exception.code, "http_unauthorized")
+        self.assertEqual(gateway.stop_reason, "blocked:http_unauthorized")
         self.assertEqual((len(script.connects), len(script.requests)), (1, 1))
 
-    def test_rate_limit_is_recorded_once_without_retry_or_blocking(self):
+    def test_rate_limit_retried_after_retry_after(self):
+        sleep = FakeSleep()
+        answers, receipt, script, _, gateway = self.exchange(
+            b"", status=429, headers="Retry-After: 1\r\nContent-Type: application/json\r\n"
+                                     "Content-Length: 0", later=[reply(documented())],
+            retry_policy=RetryPolicy(), sleep=sleep)
+        self.assertEqual(answers["where"]["choice"], "L1-1")
+        self.assertEqual(len(gateway.last_receipts), 2)
+        self.assertGreaterEqual(sleep.total, 1.0)
+        first, final = (json.loads(Path(path).read_text(encoding="utf-8"))
+                        for path in gateway.last_receipts)
+        self.assertEqual((first["attempt"], first["error"]), (1, "http_rate_limited"))
+        self.assertNotIn("logical_status", first)
+        self.assertEqual((final["attempt"], final["retry_reason"]), (2, "http_rate_limited"))
+        self.assertEqual(final["logical_status"], "validated")
+        self.assertEqual(final["logical_id"], first["logical_id"])
+        self.assertEqual(receipt, final)
+        self.assertEqual(len(script.requests), 2)
+
+    def test_rate_limit_no_retry_policy_records_once(self):
         outcome, receipt, script, _, gateway = self.exchange(
             b"", status=429, headers="Retry-After: 1\r\nContent-Type: application/json\r\n"
                                      "Content-Length: 0", later=[reply(documented())])
@@ -316,8 +345,10 @@ class AdapterExchangeTests(unittest.TestCase):
                      ConnectFailure(ConnectionRefusedError(KEY)), SendFailure(BrokenPipeError(KEY))):
             with self.subTest(step=type(step).__name__, error=type(step.error).__name__):
                 script, exchange = scripted([step])
+                # One attempt: connect_failed retries are pinned in test_retries.
                 gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}, exchange=exchange),
-                                           self.root / "receipts")
+                                           self.root / "receipts",
+                                           retry_policy=RetryPolicy.none())
                 self.addCleanup(gateway.close)
                 with no_network(), self.assertRaises(ProviderError) as caught:
                     gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)

@@ -16,7 +16,7 @@ from decision_bug_hunter.openrouter import (OpenRouterProvider, decode_response,
                                             encode_request, routing_fragment)
 from decision_bug_hunter.protocol import ProviderError, QUESTION, _json
 from decision_bug_hunter.protocol import encode_request as local_envelope
-from decision_bug_hunter.providers import ProviderRequest, ValidatedGateway
+from decision_bug_hunter.providers import ProviderRequest, RetryPolicy, ValidatedGateway
 from tests.fakes import FakeClock, Reply, ScriptedHTTPS
 from tests.support import openrouter_body
 
@@ -57,14 +57,18 @@ def error_body(code, message="private-error-message", **metadata):
 class Harness:
     """One scripted OpenRouter origin, a provider over it and a gateway."""
 
-    def __init__(self, test, steps, **provider_kwargs):
+    def __init__(self, test, steps, *, retry_policy=None, **provider_kwargs):
         self.script = ScriptedHTTPS(list(steps), clock=FakeClock(), host=openrouter.HOST)
         exchange = self.script.exchange(openrouter.HOST, openrouter.PATH)
         self.provider = OpenRouterProvider(KEY, environ={}, exchange=exchange,
                                            **provider_kwargs)
         tmp = tempfile.TemporaryDirectory()
         test.addCleanup(tmp.cleanup)
-        self.gateway = ValidatedGateway(self.provider, Path(tmp.name) / "receipts")
+        # One attempt by default: these tests map statuses to codes; the
+        # retry behaviour of the same statuses is pinned in test_retries.
+        self.gateway = ValidatedGateway(
+            self.provider, Path(tmp.name) / "receipts",
+            retry_policy=RetryPolicy.none() if retry_policy is None else retry_policy)
         test.addCleanup(self.gateway.close)
 
     def evaluate(self, state=STATE, questions=QUESTIONS):

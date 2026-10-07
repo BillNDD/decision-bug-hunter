@@ -40,7 +40,9 @@ class ReceiptBoundaryRegressions(unittest.TestCase):
 
     def gateway(self, name):
         provider = CountingProvider()
-        gateway = p.ValidatedGateway(provider, self.root / name)
+        # Sub-second run budgets exercise the deadline itself, not the
+        # dispatch reserve (ADR-2(7)), so the reserve floor is zero here.
+        gateway = p.ValidatedGateway(provider, self.root / name, reserve_floor_seconds=0)
         self.addCleanup(gateway.close)
         return gateway, provider
 

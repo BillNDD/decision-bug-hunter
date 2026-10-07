@@ -151,7 +151,7 @@ class Config:
     max_relationships: int = 4
     max_project_candidates: int = 128
     localization_beam_width: int = 3
-    run_deadline_seconds: float = 300.0
+    run_deadline_seconds: float = 1800.0
     search_policy: str = "legacy-v1"
     refute_threshold: Decimal = Decimal("0.80")
 

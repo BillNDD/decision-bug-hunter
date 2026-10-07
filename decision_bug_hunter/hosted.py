@@ -177,12 +177,34 @@ def transport_failure(exc: ExchangeError) -> Classification:
     Connect (DNS, TCP, TLS) and a send failure on a fresh connection never
     delivered a complete request: ``connect_failed``, not sent. Anything
     after a complete send, or a send on a reused connection, may have been
-    processed: ``deadline_exceeded`` on a timeout, else ``transport_failed``.
+    processed: ``deadline_exceeded`` on a timeout, else ``transport_failed``,
+    flagged ``stale_connection`` when ``stale_connection(exc)`` holds.
     """
     if exc.phase == "connect" or (exc.phase == "send" and not exc.reused):
         return classify("connect_failed")
-    code = "deadline_exceeded" if exc.kind == "timeout" else "transport_failed"
-    return classify(code)
+    if exc.kind == "timeout":
+        return classify("deadline_exceeded")
+    return replace(classify("transport_failed"), stale_connection=stale_connection(exc))
+
+
+#: A reset on a reused connection counts as stale only this soon after the send.
+STALE_WINDOW_SECONDS = 1.0
+
+
+def stale_connection(exc: ExchangeError) -> bool:
+    """A kept-alive socket the server had already closed (ADR-2(2)).
+
+    True only on a reused connection, for a reset, broken pipe, abort or EOF
+    (``kind == "reset"``) with zero response bytes, raised during the send or
+    at most ``STALE_WINDOW_SECONDS`` after ``sendall`` completed. Timeouts
+    never qualify: the request may still be in progress.
+    """
+    if not exc.reused or exc.kind != "reset" or exc.response_bytes != 0:
+        return False
+    if exc.phase == "send":
+        return True
+    return (exc.phase == "receive" and exc.since_send is not None
+            and exc.since_send <= STALE_WINDOW_SECONDS)
 
 
 class HostedProvider:

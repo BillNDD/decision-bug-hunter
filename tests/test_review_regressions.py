@@ -403,7 +403,9 @@ class ReceiptRepairTests(unittest.TestCase):
             pack, _ = load_pack()
             question = noul(pack, "screen", Span(1, 1))
             provider = SyntheticProvider(fixture=FixtureProvider())
-            gateway = ValidatedGateway(provider, td, deadline_seconds=30)
+            # A 0.25 s budget tests the deadline, not the 3 s dispatch reserve.
+            gateway = ValidatedGateway(provider, td, deadline_seconds=30,
+                                       reserve_floor_seconds=0)
             self.addCleanup(gateway.close)
             gateway.set_run_deadline(100.25)
             with patch("decision_bug_hunter.providers.time.monotonic", return_value=100):
