@@ -27,9 +27,11 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -41,6 +43,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import catalog  # noqa: E402
 
 SCOPE_FLAG = {"standalone": "standalone", "project": "project", "isolate": "isolate"}
+#: A report's USD amounts are plain decimal strings (engine ``_spend``).
+USD_AMOUNT = re.compile(r"[0-9]{1,6}(?:\.[0-9]{1,40})?")
+
+
+def provider_reported_usd(report: dict | None) -> str | None:
+    """The report's ``spend.provider_reported_usd`` decimal string, else None."""
+    spend = report.get("spend") if isinstance(report, dict) else None
+    amount = spend.get("provider_reported_usd") if isinstance(spend, dict) else None
+    return amount if isinstance(amount, str) and USD_AMOUNT.fullmatch(amount) else None
 
 
 def write_source(path: Path, text: str, encoding: str) -> None:
@@ -73,7 +84,8 @@ def materialize(case: dict, base: Path) -> tuple[list[str], Path]:
 def judge(case: dict, report: dict | None, exit_code: int) -> dict:
     if report is None:
         return {"location_pass": False, "strict_pass": False, "status": "missing",
-                "failures": ["no_report"], "covered": 0, "findings": []}
+                "failures": ["no_report"], "covered": 0, "findings": [],
+                "provider_reported_usd": None}
     status = report.get("status")
     findings = report.get("handoff", {}).get("findings", [])
     spans = [row["suspect"] for row in findings]
@@ -115,6 +127,7 @@ def judge(case: dict, report: dict | None, exit_code: int) -> dict:
             "status": status, "failures": sorted(set(failures + strict_failures)), "covered": covered,
             "findings": spans, "issues": sorted(Counter(issues).items()),
             "calls": report.get("calls_attempted"), "usage": usage,
+            "provider_reported_usd": provider_reported_usd(report),
             "provider": report.get("provider"), "model": report.get("model")}
 
 
@@ -157,10 +170,14 @@ def summarize(out: Path) -> None:
               f"{sum(r['strict_pass'] for r in rows)}/{len(rows)} |", ""]
     tokens = sum((r.get("usage") or {}).get("input_tokens", 0) or 0 for r in rows)
     out_tokens = sum((r.get("usage") or {}).get("output_tokens", 0) or 0 for r in rows)
-    cost = sum((r.get("usage") or {}).get("cost_usd", 0) or 0 for r in rows)
+    amounts = [r.get("provider_reported_usd") for r in rows]
+    known = [Decimal(a) for a in amounts if isinstance(a, str) and USD_AMOUNT.fullmatch(a)]
+    cost = format(sum(known, Decimal(0)), "f")
+    unknown = len(rows) - len(known)
+    cost_note = f" ({unknown} case(s) without a provider-reported cost)" if unknown else ""
     calls = sum(r.get("calls") or 0 for r in rows)
     lines += [f"Calls: {calls}. Input tokens: {tokens}. Output tokens: {out_tokens}. "
-              f"Provider-reported cost: ${cost:.4f}.", "",
+              f"Provider-reported cost: ${cost}{cost_note}.", "",
               "| Case | Family | Expected | Status | Location | Strict | Findings | Failures | Calls | s |",
               "|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
