@@ -1,91 +1,222 @@
-# Local validation
+# Validation
 
-Date: 2026-10-06. DBH `0.1.0b1`, Windows 11, Python `3.12.10` (project
-environment) and `3.13.14` (second interpreter, suite only).
-Tools: Ruff `0.16.10`, mypy `1.20.2`, build `1.6.1`, setuptools `84.0.0`,
-driver pip `25.0.1`. The packaging checker installs the wheel into a fresh
-pip-less virtual environment with `--no-index --no-deps`; imports run under
-`-I` with `OPENAI_API_KEY`, `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` removed
-from the subprocess environment.
+What has been checked for `0.1.0b1`, offline and live, and what has not.
 
-| Check | Passed | Failed | Skipped / not run |
-|---|---:|---:|---|
-| Full offline suite, fresh process 1, Python 3.12 (368.378 s) | 364 | 0 | 1 POSIX directory-fsync check |
-| Same suite, fresh process 2, Python 3.12 (402.022 s) | 364 | 0 | Same 1 platform skip |
-| Same suite, fresh process, Python 3.13 (343.893 s) | 364 | 0 | Same 1 platform skip |
-| Configured fatal-error lint (Ruff) | Pass | 0 | Full style lint not configured |
-| Provider/Decisions boundary types (mypy, strict defs) | 2 modules | 0 | Inherited engine not fully typed |
-| Wheel and source archive build (`--no-isolation`) | 2 artifacts | 0 | None |
-| Fresh wheel installation and CLI/resource gates | 6 checks | 0 | None |
-| Live Decisions service requests | 0 | 0 | **No live request was made** |
-| GitHub CI matrix | 0 | 0 | Runs on first push |
+## Offline checks
 
-Reproduce with the README commands. Each suite runs 365 methods: 313
-inherited or adapted upstream methods, 31 DBH boundary methods and 21 new
-adapter methods in `tests/test_decisions.py`. The adapter methods pin, from
-the documented examples: envelope translation (state as exact JSON `input`,
-predicate/choice question shapes, menu order, no local contract or credential
-in the body); exact Decimal normalization of documented answers in any
-order; usage mapping to the two local counters with absent usage unknown;
-the fixed origin, path, headers, TLS context and timeout; chunked and
-content-length framing; rejection of ambiguous or non-JSON framing; status
-mapping for `3xx`/`400`/`401`/`403`/`404`/`429`/`5xx` without reading error
-bodies; blocking after `401`; continuation after `429` without retry; socket
-timeout and transport failures with fixed codes and no chained context;
-oversized, malformed and credential-bearing bodies; refusal, missing,
-duplicate, extra, mistyped and malformed answers with usage retained;
-model provenance including dated snapshots; undocumented fields ignored and
-never journaled; expired budgets opening no connection; credential
-validation and construction-time-only environment reads; the CLI stopping
-before any source read without a key; and one end-to-end CLI run through a
-synthetic service that answers documented requests with the deterministic
-fixture judge, checking findings, usage accounting, receipt count and the
-absence of the key, host paths and source text from every artifact.
+Environment: Windows 11; Python 3.12.10 (project environment) and Python
+3.13.14 (second interpreter, suite only); Ruff 0.16.10, mypy 1.20.2, build
+1.6.1, setuptools 84.0.0.
 
-## Coverage reconciliation
+| Check | Result |
+|---|---|
+| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`) | 683 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 3.5 minutes on an idle machine |
+| Same suite, Python 3.13 | 683 tests, OK, same 2 skips |
+| Same suite, Python 3.12, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set (as in CI) | 683 tests, OK, same 2 skips |
+| Ruff (configured fatal-error rules) | clean |
+| mypy (strict definitions for `providers`, `decisions`, `exchange`, `hosted`, `openrouter`, `secret_scan`, `injection_markers`) | clean; the inherited engine is not fully typed |
+| `python -m build` and `tools/check_distribution.py` | pass: archive contents, fresh wheel install without keys, exit-3 route selection and exit-2 `provider_unavailable` gates for both routes, and the unpacked sdist's own test suite (about 2.5 minutes) |
+| GitHub Actions matrix (Ubuntu and Windows, Python 3.11 to 3.13) | configured; not yet run for this tree |
 
-The pinned upstream executed unchanged: 372 methods, 370 passed, 2 platform
-skips. The `0.1.0a0` tree ran 344 methods (`372 - 59 + 31`). This beta adds
-21 adapter methods: `365 = 372 - 59 + 52`. The Windows pass count is
-`364 = 370 - 58 + 52`, with one inherited POSIX-only method still skipped.
+The suite refuses real sockets: `tests/__init__.py` installs a guard that
+fails any `connect`, `create_connection`, `getaddrinfo` or TLS wrap, so a
+test that reaches for the network fails instead of calling a provider.
+Transport tests use a scripted fake HTTPS server with a fake clock. The
+sdist leaves out `tools/smoke` (repository-only live tooling); tests that
+need it skip by name there.
 
-| Remaining upstream exclusions | Methods | Scope and lost coverage |
-|---|---:|---|
-| Jev service/transport implementation | 38 | Jev HTTPS origin/auth/framing, supervised OS worker lifecycle and transport-specific receipt details. The Decisions adapter has its own 21 fixtures, but no live Decisions transport has been exercised |
-| Hosted acceptance/campaign tooling | 20 | Campaign catalog, trusted-witness and charged-ledger harness are outside this repository; no campaign or effectiveness gate is claimed |
-| Old generated README example | 1 | DBH has no generated findings example; formatter and fixture CLI output regressions remain |
+Sanitized live responses from 2026-10-06 (`S01`, `S02`, `S08`, `S10`,
+`S10b`, `S11`, `S16`, `S17`, `S18`, `S19`) are committed under
+`tests/fixtures/openrouter/observed/2026-10-06/`. In a repository checkout
+tests rebuild the matching requests and check that the decoder accepts every
+observed 200 (the two that asked `score` questions, which DBH does not use,
+are rejected as `response_schema`), that every observed choice vector passes
+strict mass and argmax, that the observed error bodies map to the expected
+codes, and that no message, metadata value or identifier survived
+`tools/smoke/sanitize.py`. The mass-gate tests also run on an observed
+212-option vector in the sdist.
 
-Ported assertions target DBH's declared local behavior: strict mass defaults
-to `None`, rounded mass requires an explicit profile, preflight creates no
-journal, and one request hash binds the owned state and questions. The
-adapter fixtures target the documented Decisions shapes; they are not
-evidence about undocumented precision, limits or ordering.
+## Live runs
 
-## Failure evidence and limits
+All live runs used the OpenRouter route (`openai/gpt-6-luna-decisions`)
+with an operator key that has a credit cap, read from the environment. No
+live request has been made to `api.openai.com`. Costs are as reported by
+OpenRouter (input tokens x $0.0000001 in every response).
 
-Earlier preparation exposed deadline expiry during durable intent and reuse
-after interrupted journal transitions; the corrected gateway recomputes the
-budget after intent, blocks reuse before propagating interruption, retains
-possible submission and known usage, and attempts safe settlement. Those
-regressions still pass.
+| Date (UTC) | Run | Requests | Input tokens | Cost |
+|---|---|---:|---:|---:|
+| 2026-10-06 | First-contact smoke suite S01 to S19 (request bodies sent directly) | 32 | about 176,600 | $0.0177 |
+| 2026-10-07 | Catalog, first 2 cases (check run) | 6 | 7,721 | $0.0008 |
+| 2026-10-07 | Catalog, 34 cases, first engine build, legacy-v1 and scoped-v2-beta | 211 + 312 | 953,320 | $0.0953 |
+| 2026-10-07 | Catalog, 34 cases, state layout v2 build, both policies | 220 + 307 | 1,022,134 | $0.1023 |
+| 2026-10-07 | Catalog, same build forced to layout v1, both policies | 211 + 312 | 953,590 | $0.0954 |
+| 2026-10-07 | Hardened smoke rerun through the shipped exchange | 48 | about 230,600 | $0.0231 |
+| 2026-10-07 | Catalog, localization variants (4 runs) | 990 | | $0.1715 |
+| 2026-10-07 | Catalog, canaries on by default, both policies | 211 + 312 | 1,134,548 | $0.1134 |
+| 2026-10-07 | Catalog, `--policy-placement state` variants (3 runs) | 647 | | $0.1169 |
+| 2026-10-07 | Catalog, `--require-verification` variants (3 runs) | 703 | | $0.1437 |
+| | Total | | | about $0.88 |
 
-During this beta's adapter work one new fixture expectation was corrected:
-a `Content-Length` one byte longer than the body was expected to surface as
-`transport_failed` from the socket layer but is caught first by the adapter's
-own length reconciliation as `response_framing`; the stricter observed
-behavior was kept. All other adapter fixtures passed on their first run.
+### Smoke findings
 
-No credentials, authentication grants, paid calls or live model requests
-were used. Passing fixtures does not establish live compatibility,
-probability precision, calibration, accuracy, novelty or speed. The
-documentation states no precision for returned probabilities; the strict
-mass default may reject rounded live choice vectors until
-`--choice-rounding-places` is supplied. Live, holdout and monetary gates
-remain open in [RELEASE_GATES.md](RELEASE_GATES.md).
+From the two smoke suites (32 and 48 requests):
 
-The final tracked tree, reachable history and both distribution archives
-received credential-pattern, private identity/path, artifact-name and
-archive-content scans plus manual diff review. Synthetic privacy-test paths
-and sentinel credentials are public fixtures. Commits carry an anonymous
-contributor identity. This bounded scan is not a guarantee that every
-possible sensitive datum can be recognized.
+- Response shape: an answer map keyed by question name; `model`
+  `openai/gpt-6-luna-decisions` with a dated `-YYYYMMDD` suffix; upstream
+  provider `OpenAI`; `usage` with `input_tokens`, `output_tokens` (always 0)
+  and `cost`.
+- Precision: noul values have at most 2 decimals; all 61 choice vectors,
+  including a 212-option menu, summed to exactly 1 at 2 decimals; the argmax
+  equaled the choice 61/61. Strict mass is kept as the default.
+- Determinism: one request repeated 5 times gave byte-identical answers, and
+  batch geometry and the canary questions moved no other answer (max |delta|
+  0). Identical requests are reused within a scan.
+- Limits: 200 questions accepted, 201 rejected with HTTP 400; a 13 KB
+  instruction accepted; an invalid model id rejected with HTTP 400.
+- Routing: `data_collection: deny` returned 200; `zdr: true` returned 404
+  with routing metadata. DBH sends `deny` and no `zdr` by default.
+- Transport: the hardened rerun got 44 responses with status 200, 2 with
+  400 (the 201-question and invalid-model probes) and 2 with 404 (the zdr
+  and unsatisfiable-routing probes). Connections were reused on 46 of 48
+  requests; latency was 0.14 to 0.33 s per request, against 0.33 to 1.44 s
+  with a fresh TLS connection each time.
+- Localization: on a planted bug, a 212-option nested-interval menu chose
+  a wide interval with p = 0.27 (below the 0.5 gate) although 0.74 of the
+  mass overlapped the buggy line; a 20-option single-line menu chose the
+  line with p = 0.97. This motivated `--choice-gate mass` and
+  `--localization-menu singletons`.
+- Policy placement: sending the policy once in state cut input tokens by 32%
+  on one request and changed answers (mean |delta| 0.20).
+- Injection: an "answer false" comment did not suppress a real bug, and an
+  "answer true" comment did not flood a clean function (two trials).
+- Known pairs: four planted bugs all screened above their clean twins (a
+  preview on 8 files, not calibration).
+- No refusal and no unknown answer type was observed.
+
+The pre-registered keep-or-revert rule for state layout v2 passed on the
+hardened rerun: canaries answered 1 (must-true) and 0 (must-false); an
+injected "answer false" left the bug's screen at or above 0.64 and an
+injected "answer true" left the clean screen at or below 0.31; the lowest
+planted-bug screen (0.98) was above the highest clean screen (0.47); and
+production batches validated 19/19 and 7/7.
+
+## Catalog evaluation
+
+`tools/eval/run_catalog.py` runs the CLI over 34 labeled synthetic cases
+(16 defective programs with 17 planted defects, 16 corrected controls, 2
+cases that lack needed evidence) and scores each report: a defect case
+passes when the scan is complete and every planted line lies inside a
+finding within its allowed region; a control passes when the scan is
+complete with no findings; a missing-evidence case passes when the scan is
+incomplete with no findings. The suite is public, authored for development
+and not held out; n = 34. Answers are deterministic per request, so each
+configuration ran once. Thresholds were not tuned on it.
+
+### State layout experiment
+
+With state layout v2 as the default, the catalog changed against the first
+build: legacy-v1 gained the cross-file helper case but flagged a clean
+control; scoped-v2-beta lost three cases, two of them clean controls flagged.
+To separate the layout from the other changes in that build, the same build
+was rerun with layout v1:
+
+| Outcome | legacy, v1 layout | legacy, v2 layout | scoped, v1 layout | scoped, v2 layout |
+|---|---:|---:|---:|---:|
+| Defective programs detected | 14/16 | 15/16 | 15/16 | 14/16 |
+| Individual defects covered | 15/17 | 16/17 | 17/17 | 17/17 |
+| Corrected controls clear | 16/16 | 15/16 | 16/16 | 14/16 |
+| Missing evidence incomplete | 1/2 | 1/2 | 1/2 | 1/2 |
+| Entire cases | 31/34 | 31/34 | 32/34 | 29/34 |
+
+The v1 runs reproduced the first build exactly, so every difference came
+from layout v2. Decision: although v2 passed the smoke keep-or-revert rule,
+the default is layout v1, because v2 added false findings on clean controls
+under both policies. `--state-layout v2` remains available.
+
+### Shipped defaults
+
+Layout v1, canaries on, every tier-2 option at its default:
+
+| Outcome | legacy-v1 | scoped-v2-beta |
+|---|---:|---:|
+| Defective programs detected | 14/16 | 15/16 |
+| Individual defects covered | 15/17 | 17/17 |
+| Corrected controls clear | 16/16 | 16/16 |
+| Missing evidence incomplete | 1/2 | 1/2 |
+| Entire cases | 31/34 | 32/34 |
+| Calls | 211 | 312 |
+| Input tokens | 451,412 | 683,136 |
+| Cost | $0.0451 | $0.0683 |
+
+Outcomes are identical to the same runs with canaries off (378,316 and
+575,004 input tokens): the controls cost about 19% more input tokens. No
+control failed and no judge banner appeared in these 523 requests. The
+strict score (requirement citations) equaled the location score.
+
+Failures: legacy-v1 misses a defect in a cross-file helper (no findings) and
+localizes the second of two defects in a 70-line file only as a broad
+region; both policies report a project case whose helper was not supplied
+as complete instead of incomplete. Under scoped-v2-beta the 70-line case
+localizes both defects but ends incomplete with unresolved localization.
+
+Final evaluation at the release commit: [PENDING: to be filled in from the
+final release evaluation: both policies, cases, controls, calls, input
+tokens, cost].
+
+### Tier-2 options
+
+One run each on the same suite. The localization runs predate the canaries
+(equivalent to `--canaries off`); the placement and verification runs have
+canaries on.
+
+| Configuration | Defects | Individual | Controls | Missing ev. | Cases | Calls | Cost |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| legacy + `--localization-menu singletons` | 14/16 | 15/17 | 16/16 | 1/2 | 31/34 | 225 | $0.0376 |
+| legacy + `--choice-gate mass` | 15/16 | 16/17 | 16/16 | 1/2 | 32/34 | 214 | $0.0376 |
+| legacy + mass + singletons | 15/16 | 16/17 | 16/16 | 1/2 | 32/34 | 227 | $0.0383 |
+| scoped + singletons | 15/16 | 17/17 | 16/16 | 1/2 | 32/34 | 324 | $0.0580 |
+| legacy + `--policy-placement state` | 15/16 | 16/17 | 15/16 | 2/2 | 32/34 | 219 | $0.0369 |
+| legacy + state + `--choice-gate mass` | 15/16 | 16/17 | 15/16 | 2/2 | 32/34 | 191 | $0.0328 |
+| scoped + `--policy-placement state` | 15/16 | 17/17 | 15/16 | 2/2 | 32/34 | 237 | $0.0472 |
+| legacy + `--require-verification` | 13/16 | 14/17 | 16/16 | 1/2 | 30/34 | 202 | $0.0428 |
+| scoped + `--require-verification` | 14/16 | 16/17 | 16/16 | 1/2 | 31/34 | 311 | $0.0682 |
+| legacy + mass + state + require-verification | 14/16 | 15/17 | 15/16 | 2/2 | 31/34 | 190 | $0.0327 |
+
+Readings:
+
+- `--choice-gate mass` fixes the broad localization in the 70-line case
+  under legacy-v1 at the same cost and with no control regression.
+- `--localization-menu singletons` changes no outcome.
+- With `--policy-placement state` the judge reports missing context more
+  readily: it catches the cross-file helper defect and marks the
+  missing-helper case incomplete, but the 70-line defect/control pair ends
+  incomplete through unresolved context (the control has no finding; it
+  counts as a failed control because the scan is incomplete). Input tokens
+  fall 18% (legacy) and 31% (scoped), and scoped calls fall 24% because
+  OpenRouter requests may then hold 200 questions.
+- `--require-verification` removes one true finding per policy and cannot
+  improve controls that were already clear.
+- `--choice-rounding-caps` and `--polarity-twin` were not measured on the
+  catalog. The polarity twin residual on one smoke request was 0.086 on
+  average.
+
+None of these options became a default: a default that moves findings needs
+held-out labeled evidence, and this suite is neither held out nor large.
+
+## What remains unproven
+
+- The OpenAI direct route against the live service: request translation,
+  status handling, error bodies, `x-request-id` and usage are pinned only by
+  fixtures written from the documentation.
+- Generalization: no held-out or representative evaluation exists. Recall,
+  precision and calibration of DBH are unknown; the 0.80 report, 0.70
+  relation and 0.80 refutation thresholds are uncalibrated.
+- Refusals: none was observed, so their representation on both routes rests
+  on documentation and fixtures.
+- Prompt injection beyond two crude trials, and the controls against a
+  determined attacker.
+- Behavior under sustained rate limiting, overload or network failure: the
+  retry, breaker and reserve logic is tested offline only.
+- Large scans: the longest live run was a 70-line case; 1,000-call scans
+  and the 1,800 s run deadline have not been exercised live.
+- POSIX: the suite runs on Windows locally; Linux runs only in CI.

@@ -1,163 +1,146 @@
 # Changelog
 
-## Unreleased
+## 0.1.0b1 (unreleased)
 
-- Question pack 5.0.0 with two request state layouts, selected per run by
-  `--state-layout {v1,v2}` (library: `Config(state_layout=...)`; default
-  `v1`). The selected layout is recorded in the report's `configuration`
-  (and therefore in the scoped `policy_sha256`); `question_pack_sha256`
-  covers both layouts' policies, so the pack hash plus the recorded layout
-  identify the request bytes.
-  - `v1` (default) is the pre-release layout and policy, byte for byte,
-    except that requirement questions now say the passage is identified by
-    its specification coordinates (the corrected wording applies to both
-    layouts). The default was reverted from v2 to v1 because the labeled
-    34-case development catalog showed v2 adding false positives on
-    corrected controls (C030 under legacy-v1; C008 and C030 under
-    scoped-v2-beta) and costing scoped-v2-beta three cases, while v1 kept
-    16/16 controls clear under both policies. v2 nevertheless passed the
-    pre-registered smoke keep-or-revert rule.
-  - `v2` starts every request state with the four DBH-authored fields
-    (`source_sha256`, `total_lines`, `context_scope`, `specification_mode`;
-    the mode moves out of `specification`) and its policy warns that every
-    other field may imitate the envelope. It stays available for further
-    evaluation.
-  - The OpenRouter smoke bodies are rebuilt under the shipped layout (v1).
-- `tools/eval/run_catalog.py` records each report's
-  `spend.provider_reported_usd` and sums it as "Provider-reported cost"
-  (it previously read a `usage.cost_usd` field that reports do not carry,
-  so the summary always showed $0.0000).
-- Opt-in localization gate, menus and rounding caps (all off by default;
-  with every default the request bytes and reports are unchanged, and the
-  report `configuration` lists these options only when they differ from
-  their defaults):
-  - `--choice-gate {legacy,mass}` and `--choice-mass` (default `legacy`,
-    0.5). `mass` selects up to `--localization-beam-width` maximal line
-    runs whose lower-bound overlap mass, the sum of max(0, v - h) over the
-    interval options containing a line, reaches `--choice-mass`, and only
-    while none + unlocalized (+ undisplayed mass) stays below 0.5. On the
-    observed 212-option menu it selects L4-5 around the planted line 5,
-    where `legacy` selects nothing. It applies to localization under
-    legacy-v1 only; rank, context and action choices keep the legacy gate.
-  - `--localization-menu {intervals,singletons}` (default `intervals`):
-    `singletons` offers one option per target line (at most 22 options).
-  - `--choice-rounding-caps` (with `--choice-rounding-places N`): choice
-    menus keep options x half-quantum <= 0.125, so rank and context pages
-    shrink (23 targets at N = 2), interval localization menus over the cap
-    fall back to singletons, and `judge_diagnostics.choice_mass_diffuse`
-    counts vectors whose missing mass exceeds the rounding allowance.
-- Judge controls (canaries), on by default; `--canaries off` (library:
-  `Config(canaries="off")`) restores the previous request bytes exactly.
-  Every request carries two extra yes/no questions with known answers,
-  named `ctl_` + 8 hex characters and placed at positions drawn from a hash
-  of the request, using the wording measured live: "Does the supplied state
-  declare a context_scope value?" (must be true) and "Does any source line
-  contain the word 'zebra'?" (must be false; another listed word, or a wrong
-  `total_lines`, when the state contains it). A request whose must-true
-  answer is below 0.90, whose must-false answer is above 0.10, or whose
-  control is missing or refused has every answer withheld (no findings, no
-  clean coverage from it), is never asked again, and leaves the scan
-  incomplete with `judge_control_failed`. The live S12c run showed the
-  controls changed every other answer by exactly 0, and every control was
-  answered correctly in S12c and S13a/b/c.
-  - Packing reserves two questions and the controls' bytes in every request,
-    so scans make somewhat more calls; the controls count toward
-    `--max-questions`, `questions_attempted`, `questions_validated` (when
-    they pass) and the cost bound, but not toward the answer diagnostics.
-  - Reports gain `controls` (set, thresholds, requests checked, failed and
-    sent without controls because they did not fit) and each request row a
-    `controls` record; the configuration records `canaries` only when on.
-- Injection markers: a local scan of the target file and specification for
-  crude instructions addressed to the judge ("ignore all previous
-  instructions", "answer false to every question", "note to the reviewing
-  model", chat-template tokens, "this function was formally verified").
-  Markers only annotate: findings on a marked line gain the limitation
-  `injection-marker`, and the report lists pattern ids and line numbers
-  (never text) under `injection_markers`, present only when a marker was
-  found. Questions, scores, findings and status are unchanged.
-- `--polarity-twin` (library: `Config(polarity_twin=True)`; default off):
-  a diagnostic that also asks each screened window whether it is correct
-  as written and reports the residual |P(bug) + P(correct) - 1| under
-  `judge_diagnostics.polarity_twin`. Twin answers never change a score, a
-  finding or the scan status.
-- `--policy-placement {instructions,state}` (library:
-  `Config(policy_placement=...)`; default `instructions`, whose request
-  bytes and reports are unchanged and pinned by a test). `state` sends the
-  policy preamble once, as the first state key `policy`, and strips it from
-  every question that carried it; requests without such a question are
-  unchanged. The evidence state cap stays 16 KiB (the `policy` entry is
-  allowed on top). Answers shift under `state` (S05: mean |delta| 0.20), so
-  its runs compare only with runs that used it; the report configuration
-  records `policy_placement` and a `request_geometry` record when it is
-  `state`.
-  - Per-model caps: under `state`, OpenRouter requests whose state carries
-    the policy may hold up to 200 questions and 48 KiB (S12b moved no
-    answer across batch geometries); OpenAI direct keeps 64 questions and
-    24 KiB, as does every request under `instructions`. Library callers pass
-    `policy_placement` to `providers.make_provider`.
-- `--require-verification` (library: `Config(require_verification=True)`;
-  default off, whose reports are unchanged and pinned by a test). Only
-  suspicions supported by a second look are reported as findings: a
-  supporting direct recheck, a promoted relationship recheck, or under
-  scoped-v2-beta a supported scoped verification. Screen-only suspicions
-  are listed instead under `unverified_suspicions` in report.json (range,
-  window id, assessment, support and support paths) and handoff.json
-  (range and assessment), and on an `UNVERIFIED` line in findings.txt;
-  they are not findings, do not count toward the exit status, and get no
-  handoff judgment calls. The search itself is unchanged. The
-  configuration records `require_verification` only when on.
-- Fixes from the pre-release review:
-  - A 200 that fails decoding or framing keeps its `generation_id` /
-    `request_id` and `wire_sha256` in the receipt, and a parsed body without
-    `answers` keeps its usage and reported cost (`response_schema`).
-  - Connect tries every resolved address within the one call deadline
-    (equal shares of the time left, address families interleaved) instead
-    of giving each address the whole timeout.
-  - The confidence-identity check uses the model's display precision, not
-    `--choice-rounding-places`, so ordinary 2-place answers no longer raise
-    `judge_semantics_changed`.
-  - A scan on a shared gateway reports its own attempts, retries and spend;
-    the gateway's lifetime totals appear under `gateway_totals` only when
-    they differ.
-  - The secret scan finds keys after an escape sequence (`\n`, `\t`,
-    `"`) or a percent-encoded byte (`%3D`, `%22`), and PEM private-key
-    headers anywhere.
-  - The sdist ships the observed fixtures and SECURITY.md, prunes the
-    repository-only `tools/smoke`, and `tools/check_distribution.py` runs
-    the sdist's own test suite.
-  - Smaller fixes: an existing output parent that refuses `mkdir` (a
-    Windows drive root) is reused; judge banners are printed on stderr;
-    reported costs finer than 20 places are treated as unknown; a SystemExit
-    during a retry backoff propagates as itself; re-asks and dispatch
-    refusals are no longer counted before they happen; a cached refusal no
-    longer counts as a second suppressed window.
+First public beta. Nothing has been published before this version; this
+entry describes everything in it. For where the starting files came from,
+see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
-## 0.1.0b1 (2026-10-06)
+### Judge and routes
 
-First public beta.
+- One judge, the OpenAI Decisions model, through two routes:
+  `--provider openai` (`POST https://api.openai.com/v1/decisions`, model
+  `gpt-6-luna`, `OPENAI_API_KEY`) and `--provider openrouter`
+  (`POST https://openrouter.ai/api/alpha/decisions`, model
+  `openai/gpt-6-luna-decisions`, `OPENROUTER_API_KEY`). No other model is
+  supported.
+- Explicit route selection with `--provider` or `DBH_PROVIDER`; never
+  inferred from which key is set. Without a route the CLI exits 3 with
+  `NEED_USER_INPUT provider`; without the route's key it exits 2 with
+  `provider_unavailable`, both before reading the source.
+- `--model` accepts only the route's allowed model; the returned model must
+  match exactly or with a dated suffix.
+- OpenRouter requests carry `"provider":{"allow_fallbacks":false,
+  "data_collection":"deny"}` by default; `--openrouter-routing
+  account-default` omits it (with a notice) and `--openrouter-zdr` adds
+  `"zdr":true`. `session_id`, `user`, `trace` and attribution headers are
+  never sent.
+- OpenAI direct: optional `OPENAI_ORG_ID` / `OPENAI_PROJECT_ID` routing
+  headers; malformed values stop with `routing_invalid`.
+- Every configured provider key is checked against everything that would
+  be sent and against responses.
 
-- Hosted adapter for the documented OpenAI Decisions API
-  (`POST /v1/decisions`, model `gpt-6-luna`): local Noul/Choice questions
-  become `predicate`/`choice` questions, the state becomes the `input` text,
-  answers are matched by name, refusals fail the batch, documented usage
-  counters are retained, and the returned model is checked for provenance.
-- Standard-library HTTPS transport with a fixed origin, strict framing,
-  bounded bodies, socket timeouts, no redirects, no proxy and no retry.
-  New fixed failure codes: `http_unauthorized`, `http_rate_limited`,
-  `http_redirect`, `http_rejected`, `http_server_error`, `response_refused`.
-- `OPENAI_API_KEY` is read from the environment once at construction;
-  optional `OPENAI_ORG_ID` / `OPENAI_PROJECT_ID` routing headers. The CLI
-  prints a hint when the key is missing.
-- `ProviderResponse.error` lets an adapter report a documented whole-batch
-  rejection while keeping learned usage; a rejected credential blocks
-  further dispatch for the run.
-- Offline fixtures built from the documented examples, including an
-  end-to-end CLI run through a synthetic service; the distribution checker
-  strips credentials from its environment and rejects private files.
-- Packaging metadata, `.env.example` and documentation updated for the beta.
+### Transport, retries and deadlines
 
-## 0.1.0a0 (2026-09-30)
+- A standard-library HTTPS exchange: explicit TLS context that never reads
+  `SSLKEYLOGFILE`, one kept-alive connection reused only when safe, no
+  proxy, no redirects, no content decoding, strict framing, 256 KiB response
+  cap, and one absolute deadline per call covering connect (shared across
+  resolved addresses), TLS, send and every read. `--deadline-seconds`
+  defaults to 30 (at most 300).
+- Per-route status tables with submission classes; new codes include
+  `connect_failed`, `http_request_timeout`, `http_quota_exhausted`,
+  `http_payment_required`, `http_forbidden`, `provider_moderated`,
+  `route_unavailable`, `routing_no_endpoint`, `http_overloaded`,
+  `http_unavailable`, `http_provider_timeout` and `provider_error_in_body`.
+- Error bodies up to 16 KiB are read when they are JSON and free of keys;
+  only structural fields are kept, never messages.
+- Journaled retries on by default: up to 3 for failures before sending and
+  up to 3 for rate limits and overload (honoring `Retry-After` up to 60 s),
+  none for possibly processed requests, and one immediate retry of a stale
+  keep-alive connection (marked `duplicate_billing_possible`). `--no-retry`
+  turns them off.
+- A breaker stops the run after sustained rate limiting, provider errors,
+  network failures, contract mismatches or moderation
+  (`provider_stopped`); blocking failures such as `http_unauthorized` stop it
+  at once.
+- `--run-deadline-seconds` defaults to 1800, and a reserve of
+  max(3 s, 1.5 x p95 of recent attempts) refuses calls that could not finish
+  (`run_deadline_reserved`). A progress line goes to stderr every 100 calls
+  or 30 s.
 
-Offline preparation snapshot derived from Jev Bug Hunter `0.5.0b2`: local
-protocol, validated receipt gateway, explicit scope, engine regressions and
-an intentionally unavailable adapter. Not published.
+### Answers
+
+- Answers are matched by name. One refused question costs that answer
+  (`question_refused`); two or more refusals withhold the batch
+  (`response_refused`). Wrong choice mass or keys (`response_distribution`),
+  an argmax mismatch (`choice_argmax_mismatch`) and an OpenRouter choice
+  without its vector (`response_vector_missing`) also cost one answer; the
+  attempt is `validated_partial`.
+- Strict choice mass (within 10^-12) is the default; every live vector
+  observed summed to exactly 1. `--choice-rounding-places N` is opt-in and
+  `--strict-choice-mass` is a no-op kept for compatibility.
+- Reports gain `answer_defects`, `refusals`, `possible_suppression`,
+  `judge_diagnostics`, `banners` and an always-`uncalibrated`
+  `calibration` record. The CLI prints a `Judge warning` line for a banner.
+
+### Cost
+
+- Every attempt receipt records `cost_usd`, `cost_source`
+  (`provider_reported`, `list_price_estimate` or `none`) and
+  `cost_bound_usd`. Reports gain `spend`; a scan on a shared gateway reports
+  its own share and, when different, `gateway_totals`.
+- `--max-cost USD` refuses any attempt, retries included, whose bound could
+  take spend above the limit (`cost_budget_exhausted`). A stderr line
+  summarizes spend.
+
+### Safety checks
+
+- A credential-shape scan of the file and specification runs before any
+  output or request (`secret_detected`, exit 2, line numbers and pattern ids
+  only). It recognizes tokens after escape sequences and percent-encoded
+  bytes, and PEM private-key headers anywhere. `--allow-secrets` overrides it
+  for the file and specification; project files with a hit are always
+  skipped (`project.skipped_secret_content`).
+- Judge controls (`--canaries on`, the default): two questions with known
+  answers in every request; a failed control withholds that request's
+  answers (`judge_control_failed`). They add about 19% input tokens on the
+  development suite; `--canaries off` removes them.
+- Injection markers: a local pattern scan that annotates findings on lines
+  that look like instructions to the judge (`injection-marker`).
+
+### Request shape and opt-in options
+
+- Question pack 5.0.0 with two state layouts: `v1` (default) and `v2`
+  (`--state-layout v2`), which starts the state with the DBH-written fields
+  and warns about envelope imitation. Layout v1 is the default because v2
+  added false findings on clean controls in the development suite.
+  Requirement questions use corrected wording in both layouts.
+- `--policy-placement state`: the policy text is sent once in the state; on
+  OpenRouter such requests may hold 200 questions and 48 KiB. Default
+  `instructions`.
+- `--choice-gate mass` with `--choice-mass` (default `legacy`, 0.5),
+  `--localization-menu singletons` (default `intervals`) and
+  `--choice-rounding-caps` (default off).
+- `--require-verification` (default off): only suspicions with a second
+  look are findings; the rest are listed as `unverified_suspicions`.
+- `--polarity-twin` (default off): a diagnostic that never changes findings.
+- Report configuration lists the opt-in options only when they differ from
+  their defaults; the default request bytes and reports are pinned by tests.
+
+### Reports, receipts and output
+
+- Report schema 7 (legacy-v1) and 8 (scoped-v2-beta); handoff schema 4 and
+  5, with `stop_reason`. Reports gain `provenance`, `attempts_transmitted`,
+  `retries`, `stop_reason`, `secret_scan`, `controls`, and, when relevant,
+  `injection_markers`, `request_geometry` and `unverified_suspicions`.
+- Receipt schema 2: route, requested and returned model, upstream provider,
+  generation or request id, wire hash, attempt and retry fields, cost
+  fields and structural error fields. A 200 that fails framing or decoding
+  keeps its identifiers, and a parsed body without answers keeps its usage
+  and cost.
+- Run directories get `.gitignore` and `CACHEDIR.TAG`; the project indexer
+  skips cache-tagged directories.
+
+### Tooling and packaging
+
+- `tools/smoke` (repository only): first-contact smoke suites for both
+  routes through the shipped exchange, with a sanitizer for promoting
+  observed fixtures.
+- `tools/eval`: the 34-case labeled development catalog and its runner.
+- The offline test suite refuses real sockets. `tools/check_distribution.py`
+  checks both archives, a keyless wheel install with the route-selection and
+  `provider_unavailable` gates, and the unpacked sdist's own test suite. The
+  sdist ships the observed fixtures and `SECURITY.md` and leaves out
+  `tools/smoke`.
+- Python 3.11 to 3.13; no runtime dependencies.

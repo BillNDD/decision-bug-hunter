@@ -1,57 +1,56 @@
-# Provenance and retained scope
+# Provenance
 
-Prepared against public [BillNDD/jev-bug-hunter](https://github.com/BillNDD/jev-bug-hunter)
-on 2026-09-30:
+Decision Bug Hunter is a standalone repository with its own history. It is
+not a branch or fork of another project, and it does not import another
+project's Git history.
 
-- Selected branch: `beta/v0.5.0b1`.
-- Selected commit: `339f245f2169b9baf0ebbf406497c6a8422408db`.
-- Package/release: `0.5.0b2`; original `v0.5.0b1` tag is distinct.
-- Default `main` observed at `fcaacdeedf07561b18721ca3a5f16d528de7e709`.
-- Upstream license: MIT, retaining **Copyright (c) 2026 Jev Bug Hunter contributors**
-  in this repository's LICENSE. DBH additions are also MIT.
+## Starting point
 
-This is a new root-history repository prepared from selected public files,
-with no imported upstream Git history or private working checkout. JBH continues
-using Jev independently.
+DBH started on 2026-09-30 from selected public files of the MIT-licensed
+[Jev Bug Hunter](https://github.com/BillNDD/jev-bug-hunter) at commit
+`339f245f2169b9baf0ebbf406497c6a8422408db` (package `0.5.0b2`). The
+[LICENSE](../LICENSE) keeps that project's notice, **Copyright (c) 2026 Jev
+Bug Hunter contributors**, next to DBH's own; DBH's additions are also MIT.
 
-Retained: source snapshot/line geometry, deterministic byte-bounded question
-packing, window/localization logic, evidence/repository safety, independent
-verification, scoped claims and refutation, compact handoff, offline evaluation,
-the question pack, and relevant deterministic regression tests. The default
-search policy stays `legacy-v1`; `scoped-v2-beta` remains experimental. Report,
-relation and refutation thresholds remain 0.80, 0.70 and 0.80. They are uncalibrated.
+Kept from the starting files, and changed since where noted elsewhere:
+source snapshots and line geometry, byte-bounded question packing, window
+and localization logic, evidence search and repository safety, independent
+rechecks, scoped claims and refutation, the compact handoff, offline
+evaluation helpers, the question pack, and the deterministic regression
+tests that cover them. The `legacy-v1` and `scoped-v2-beta` search policies
+and the 0.80 / 0.70 / 0.80 report, relation and refutation thresholds come
+from there and remain uncalibrated.
 
-Changed: distribution/package/CLI identity, pure local protocol extraction,
-provider provenance, strict-by-default probability mass, generic single-attempt
-receipt gateway, packaging scope, and fixtures that formerly patched Jev
-transport. Legacy internal Noul/Choice mechanics are documented as engine
-requirements rather than a Decisions service schema.
+Replaced or new in DBH: the judge (the OpenAI Decisions model only, directly
+or through OpenRouter), the hosted adapters and HTTPS exchange, explicit
+route selection, retries, the breaker and spend accounting, answer-scoped
+defects, the receipt schema, the secret scan, judge controls, injection
+markers, the tier-2 options, packaging and the CLI identity.
 
-Excluded: Jev HTTP endpoint/model/credential loading, hosted worker/transport,
-provider-specific transport tests, live acceptance/campaign/witness machinery,
-benchmark tools/data, generated run reports, audit bundles, transcripts, private
-datasets, prior engineering histories and unrelated assets. Replaced distribution
-checks inspect only DBH runtime, necessary docs, tools and offline tests.
+Excluded: the Jev endpoint, the Jev model and its credential loading, its
+hosted worker and transport and their tests, the upstream live acceptance,
+campaign and witness machinery, benchmark data, generated reports, audit
+bundles and transcripts. DBH sends nothing to that endpoint and supports no
+model other than the Decisions model.
 
-Upstream [beta validation](https://github.com/BillNDD/jev-bug-hunter/blob/339f245f2169b9baf0ebbf406497c6a8422408db/docs/BETA2_VALIDATION.md)
-records 10/16 defective programs detected, 11/17 individual defects covered,
-16/16 corrected controls clear, 2/2 missing-evidence cases incomplete and a failed
-full outcome gate. Six misses include empty-input division, a half-open bound,
-loop early return, unit conversion, a cross-file limit and SQL NULL semantics.
-These Jev development results do not transfer to Decisions or DBH.
+## Ported evaluation cases
+
+`tools/eval/catalog.py` ports the 34 labeled synthetic cases of the upstream
+file `acceptance/catalog.py` (catalog revision `bounded-builtins-v2`) at the
+commit above, under the MIT notice, with an attribution header in the file.
+Only the case definitions were copied; the upstream executable witness
+checks were dropped because DBH never runs target code.
+`tools/eval/run_catalog.py` scores DBH's reports with the same outcome rules
+the upstream suite used. The cases are used for development evaluation only;
+they are public and not a held-out benchmark.
 
 ## Decisions documentation
 
-The hosted adapter added in `0.1.0b1` was written from the public
-[Decisions guide](https://developers.openai.com/api/docs/guides/decisions),
-[API reference](https://developers.openai.com/api/reference/resources/decisions)
-and the [changelog](https://developers.openai.com/api/docs/changelog) entry of
-2026-10-06 announcing the public beta with `gpt-6-luna`. The transport design
-mirrors the upstream Jev adapter's fixed-origin, strict-framing, no-retry
-pattern, reimplemented for the documented Decisions shapes. No OpenAI SDK
-code is used or vendored. No provider account access was tested.
+The direct OpenAI adapter was written from the public Decisions guide, API
+reference and changelog of 2026-10-06. The OpenRouter adapter was written
+from the observed behavior of `POST /api/alpha/decisions` on 2026-10-06 (see
+[VALIDATION.md](VALIDATION.md)). No OpenAI or OpenRouter SDK code is used or
+vendored.
 
-This preparation does not claim a novel detection algorithm or new scientific
-effectiveness result. Fresh deterministic regressions establish reproducible
-local behavior only; live-service and held-out evidence remain separate gates.
-See [release gates](RELEASE_GATES.md).
+DBH does not claim a novel detection algorithm or a new effectiveness
+result; see [RELEASE_GATES.md](RELEASE_GATES.md).

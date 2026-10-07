@@ -14,8 +14,15 @@ request) and the route's provider (`OpenRouterProvider` splice and routing
 default, or `DecisionsProvider` translation). Nothing here uses urllib. The
 suites continue after a network failure and record it.
 
-The full OpenRouter suite is about 48 requests and 185k input tokens, roughly
-two cents at the listed $0.10 per 1M input tokens.
+This directory is repository-only: the sdist leaves it out, and the tests
+that need it skip there. The request bodies are built for the shipped state
+layout (`v1`); the pre-registered layout checks ran on `v2` bodies before
+the default was reverted (see `docs/VALIDATION.md`).
+
+The full OpenRouter suite is 48 requests. Its run on 2026-10-07 used about
+230,600 input tokens and cost $0.0231 at the listed $0.10 per 1M input
+tokens. The direct OpenAI suite has not been run against the live service.
+Results of the OpenRouter runs are summarized in `docs/VALIDATION.md`.
 
 ## Operator rules
 
@@ -103,7 +110,7 @@ model DBH no longer targets) is dropped and can never be promoted.
 | S11 | body | What `confidence` means relative to the probabilities |
 | S12 | body | S02 five times: run-to-run noise |
 | S12b | splice | Batch geometry: max \|delta\| against S02s above 0.02 enters the calibration key |
-| S12c | splice | S02s plus the two canaries: max \|delta\| above 0.02 keeps canaries off |
+| S12c | splice | S02s plus the two canaries: max \|delta\| above 0.02 would have kept canaries off (observed: 0) |
 | S13a, S13b | body | Prompt injection with must-true and must-false canaries |
 | S13c | splice | Injection under the shipped pack and layout, plus a policy-in-state cell |
 | S14-1..8 | body | Four planted bugs and four clean twins: separation preview, not calibration |

@@ -1,25 +1,31 @@
 # Release gates
 
-Status for `0.1.0b1` as of 2026-10-06. "Satisfied" means evidence exists in
-this repository; "open" means the gate depends on a live account, budget or
-dataset that this preparation did not use. Offline fixtures and upstream Jev
-campaigns cannot satisfy a live-service gate.
+Status for `0.1.0b1` (unreleased). "Satisfied" means the evidence is in this
+repository or in [VALIDATION.md](VALIDATION.md); "open" means it does not
+exist yet. Offline fixtures cannot satisfy a live-service gate.
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | Official endpoint, schema and terms | **Satisfied for documentation.** The [guide](https://developers.openai.com/api/docs/guides/decisions), [reference](https://developers.openai.com/api/reference/resources/decisions) and [changelog](https://developers.openai.com/api/docs/changelog) of 2026-10-06 document `POST /v1/decisions`, bearer authentication, `gpt-6-luna`, predicate/choice/score answers with probabilities and confidence, refusal answers, the usage object, input-only pricing, ZDR/HIPAA/data-residency support and public-beta status. No question-count, option-count or precision limits are documented. Account access was **not** verified. |
-| 2 | Engine requirements met by the API | **Satisfied by documentation, unverified live.** Predicates return P(true); choices return a full vector plus confidence; native batching with name-matched answers in question order is documented. Independence of same-request questions, probability precision and ordering guarantees rest on the documentation alone. The strict-mass default is a local policy; `--choice-rounding-places` exists if live replies are rounded. |
-| 3 | Adapter implementation | **Satisfied.** `decision_bug_hunter/decisions.py` implements only the documented translation and a fixed-origin stdlib transport: bounded bodies, socket timeouts, no redirects, no proxy, no retry, suppressed error bodies, fixed codes for auth/rate/redirect/server failures, refusal handling, usage retention on semantic failure, credential isolation and receipts. |
-| 4 | Fixtures and installed-wheel checks | **Satisfied.** `tests/test_decisions.py` fixes the documented request and response examples, framing, status, timeout, refusal, usage and leak behavior, plus an end-to-end CLI run through a synthetic service. `tools/check_distribution.py` installs the wheel into a fresh environment without a key and checks the `provider_unavailable` gate. |
-| 5 | Credentials and budget | **Open.** No credential, grant, paid call or access request was used. The operator supplies `OPENAI_API_KEY` and accepts provider pricing; DBH bounds work by calls, questions, windows and deadlines but does not reserve or settle money. |
-| 6 | Live compatibility and effectiveness | **Open.** No live request has been made. Recommended first live check: a small file with `--scope standalone`, inspecting `report.json` issues for `response_distribution`, `response_refused`, `http_*` codes and unknown usage. No labeled holdout has been run; no recall, precision or calibration claim is made for DBH. |
-| 7 | Offline regressions, lint, types, build, packaging, scans | **Satisfied locally** on Windows / Python 3.12 (see [VALIDATION.md](VALIDATION.md)); the GitHub Actions matrix (Ubuntu and Windows, Python 3.11–3.13) runs on push. The tracked tree and reachable history were scanned for credentials, private paths, personal identifiers and unnecessary assets; commits use an anonymous contributor identity. |
-| 8 | Repository and release authorization | **Operator decision.** The packaging metadata assumes `https://github.com/BillNDD/decision-bug-hunter`. Creating the repository, pushing, tagging `v0.1.0b1` and publishing a release are the operator's actions. |
+| 1 | Endpoint, schema and terms | **Satisfied.** OpenAI direct: written from the public Decisions guide, API reference and changelog of 2026-10-06 (`POST /v1/decisions`, `gpt-6-luna`). OpenRouter: response shape, model echo with a dated suffix, usage with cost, error bodies, the 200-question limit and the routing privacy options were observed live on 2026-10-06. |
+| 2 | Engine requirements met by the judge | **Satisfied on OpenRouter; documentation only on OpenAI direct.** Live: noul answers are probabilities, every choice answer carried a full vector and a confidence, all 61 vectors summed to exactly 1 at two decimals, argmax matched the choice 61/61, and repeated requests were byte-identical. Strict mass stays the default. |
+| 3 | Adapter and gateway | **Satisfied.** Both routes share a deadline-bounded exchange (explicit TLS context, keep-alive reuse, no proxy, no redirects), per-route status tables, bounded error-body reading that keeps structural fields only, journaled retries with a breaker and a run reserve, answer-scoped refusals and defects, spend accounting with `--max-cost`, and a credential-shape scan. See the [provider contract](PROVIDER_CONTRACT.md). |
+| 4 | Offline fixtures and distribution checks | **Satisfied.** The offline suite forbids sockets and runs with dummy keys. `tools/check_distribution.py` inspects both archives, installs the wheel without keys, checks the exit-3 route selection and exit-2 `provider_unavailable` gates for both routes, and runs the unpacked sdist's test suite. Sanitized live response fixtures are under `tests/fixtures/openrouter/observed/2026-10-06/`. |
+| 5 | Credentials and spend | **Satisfied for OpenRouter.** Live runs used an operator key with a credit cap, read from the environment only; about $0.88 was spent in total. Every attempt records its cost, and `--max-cost` refuses attempts that could exceed a limit. **Not exercised on OpenAI direct.** |
+| 6 | Live compatibility | **OpenRouter: satisfied** (smoke suites of 32 and 48 requests, and 18 full catalog runs totaling about 4,400 calls). **OpenAI direct: open**; offline-fixture only. The direct-route smoke suite (`tools/smoke/run_openai.py`) has not been run. |
+| 7 | Effectiveness | **Development evidence only.** On the 34-case public development suite the shipped defaults pass 31/34 (legacy-v1) and 32/34 (scoped-v2-beta) with 16/16 controls clear. The suite is synthetic, small and not held out. No held-out evaluation exists; no recall, precision or calibration claim is made. |
+| 8 | Final release evaluation | **Pending.** The catalog rerun at the release commit: [PENDING: to be filled in from the final release evaluation]. |
+| 9 | Judge controls and injection | **Partly satisfied.** Controls passed in all 523 live requests of the canary runs and did not move other answers. Two crude injection attempts failed live. No held-out injection set has been run; controls and markers catch crude attempts only. |
+| 10 | Offline regressions, lint, types, build | **Satisfied locally** on Windows 11 with Python 3.12 and 3.13 (see [VALIDATION.md](VALIDATION.md)). The GitHub Actions matrix (Ubuntu and Windows, Python 3.11 to 3.13) runs on push and has not run for this tree yet. |
+| 11 | Repository and release | **Operator decision.** The packaging metadata names `https://github.com/BillNDD/decision-bug-hunter`. Creating the repository, pushing, tagging `v0.1.0b1` and publishing are the operator's actions. |
 
 ## Changes that require new evidence
 
-Engine thresholds, budgets, probability-mass policy and the question pack are
-unchanged from the offline foundation. Changing any of them, or adding the
-`score` type, image input, retries, backoff or proxy support, requires a
-reviewed change with new fixtures and, where behavior depends on the service,
-live evidence.
+- A default that moves findings (thresholds, the choice gate, the
+  localization menu, policy placement, verification gating, the state
+  layout, the question pack) needs held-out labeled evidence, not only the
+  development suite.
+- A change to request bytes, routing, retries, status tables or the answer
+  decoders needs updated offline fixtures and a live smoke run on the route
+  it affects.
+- A new model or route needs its own allow-list entry, price table, fixtures
+  and live smoke evidence.
