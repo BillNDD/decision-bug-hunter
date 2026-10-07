@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from decimal import (ROUND_CEILING, ROUND_HALF_EVEN, Context, Decimal, DivisionByZero,
                      InvalidOperation, Overflow)
 import hashlib
+import json
 import math
 import os
 from pathlib import Path
@@ -19,7 +20,7 @@ import time
 from typing import Any, Protocol, TextIO
 import uuid
 
-from .protocol import (ERROR_CODES, ProviderError, _json, _metadata, encode_request,
+from .protocol import (ERROR_CODES, ProviderError, _metadata, encode_request,
                        plain, validate_answer_objects_scoped, validate_usage,
                        _rounding_profile)
 
@@ -549,20 +550,27 @@ def _sync_directory(directory: Path) -> None:
         os.close(handle)
 
 
-def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
-    """Durable atomic journal transition; no request or raw response bodies.
+def _decimal_str(value: object) -> str:
+    """JSON default for receipts: exact Decimal strings, as ``plain`` writes them."""
+    if isinstance(value, Decimal):
+        return str(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
-    The file is fsynced before the rename. The directory is not: the gateway
-    syncs it after each dispatching write and once at ``close()`` (ADR-9,
-    F23), so a crash right after a settlement can at worst leave the
-    dispatching receipt, which records a possible submission.
-    """
+
+def _receipt_bytes(receipt: dict[str, Any]) -> bytes:
+    """Receipt wire bytes; equal to ``_json(plain(receipt))`` for every receipt."""
+    return json.dumps(receipt, ensure_ascii=False, separators=(",", ":"),
+                      allow_nan=False, default=_decimal_str).encode("utf-8")
+
+
+def _durable_write(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` through a fsynced temporary file and a rename."""
     temp: Path | None = None
     error = False
     try:
         with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
             temp = Path(stream.name)
-            stream.write(_json(plain(receipt)))
+            stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, path)
@@ -578,6 +586,22 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
                 error = True
     if error:
         raise ProviderError("receipt_failed")
+
+
+def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
+    """Durable atomic journal transition; no request or raw response bodies.
+
+    The file is fsynced before the rename. The directory is not: the gateway
+    syncs it after each dispatching write and once at ``close()`` (ADR-9,
+    F23), so a crash right after a settlement can at worst leave the
+    dispatching receipt, which records a possible submission.
+    """
+    try:
+        data = _receipt_bytes(receipt)
+    except Exception:
+        # Serialization fails before any file exists: nothing to clean up.
+        raise ProviderError("receipt_failed") from None
+    _durable_write(path, data)
 
 
 #: Dispatch refusals that never become an attempt (the engine does not count
@@ -672,6 +696,7 @@ class ValidatedGateway:
         self.model_id = provider.identity.model
         self.synthetic = provider.identity.synthetic
         self.receipt_dir = Path(receipt_dir)
+        self._receipt_dir_ready = False
         self.deadline_seconds = deadline
         self.rounding_places = rounding_places
         self.retry_policy = policy
@@ -1204,9 +1229,20 @@ class ValidatedGateway:
         its terminal state not yet written; the caller settles it.
         """
         try:
-            self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if not self._receipt_dir_ready:
+                self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                self._receipt_dir_ready = True
             self.check_sensitive(str(path), receipt)
-            _write_receipt(path, receipt)
+            try:
+                _write_receipt(path, receipt)
+            except ProviderError:
+                if self.receipt_dir.is_dir():
+                    raise
+                # The directory was removed after it was created: recreate it
+                # once and retry this one write. A second failure takes the
+                # receipt_failed path below.
+                self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                _write_receipt(path, receipt)
             # The dispatching receipt must survive a crash before dispatch:
             # its directory entry is made durable here, settlements skip it.
             self._dispatch_writes += 1

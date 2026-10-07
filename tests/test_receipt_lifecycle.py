@@ -108,7 +108,7 @@ class ReceiptLifecycleSmokeTests(unittest.TestCase):
 
                 def write(path, receipt):
                     if receipt["status"] == "dispatching":
-                        target, attr = ((p, "_json") if boundary == "serialization" else (p.os, boundary))
+                        target, attr = ((p, "_receipt_bytes") if boundary == "serialization" else (p.os, boundary))
                         with patch.object(target, attr, side_effect=OSError("synthetic disk failure")):
                             original(path, receipt)
                     else:
@@ -133,7 +133,7 @@ class ReceiptLifecycleSmokeTests(unittest.TestCase):
 
                 def write(path, receipt):
                     if receipt["status"] == "validated":
-                        target, attr = ((p, "_json") if boundary == "serialization" else (p.os, boundary))
+                        target, attr = ((p, "_receipt_bytes") if boundary == "serialization" else (p.os, boundary))
                         with patch.object(target, attr, side_effect=OSError("synthetic disk failure")):
                             original(path, receipt)
                     else:
