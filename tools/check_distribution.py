@@ -16,6 +16,7 @@ import zipfile
 SDIST_REQUIRED = ("LICENSE", "README.md", "SECURITY.md", "pyproject.toml", "tests/support.py",
                   "tests/test_provider_boundary.py", "tools/check_distribution.py",
                   "tools/eval/catalog.py", "tools/eval/run_catalog.py",
+                  "tools/bench/bench.py", "tools/bench/scenarios.py", "tools/bench/golden.json",
                   "tests/fixtures/openrouter/observed/2026-10-06/index.json",
                   "tests/fixtures/openrouter/observed/2026-10-06/S02.json")
 #: The labeled catalog is a port; its MIT attribution must travel with it.
