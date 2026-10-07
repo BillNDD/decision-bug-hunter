@@ -103,7 +103,8 @@ class PreparationEquivalenceTests(unittest.TestCase):
     def test_rank_serialization_is_per_page_not_per_target(self):
         from decision_bug_hunter import questions
         targets = [Span(i, i) for i in range(1, 201)]
-        with patch.object(questions, "encode_request", wraps=encode_request) as encoder:
+        with patch.object(questions, "_encode_owned_state",
+                          wraps=questions._encode_owned_state) as encoder:
             result = screening(self.pack, Span(1, 200), targets,
                                bug_lenses=False, state={"text": "x" * 15000})
         pages = sum(key.startswith("rank_") for key in result)

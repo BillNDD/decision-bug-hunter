@@ -11,7 +11,7 @@ from importlib.resources import files
 
 from .core import Source, Span, physical_lines, STATE_LAYOUTS, DEFAULT_STATE_LAYOUT
 from .protocol import (encode_request, ProviderError, MAX_STATE_BYTES,
-                  CONTRACT_VERSION, _snapshot, _json, validate_questions,
+                  _REQUEST_PREFIX, _snapshot, _json, validate_questions,
                   _encode_validated_request, place_policy, request_envelope)
 
 #: Default request state layout (ADR-5(4)). ``"v1"`` is the pre-release layout
@@ -182,6 +182,9 @@ def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE, reserve_by
     if type(max_page) is not int or not 1 <= max_page <= MAX_RANK_PAGE:
         raise ValueError("invalid_rank_page_size")
     pages, page, entries, added, prepared = [], [], {}, 0, False
+    # JSON of the state under each placement flag, encoded once and reused by
+    # every page that has the same placement (see _encode_owned_state).
+    wires = {}
     for target in targets:
         if state is not None and not prepared:
             try:
@@ -193,9 +196,13 @@ def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE, reserve_by
                 placed_state, placed_questions, placed = place_policy(state,
                                                                       {"rank": template})
                 _count, request_limit, state_limit = request_envelope().limits(placed)
-                state_fits = len(_json(placed_state)) <= state_limit
-                base = len(_json({"contract": CONTRACT_VERSION, "state": placed_state,
-                                  "questions": placed_questions}))
+                placed_wire = _json(placed_state)
+                wires[placed] = placed_wire
+                state_fits = len(placed_wire) <= state_limit
+                # len(_json({"contract": ..., "state": placed_state, "questions": ...}))
+                # with the same separators, so the arithmetic is exact.
+                base = (len(_REQUEST_PREFIX) + len(placed_wire) + len(b',"questions":')
+                        + len(_json(placed_questions)) + 1)
                 prepared = True
             except ProviderError:
                 raise
@@ -226,13 +233,42 @@ def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE, reserve_by
     if state is not None:
         for page in pages:
             try:
-                encode_request(state, {"rank": choice(pack, "rank", region, page)})
+                _encode_owned_state(state, wires, {"rank": choice(pack, "rank", region, page)})
             except ProviderError as exc:
                 # The existing contract retains an oversized singleton as a
                 # named question failure for the execution layer to record.
                 if exc.code != "request_too_large" or len(page) != 1:
                     raise
     return pages
+
+
+def _encode_owned_state(state, wires, questions):
+    """``encode_request(state, questions)`` for a private, snapshotted *state*.
+
+    The checks, their order and their error codes are those of
+    ``encode_request``: question snapshot, policy placement, limits, question
+    validation, the state cap, then the envelope cap. *wires* maps a placement
+    flag to the JSON of *state* under that placement, so pages sharing a
+    placement do not encode the state again. The caller must not mutate
+    *state* or *wires* between calls.
+    """
+    try:
+        if type(state) is not dict:
+            raise ProviderError("invalid_request")
+        qs = _snapshot(questions)
+        copied, qs, placed = place_policy(state, qs)
+        max_questions, _request, state_limit = request_envelope().limits(placed)
+        validate_questions(qs, max_questions)
+        state_wire = wires.get(placed)
+        if state_wire is None:
+            state_wire = wires[placed] = _json(copied)
+        if len(state_wire) > state_limit:
+            raise ProviderError("request_too_large")
+        return _encode_validated_request(state_wire, _json(qs))
+    except ProviderError:
+        raise
+    except Exception:
+        raise ProviderError("invalid_request") from None
 
 
 def action_choice(pack, span, options):
