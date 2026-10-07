@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from decision_bug_hunter import __main__ as cli
-from decision_bug_hunter import decisions
+from decision_bug_hunter import decisions, providers
 from decision_bug_hunter.decisions import (DecisionsProvider, translate_request,
                                            translate_response)
 from decision_bug_hunter.protocol import ProviderError, QUESTION, _json, encode_request
@@ -146,8 +146,11 @@ class AdapterExchangeTests(unittest.TestCase):
         provider = DecisionsProvider(KEY, environ={} if environ is None else environ)
         gateway = ValidatedGateway(provider, self.root / "receipts")
         self.addCleanup(gateway.close)
+        # A frozen gateway clock: the call deadline is absolute from before the
+        # dispatching receipt, so journal time would otherwise shrink it.
         with patch.object(decisions.http.client, "HTTPSConnection",
-                          return_value=connection) as factory, no_network():
+                          return_value=connection) as factory, no_network(), \
+                patch("decision_bug_hunter.providers.time.monotonic", return_value=100.0):
             try:
                 outcome = gateway.evaluate(state, QUESTIONS, metadata=METADATA)
             except ProviderError as exc:
@@ -190,7 +193,9 @@ class AdapterExchangeTests(unittest.TestCase):
         provider = DecisionsProvider(KEY, environ={"OPENAI_ORG_ID": "bad\r\nInjected: 1"})
         with self.assertRaises(ProviderError) as caught:
             provider.require_available()
-        self.assertEqual(caught.exception.code, "provider_unavailable")
+        # A credential is present; the defect is the routing id (WP-03).
+        self.assertEqual(caught.exception.code, "routing_invalid")
+        self.assertNotIn("Injected", str(caught.exception))
 
     def test_chunked_framing_is_accepted(self):
         body = documented()
@@ -380,6 +385,25 @@ class AdapterExchangeTests(unittest.TestCase):
             with self.assertRaises(ProviderError) as caught:
                 provider.decide(ProviderRequest(encode_request(STATE, QUESTIONS), float("nan")))
             self.assertEqual(caught.exception.code, "invalid_deadline")
+            # Through the gateway: a budget spent by the intent journal is
+            # refused before dispatch and recorded as never submitted.
+            with tempfile.TemporaryDirectory() as td:
+                gateway = ValidatedGateway(provider, Path(td) / "receipts")
+                self.addCleanup(gateway.close)
+                clock = [100.0]
+                original = providers._write_receipt
+
+                def slow_intent(path, receipt):
+                    original(path, receipt)
+                    clock[0] = 200.0
+
+                with patch.object(providers.time, "monotonic", side_effect=lambda: clock[0]), \
+                        patch.object(providers, "_write_receipt", side_effect=slow_intent):
+                    with self.assertRaises(ProviderError) as caught:
+                        gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
+                self.assertEqual(caught.exception.code, "deadline_exceeded")
+                receipt = json.loads(Path(gateway.last_receipt).read_text(encoding="utf-8"))
+                self.assertIs(receipt["submission_possible"], False)
 
 
 class AvailabilityTests(unittest.TestCase):

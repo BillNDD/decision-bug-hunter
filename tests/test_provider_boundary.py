@@ -220,7 +220,9 @@ class ProviderBoundaryTests(unittest.TestCase):
 
     def test_late_answer_is_failed_and_usage_retained(self):
         gateway, _ = self.gateway(ProviderResponse(self.good, {"input_tokens": 1, "output_tokens": 1}))
-        with patch("decision_bug_hunter.providers.time.monotonic", side_effect=[1.0, 32.0, 32.0]):
+        # Clock reads: deadline fixed, dispatch, late check, elapsed.
+        with patch("decision_bug_hunter.providers.time.monotonic",
+                   side_effect=[1.0, 1.0, 32.0, 32.0]):
             with self.assertRaises(ProviderError) as caught:
                 self.evaluate(gateway)
         self.assertEqual(caught.exception.code, "deadline_exceeded")

@@ -122,6 +122,7 @@ class ReceiptLifecycleSmokeTests(unittest.TestCase):
                 self.assertEqual(self.saved(gateway)["status"], "failed")
                 self.assertEqual(self.saved(gateway)["error"], "receipt_failed")
                 self.assertIsNone(self.saved(gateway)["answers"])
+                self.assertFalse(self.saved(gateway)["submission_possible"])
                 self.assert_private(gateway)
 
     def test_terminal_faults_never_release_valid_answers_or_clear_intent(self):
@@ -169,7 +170,8 @@ class ReceiptLifecycleSmokeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "run_deadline_exceeded")
         self.assertEqual(provider.requests, [])
         self.assertEqual(self.saved(gateway)["error"], "run_deadline_exceeded")
-        self.assertTrue(self.saved(gateway)["submission_possible"])
+        # Refused before the provider call: nothing can have been submitted.
+        self.assertFalse(self.saved(gateway)["submission_possible"])
 
     def test_malformed_batch_retains_usage_and_fails_atomically(self):
         gateway, provider = self.gateway(response=p.ProviderResponse(

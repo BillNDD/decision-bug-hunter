@@ -268,7 +268,9 @@ class DecisionsProvider:
     Without a usable ``OPENAI_API_KEY`` every operation raises
     ``provider_unavailable`` before any source read, output or network use.
     Optional ``OPENAI_ORG_ID`` and ``OPENAI_PROJECT_ID`` become the routing
-    headers used by the official SDKs. Later environment changes are not read.
+    headers used by the official SDKs; a malformed value raises
+    ``routing_invalid`` the same way, and the value itself is never kept,
+    journaled or printed. Later environment changes are not read.
     """
 
     identity = ProviderIdentity(PROVIDER_NAME, model=MODEL)
@@ -279,18 +281,24 @@ class DecisionsProvider:
         key = env.get(CREDENTIAL_VARIABLE, "") if api_key is None else api_key
         self._api_key = _token(key)
         self._routing: dict[str, str] = {}
+        self._routing_invalid = False
         for variable, header in ((ORGANIZATION_VARIABLE, "OpenAI-Organization"),
                                  (PROJECT_VARIABLE, "OpenAI-Project")):
             value = env.get(variable, "")
             if value:
                 if _token(value) is None:
-                    self._api_key = None
+                    self._routing_invalid = True
                 else:
                     self._routing[header] = value
+        if self._routing_invalid:
+            # No partial routing: a request never goes out with one header.
+            self._routing = {}
 
     def require_available(self) -> None:
         if self._api_key is None:
             raise ProviderError("provider_unavailable")
+        if self._routing_invalid:
+            raise ProviderError("routing_invalid")
 
     def check_sensitive(self, *values: Any) -> None:
         """Reject the literal active credential anywhere in local data."""

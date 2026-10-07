@@ -1482,7 +1482,8 @@ class Search:
                               "unreadable_files": self.project.unreadable_files,
                               "unreadable_directories": self.project.unreadable_directories,
                               "limited_line_count": self.project.limited_line_count,
-                              "deadline_exceeded": self.project.deadline_exceeded}
+                              "deadline_exceeded": self.project.deadline_exceeded,
+                              "skipped_cache_dirs": self.project.skipped_cache_dirs}
                              if self.project is not None else None)}
         result["handoff"] = compact_report(result)
         if self.scoped:

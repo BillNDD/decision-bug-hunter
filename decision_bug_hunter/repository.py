@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import stat
 import time
 
 from .core import Source
@@ -11,8 +12,27 @@ from .core import Source
 _SKIP_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache",
     ".ruff_cache", ".tox", ".nox", ".venv", "venv", "node_modules",
-    "dist", "build", "decision_bug_hunter_runs",
+    "dist", "build", "decision_bug_hunter_runs", "dbh_runs", "smoke-results",
 }
+
+#: The Cache Directory Tagging signature (https://bford.info/cachedir/).
+CACHEDIR_SIGNATURE = b"Signature: 8a477f597d28d172789f06886806bc55"
+
+
+def _cache_tagged(directory: Path) -> bool:
+    """True when *directory* holds a regular ``CACHEDIR.TAG`` with the signature.
+
+    The tag is never followed through a symlink, and only its first 43 bytes
+    are read; the rest of the file is free-form.
+    """
+    tag = directory / "CACHEDIR.TAG"
+    try:
+        if not stat.S_ISREG(os.lstat(tag).st_mode):
+            return False
+        with open(tag, "rb") as handle:
+            return handle.read(len(CACHEDIR_SIGNATURE)) == CACHEDIR_SIGNATURE
+    except OSError:
+        return False
 
 _SECRET_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
                     ".env")
@@ -53,6 +73,7 @@ class ProjectIndex:
     unreadable_directories: int = 0
     limited_line_count: bool = False
     deadline_exceeded: bool = False
+    skipped_cache_dirs: int = 0
 
     @classmethod
     def read(cls, root, *, primary_path=None, encoding="utf-8-sig",
@@ -80,7 +101,7 @@ class ProjectIndex:
         skipped_secret = skipped_size = 0
         limited_file_count = limited_total_bytes = False
         limited = False
-        unreadable_files = unreadable_directories = 0
+        unreadable_files = unreadable_directories = skipped_cache_dirs = 0
         limited_line_count = deadline_exceeded = False
         def traversal_error(_error):
             nonlocal unreadable_directories, limited
@@ -97,7 +118,11 @@ class ProjectIndex:
                 try:
                     if (directory not in _SKIP_DIRS and not directory.startswith(".")
                             and not is_excluded((Path(dirpath) / directory).resolve())):
-                        admitted_dirs.append(directory)
+                        # Run, cache and smoke-result directories tag themselves.
+                        if _cache_tagged(Path(dirpath) / directory):
+                            skipped_cache_dirs += 1
+                        else:
+                            admitted_dirs.append(directory)
                 except OSError as exc:
                     traversal_error(exc)
             dirnames[:] = admitted_dirs
@@ -173,4 +198,5 @@ class ProjectIndex:
         return cls(str(root), tuple(entries), considered, loaded, total,
                    limited, skipped, skipped_secret, skipped_size,
                    limited_file_count, limited_total_bytes, unreadable_files,
-                   unreadable_directories, limited_line_count, deadline_exceeded)
+                   unreadable_directories, limited_line_count, deadline_exceeded,
+                   skipped_cache_dirs)

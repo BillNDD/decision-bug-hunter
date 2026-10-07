@@ -73,6 +73,23 @@ class DecisionProvider(Protocol):
     def close(self) -> None: ...
 
 
+#: Upper bound on one hosted call's own deadline, in seconds.
+MAX_CALL_DEADLINE_SECONDS = 300
+
+
+def validate_call_deadline(deadline_seconds: Any) -> float:
+    """The per-call deadline as a float, or ``invalid_deadline``.
+
+    The CLI calls this before it creates any output directory, so an invalid
+    value never leaves an empty run directory behind.
+    """
+    if (type(deadline_seconds) not in (int, float) or
+            not math.isfinite(deadline_seconds) or
+            not 0 < deadline_seconds <= MAX_CALL_DEADLINE_SECONDS):
+        raise ProviderError("invalid_deadline")
+    return float(deadline_seconds)
+
+
 def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
     """Durable atomic journal transition; no request or raw response bodies."""
     temp: Path | None = None
@@ -107,17 +124,18 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
 class ValidatedGateway:
     """Serial, one-attempt evaluation with exact validation and local receipts.
 
-    A dispatching receipt records possible submission. Failed persistence or
-    interrupted dispatch prevents further use of this gateway; there is no retry.
+    A dispatching receipt records possible submission; a call refused before
+    the provider is reached records ``submission_possible: false``. Both
+    receipts carry the same ``deadline_seconds``, fixed before dispatch. Failed
+    persistence or interrupted dispatch prevents further use of this gateway;
+    there is no retry. Undocumented adapter exceptions become ``internal_error``.
     Provider timeouts are cooperative until an actual transport is implemented.
     """
 
     def __init__(self, provider: DecisionProvider, receipt_dir: Path | str, *,
                  deadline_seconds: float = 30.0,
                  rounding_places: int | None = None) -> None:
-        if (type(deadline_seconds) not in (int, float) or
-                not math.isfinite(deadline_seconds) or not 0 < deadline_seconds <= 300):
-            raise ProviderError("invalid_deadline")
+        deadline = validate_call_deadline(deadline_seconds)
         _rounding_profile(rounding_places)
         if type(provider.identity) is not ProviderIdentity:
             raise ProviderError("invalid_metadata")
@@ -126,7 +144,7 @@ class ValidatedGateway:
         self.model_id = provider.identity.model
         self.synthetic = provider.identity.synthetic
         self.receipt_dir = Path(receipt_dir)
-        self.deadline_seconds = float(deadline_seconds)
+        self.deadline_seconds = deadline
         self.rounding_places = rounding_places
         self._deadline: float | None = None
         self._last_stats: dict[str, Any] | None = None
@@ -216,22 +234,27 @@ class ValidatedGateway:
         self.check_sensitive(state, questions, metadata)
         # Own the expected question schema independently of caller/provider mutation.
         expected = deepcopy(questions)
+        # One absolute deadline per call, fixed before the dispatching receipt;
+        # both receipts record the same ``deadline_seconds``.
+        now = time.monotonic()
         timeout = self.deadline_seconds
         if self._deadline is not None:
-            timeout = min(timeout, self._deadline - time.monotonic())
+            timeout = min(timeout, self._deadline - now)
         if timeout <= 0:
             raise ProviderError("run_deadline_exceeded")
+        deadline_at = now + timeout
         key = hashlib.sha256(wire).hexdigest()
         receipt: dict[str, Any] = {
             "schema_version": 1, "provider": self.provider_id, "model": self.model_id,
             "synthetic": self.synthetic, "metadata": meta, "request_sha256": key,
             "question_count": len(expected), "rounding_places": self.rounding_places,
-            "timeout_seconds": timeout, "status": "dispatching",
+            "deadline_seconds": timeout, "timeout_seconds": timeout,
+            "status": "dispatching",
             "submission_possible": True, "usage": None, "answers": None, "error": None,
         }
         path = self.receipt_dir / (uuid.uuid4().hex + ".json")
         try:
-            return self._journaled_attempt(path, wire, expected, receipt, timeout)
+            return self._journaled_attempt(path, wire, expected, receipt, deadline_at)
         except BaseException as exc:
             if not isinstance(exc, Exception):
                 # Block before another filesystem operation or propagation. The
@@ -254,12 +277,14 @@ class ValidatedGateway:
                 pass
 
     def _journaled_attempt(self, path: Path, wire: bytes, expected: dict[str, Any],
-                           receipt: dict[str, Any], timeout: float) -> dict[str, Any]:
+                           receipt: dict[str, Any], deadline_at: float) -> dict[str, Any]:
         try:
             self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             self.check_sensitive(str(path), receipt)
             _write_receipt(path, receipt)
         except Exception:
+            # The provider was never called: nothing can have been submitted.
+            receipt["submission_possible"] = False
             self._fail_receipt(path, receipt, "receipt_failed", persist=True)
             raise ProviderError("receipt_failed") from None
         self._last_receipt = str(path)
@@ -267,14 +292,27 @@ class ValidatedGateway:
         error: str | None = None
         answers: dict[str, Any] | None = None
         started = time.monotonic()
+        # Intent persistence consumes the call budget. Recheck immediately
+        # before the one provider call, including a reduced positive budget.
+        timeout = deadline_at - started
+        refusal = "deadline_exceeded"
+        if self._deadline is not None and self._deadline - started <= timeout:
+            timeout = self._deadline - started
+            refusal = "run_deadline_exceeded"
+        receipt["timeout_seconds"] = max(0.0, timeout)
+        if timeout <= 0:
+            # Refused before any byte was handed to the provider, so this
+            # neither blocks the gateway nor counts as a possible submission.
+            receipt.update(submission_possible=False, status="failed",
+                           error=refusal, answers=None, elapsed_seconds=0.0)
+            self._last_stats = deepcopy(receipt)
+            try:
+                _write_receipt(path, receipt)
+            except Exception:
+                self._fail_receipt(path, receipt, "receipt_failed", persist=False)
+                raise ProviderError("receipt_failed") from None
+            raise ProviderError(refusal)
         try:
-            # Intent persistence consumes the run budget. Recheck immediately
-            # before the one provider call, including a reduced positive budget.
-            if self._deadline is not None:
-                timeout = min(timeout, self._deadline - started)
-            receipt["timeout_seconds"] = max(0.0, timeout)
-            if timeout <= 0:
-                raise ProviderError("run_deadline_exceeded")
             response = self.provider.decide(ProviderRequest(wire, timeout))
             if type(response) is not ProviderResponse:
                 raise ProviderError("response_schema")
@@ -299,7 +337,9 @@ class ValidatedGateway:
                          "http_unauthorized"}:
                 self._blocked = True
         except Exception:
-            error = "transport_failed"
+            # Not a documented failure: an adapter defect, never a transport
+            # verdict. The gateway still stops because its state is unknown.
+            error = "internal_error"
             self._blocked = True
         receipt.update(status="failed" if error else "validated", error=error,
                        answers=plain(answers) if error is None else None,

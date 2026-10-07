@@ -15,11 +15,12 @@ Only the latest beta release receives fixes.
 
 ## Credentials
 
-Decision Bug Hunter reads `OPENAI_API_KEY` or `OPENROUTER_API_KEY` from the
-environment and never writes it to receipts, reports, errors or request
-bodies. If you believe a key was exposed anyway, revoke it at the provider
-first, then check your shell history and any run directories you shared. A
-key with a small credit limit reduces the cost of an accidental leak.
+The CLI reads `OPENAI_API_KEY` (`tools/eval` only runs the CLI); the operator
+smoke tools in `tools/smoke` read `OPENROUTER_API_KEY`. Neither key is ever
+written to receipts, reports, errors or request bodies. If you believe a key
+was exposed anyway, revoke it at the provider first, then check your shell
+history and any run directories you shared. A key with a small credit limit
+reduces the cost of an accidental leak.
 
 ## Scope notes
 

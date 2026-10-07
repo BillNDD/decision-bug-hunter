@@ -15,9 +15,10 @@ import time
 from .core import Config, Source, format_findings, scan
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
-from .providers import ValidatedGateway
-from .decisions import CREDENTIAL_VARIABLE, DecisionsProvider
-from .repository import ProjectIndex
+from .providers import ValidatedGateway, validate_call_deadline
+from .decisions import (CREDENTIAL_VARIABLE, ORGANIZATION_VARIABLE, PROJECT_VARIABLE,
+                        DecisionsProvider)
+from .repository import CACHEDIR_SIGNATURE, ProjectIndex
 
 
 class SafeParser(argparse.ArgumentParser):
@@ -74,9 +75,10 @@ def parser() -> argparse.ArgumentParser:
     profiles = result.add_mutually_exclusive_group()
     profiles.add_argument("--choice-rounding-places", type=int, choices=range(2, 9),
                         default=DEFAULT_CHOICE_ROUNDING_PLACES,
-                        help="Choice mass tolerance for nearest rounding at N places (default: strict mass).")
+                        help="Opt-in Choice mass tolerance for nearest rounding at N places "
+                             "(default: strict mass).")
     profiles.add_argument("--strict-choice-mass", action="store_true",
-                        help="Require normalized Choice mass instead of the default rounding tolerance.")
+                        help="Compatibility no-op: strict Choice mass is already the default.")
     result.add_argument("--localization-beam-width", type=int, default=3,
                         help="Maximum candidate intervals per localization round; each keeps the confidence gate.")
     result.add_argument("--max-handoff-candidates", type=int, default=64,
@@ -122,11 +124,43 @@ def write_new(path: Path, text: str) -> None:
         handle.write(text)
 
 
+#: Marks DBH output as untracked and as a cache for backup and index tools.
+GITIGNORE_TEXT = "*\n"
+CACHEDIR_TAG_TEXT = (CACHEDIR_SIGNATURE.decode("ascii") + "\n"
+                     "# This file is a cache directory tag created by decision-bug-hunter.\n"
+                     "# For information about cache directory tags see "
+                     "https://bford.info/cachedir/\n")
+
+
+def mark_output_directory(directory: Path) -> None:
+    """Keep run output out of version control, backups and DBH's own indexer."""
+    write_new(directory / ".gitignore", GITIGNORE_TEXT)
+    write_new(directory / "CACHEDIR.TAG", CACHEDIR_TAG_TEXT)
+
+
+def make_output_parent(parent: Path) -> bool:
+    """Create the output parent if needed; True only if this call created it.
+
+    A parent that already existed is never written to: a ``.gitignore`` there
+    could hide a user's own repository content.
+    """
+    parent.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        parent.mkdir(mode=0o700)
+    except FileExistsError:
+        return False
+    return True
+
+
 def failure(code: str) -> int:
     print(f"Scan failed ({code}).", file=sys.stderr)
     if code == "provider_unavailable":
         print(f"Set {CREDENTIAL_VARIABLE} in the environment to enable the hosted "
               "Decisions adapter; see README.md.", file=sys.stderr)
+    elif code == "routing_invalid":
+        # Name the variables only; their values are never printed.
+        print(f"{ORGANIZATION_VARIABLE} or {PROJECT_VARIABLE} is set but is not a "
+              "single-line printable token; correct or unset it.", file=sys.stderr)
     return 2
 
 
@@ -197,6 +231,8 @@ def execute(args: argparse.Namespace) -> int:
         run_deadline_seconds=args.run_deadline_seconds,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
+    # Validated before any output directory exists, never after mkdtemp.
+    call_deadline = validate_call_deadline(args.deadline_seconds)
     # Availability is checked before source reads, indexing, or output writes.
     provider = make_provider(args)
     provider.require_available()
@@ -229,11 +265,13 @@ def execute(args: argparse.Namespace) -> int:
         *([item for entry in project.entries for item in
            (entry.relpath, "\n".join(entry.source.lines))] if project else []),
     )
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if make_output_parent(parent):
+        mark_output_directory(parent)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
+    mark_output_directory(run_dir)
     print(f"Results run: {json.dumps(run_dir.name)}", file=sys.stderr)
     gateway = make_gateway(
-        provider, run_dir / "receipts", deadline_seconds=args.deadline_seconds,
+        provider, run_dir / "receipts", deadline_seconds=call_deadline,
         rounding_places=(None if args.strict_choice_mass
                          else args.choice_rounding_places),
     )

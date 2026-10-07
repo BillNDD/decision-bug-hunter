@@ -5,7 +5,7 @@ and confidence. Strict mass is the default; rounding is explicit.
 """
 from __future__ import annotations
 
-from decimal import (Context, Decimal, DivisionByZero, Inexact,
+from decimal import (Context, Decimal, DecimalException, DivisionByZero, Inexact,
                      InvalidOperation, Overflow, ROUND_HALF_EVEN, localcontext)
 from fractions import Fraction
 import json
@@ -55,7 +55,7 @@ ERROR_CODES = frozenset({
     "invalid_probability_profile", "question_budget_exhausted",
     "call_budget_exhausted", "run_deadline_exceeded", "interrupted",
     "http_unauthorized", "http_rate_limited", "http_redirect", "http_rejected",
-    "http_server_error", "response_refused",
+    "http_server_error", "response_refused", "routing_invalid",
 })
 QUESTION = {
     "type": "noul",
@@ -250,6 +250,15 @@ def _distribution(probs, criteria, chosen, places):
     Quantization is NEVER inferred from a response. Closed rounding intervals
     permit ties at half-quantum endpoints; no tie-breaking rule is asserted.
     """
+    try:
+        return _checked_distribution(probs, criteria, chosen, places)
+    except DecimalException:
+        # Defensive: no reachable trigger is known, but an arithmetic trap
+        # is a distribution defect, never a transport or unexpected error.
+        raise ProviderError("response_distribution") from None
+
+
+def _checked_distribution(probs, criteria, chosen, places):
     if type(probs) is not dict or probs.keys() != criteria.keys():
         raise ProviderError("response_distribution")
     values = {k: _probability(v) for k, v in probs.items()}

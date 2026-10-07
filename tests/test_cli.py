@@ -255,7 +255,15 @@ class CliTests(unittest.TestCase):
         scan.assert_not_called()
 
     def test_failed_report_write_does_not_print_findings(self):
-        with patch.object(cli, "write_new", side_effect=OSError(SENTINEL)):
+        original = cli.write_new
+
+        def fail_report(path, text):
+            # Run-directory hygiene files are written first; fail the report.
+            if path.name == "report.json":
+                raise OSError(SENTINEL)
+            original(path, text)
+
+        with patch.object(cli, "write_new", side_effect=fail_report):
             code, out, err, _ = self.run_cli(report=self.report(found=True))
         self.assertEqual((code, out), (2, ""))
         self.assertIn("file_io_error", err)
