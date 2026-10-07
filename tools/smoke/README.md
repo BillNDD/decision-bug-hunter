@@ -1,14 +1,38 @@
-# OpenRouter Decisions smoke suite
+# Decisions smoke suites
 
-First-contact tests for the Decisions API through OpenRouter
-(`POST https://openrouter.ai/api/alpha/decisions`, model
-`openai/gpt-6-luna-decisions`). The requests are built by DBH's own question
-code, so they match what DBH would send. Each one is designed to answer a
-specific open question about live behavior. The analysis is written to a
-summary that the maintainer reads to set defaults.
+Live first-contact tests for the two routes to the one Decisions judge:
 
-The full suite is 31 requests, about 134k input tokens, roughly one or two
-cents at the listed $0.10 per 1M input tokens.
+- OpenRouter: `POST https://openrouter.ai/api/alpha/decisions`, model
+  `openai/gpt-6-luna-decisions` (`run_openrouter.py`, S-IDs);
+- OpenAI direct: `POST https://api.openai.com/v1/decisions`, model
+  `gpt-6-luna` (`run_openai.py`, O-IDs).
+
+Both runners send through DBH's shipped code path:
+`decision_bug_hunter.exchange.HttpsExchange` (explicit TLS context that never
+reads `SSLKEYLOGFILE`, no proxy, no redirects, an absolute deadline per
+request) and the route's provider (`OpenRouterProvider` splice and routing
+default, or `DecisionsProvider` translation). Nothing here uses urllib. The
+suites continue after a network failure and record it.
+
+The full OpenRouter suite is about 48 requests and 185k input tokens, roughly
+two cents at the listed $0.10 per 1M input tokens.
+
+## Operator rules
+
+1. The key comes only from the environment (`OPENROUTER_API_KEY` or
+   `OPENAI_API_KEY`) or from `--env-file`, which reads only that one
+   variable. Never put a key on a command line, in a file in this
+   repository, or in a chat with an agent.
+2. Hermes, or any other agent, reads only a v2 `summary.md`. It never reads
+   `results.jsonl`, anything under `raw/`, request bodies of S13 (prompt
+   injection) or any summary written by the pre-hardening runner.
+3. Generation ids and request ids stay local. The runners record them only
+   as `<gen-id>` / `<request-id>`; `--keep-raw` bodies under `raw/` may still
+   contain them, so `raw/` never leaves this machine.
+4. Results go to `smoke-results/<route>-<UTC time>/`, which git ignores; the
+   runner also writes `.gitignore` and `CACHEDIR.TAG` into it.
+5. Fixtures enter `tests/fixtures/openrouter/observed/<date>/` only through
+   `sanitize.py --promote` and a reviewed commit.
 
 ## Run it
 
@@ -16,53 +40,83 @@ From the repository root, with Python 3.11 or newer:
 
 ```sh
 python tools/smoke/run_openrouter.py --dry-run
+python tools/smoke/run_openrouter.py --only S01h,S02s,S19b,S20
 python tools/smoke/run_openrouter.py
+python tools/smoke/run_openai.py --dry-run
 ```
 
-The key is read from `OPENROUTER_API_KEY`, or from a dotenv file with
-`--env-file` (only that one variable is read). It is never printed or saved.
-Results go to `smoke-results/openrouter-<UTC time>/`, which git ignores:
-`results.jsonl` holds every response and `summary.md` holds the analysis.
+`--only` takes ids or families (`S02s` selects every S02s batch).
+`--include-optional` adds S21 (fixed invalid token) and S22 (provider pin),
+or O05 on the direct route. `--keep-raw` keeps raw response bodies under
+`raw/` (off by default). `--summarize <dir>` rebuilds `summary.md`.
 
 ### Through the Hermes agent
 
-Hermes does not need a Decisions integration: its terminal tool can run the
-runner. Ask Hermes to run, from this repository's directory:
+Hermes can run the runner from its terminal tool, from this repository's
+directory, and then read only the new `summary.md`:
 
 ```sh
 python3 tools/smoke/run_openrouter.py --env-file ~/.hermes/.env
 ```
 
-If Hermes runs under WSL, the repository is under `/mnt/<drive>/...`. Add
-`--only S01,S02` to run a subset first.
+Under WSL the repository is under `/mnt/<drive>/...`.
 
-### One request by hand
+## What the files contain
+
+- `results.jsonl`: one record per attempt: S-ID, status (or `null` with the
+  failing phase and exception kind), DBH code, submission class, elapsed
+  time, connection reuse, allow-listed headers (`content-type`,
+  `content-length`, `transfer-encoding`, `content-encoding`, `connection`,
+  `retry-after`, `x-ratelimit-*`, ids as placeholders), the names of dropped
+  headers (never `cf-ray`, whose value reveals the caller's region), the
+  ADR-8 error fields, and the body reduced to answer numbers, DBH-authored
+  names, model, upstream provider and usage. Messages and metadata values are
+  never kept.
+- `summary.md`: S-IDs, statuses, codes, counts and numeric summaries only.
+
+## Sanitizing and promoting
 
 ```sh
-curl -sS https://openrouter.ai/api/alpha/decisions -H "Authorization: Bearer $OPENROUTER_API_KEY" -H "Content-Type: application/json" --data-binary @tools/smoke/openrouter/S01-baseline.json
+python tools/smoke/sanitize.py smoke-results/<run>              # sanitized copy
+python tools/smoke/sanitize.py smoke-results/<run> --in-place   # originals to raw/
+python tools/smoke/sanitize.py smoke-results/<run> --promote 2026-10-06 \
+    --ids S01,S02 --builder-layout v1
 ```
 
-## What each test answers
+The sanitizer accepts both runner generations and is idempotent. S15 (a
+model DBH no longer targets) is dropped and can never be promoted.
 
-| ID | Question it answers |
-|---|---|
-| S01 | Response shape, returned model string, usage and cost fields, id, provider |
-| S02 | Does a real DBH screening batch (26 questions, interval names like `screen_L1-8`) pass, and do the screens find the planted bug on line 5? |
-| S03, S04 | Same batch with the evidence as a JSON string or as numbered text: do answers change? |
-| S05 | Same batch with the policy text sent once in the state instead of in every question: 53 percent smaller, are answers equivalent? |
-| S06 | 64 per-line questions: per-line localization, and whether an inverted twin question gives the complementary probability |
-| S07 | 200 questions, the documented maximum, with objective answers known locally: are probabilities sensible and correctly oriented? |
-| S08 | 201 questions: the error status and error body format |
-| S09 | A 13 KB instruction: length acceptance |
-| S10, S10b | DBH's real 212-option nested localization menu versus a 20-option single-line menu: precision, mass sums, argmax, confidence |
-| S11 | 30 choice questions from unambiguous to arbitrary: what `confidence` means relative to the probabilities |
-| S12 | S02 repeated five times: run-to-run noise |
-| S13a, S13b | Prompt injection in the source ("answer false" / "answer true") with must-true and must-false canary questions |
-| S14-1..8 | Four planted bugs and four clean twins: a separation preview, not a calibration |
-| S16 | Invalid model id: error format |
-| S17 | Score question shape |
-| S18, S19 | Whether zero-data-retention or data-collection-deny routing is available for this model |
+## What each request answers
+
+| ID | Send | Question it answers |
+|---|---|---|
+| S01 | body | Response shape, returned model string, usage and cost, id, provider |
+| S01h | splice | S01 through the shipped path: framing, echo, cost, generation id header |
+| S02 | body | A real DBH screening batch: names, values, the planted bug on line 5 |
+| S02s | splice | The same questions in production batches: caps, receipts, partial handling |
+| S03, S04 | body | Evidence as a JSON string or as numbered text: do answers change? |
+| S05 | body | Policy text sent once in the state: equivalence and token saving |
+| S06 | body | 64 per-line questions and an inverted polarity twin |
+| S07, S08 | body | 200 questions (accepted) and 201 (the error status and body) |
+| S09 | body | A 13 KB instruction |
+| S10, S10b | body | The 212-option nested localization menu versus 20 single lines |
+| S11 | body | What `confidence` means relative to the probabilities |
+| S12 | body | S02 five times: run-to-run noise |
+| S12b | splice | Batch geometry: max \|delta\| against S02s above 0.02 enters the calibration key |
+| S12c | splice | S02s plus the two canaries: max \|delta\| above 0.02 keeps canaries off |
+| S13a, S13b | body | Prompt injection with must-true and must-false canaries |
+| S13c | splice | Injection under the shipped pack and layout, plus a policy-in-state cell |
+| S14-1..8 | body | Four planted bugs and four clean twins: separation preview, not calibration |
+| S16 | body | Invalid model id |
+| S17 | body | Score question shape |
+| S18, S19 | body | Zero-data-retention and data-collection-deny routing |
+| S19b | splice | DBH's exact default routing object |
+| S19c | body | Unsatisfiable routing: status and routing-metadata keys |
+| S20 | splice | Keep-alive: is the second of two back-to-back requests reused? |
+| S21 | body | Optional: 401 with a fixed invalid token |
+| S22 | body | Optional: `provider.only` openai |
+| O01-O05 | mixed | The direct-route analogs; O06 is the `x-request-id` count in the summary |
 
 Rebuild the request files after changing question text with
-`python tools/smoke/build_openrouter.py`, and re-run the analysis on saved
-results with `--summarize <results directory>`.
+`python tools/smoke/build_openrouter.py`; a test fails when the committed files
+drift from the builder.

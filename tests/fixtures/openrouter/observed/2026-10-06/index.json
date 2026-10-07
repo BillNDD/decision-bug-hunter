@@ -1,0 +1,18 @@
+{
+ "date": "2026-10-06",
+ "route": "openrouter",
+ "ids": [
+  "S01",
+  "S02",
+  "S08",
+  "S10",
+  "S10b",
+  "S11",
+  "S16",
+  "S17",
+  "S18",
+  "S19"
+ ],
+ "builder_state_layout": "v1",
+ "note": "Sanitized by tools/smoke/sanitize.py; shape evidence only."
+}

@@ -1,0 +1,339 @@
+{
+ "id": "S11",
+ "route": "openrouter",
+ "request_sha256": "6ec00275f46d10e38f9ec227639c3f5bbf1d6bc8d5959a99f3d0205f1f27f878",
+ "status": 200,
+ "code": null,
+ "headers": {
+  "content-type": "application/json",
+  "x-generation-id": "<gen-id>"
+ },
+ "dropped_header_names": [],
+ "error": null,
+ "body": {
+  "model": "openai/gpt-6-luna-decisions-20261006",
+  "answers": {
+   "first_def": {
+    "type": "choice",
+    "choice": "L1",
+    "probabilities": {
+     "L1": 1,
+     "L3": 0,
+     "L20": 0
+    },
+    "confidence": 1
+   },
+   "second_def": {
+    "type": "choice",
+    "choice": "L20",
+    "probabilities": {
+     "L1": 0,
+     "L17": 0,
+     "L20": 1
+    },
+    "confidence": 1
+   },
+   "mean_line": {
+    "type": "choice",
+    "choice": "L12",
+    "probabilities": {
+     "L9": 0,
+     "L11": 0,
+     "L12": 1,
+     "L13": 0
+    },
+    "confidence": 1
+   },
+   "peak_init": {
+    "type": "choice",
+    "choice": "L13",
+    "probabilities": {
+     "L13": 1,
+     "L16": 0,
+     "L21": 0
+    },
+    "confidence": 1
+   },
+   "empty_return": {
+    "type": "choice",
+    "choice": "L7",
+    "probabilities": {
+     "L7": 0.94,
+     "L8": 0.06,
+     "L17": 0
+    },
+    "confidence": 0.91
+   },
+   "filter_line": {
+    "type": "choice",
+    "choice": "L5",
+    "probabilities": {
+     "L4": 0,
+     "L5": 1,
+     "L6": 0
+    },
+    "confidence": 1
+   },
+   "sum_loop": {
+    "type": "choice",
+    "choice": "L10",
+    "probabilities": {
+     "L4": 0,
+     "L10": 1,
+     "L14": 0
+    },
+    "confidence": 1
+   },
+   "max_loop": {
+    "type": "choice",
+    "choice": "L14",
+    "probabilities": {
+     "L4": 0.03,
+     "L10": 0.08,
+     "L14": 0.89
+    },
+    "confidence": 0.83
+   },
+   "format_line": {
+    "type": "choice",
+    "choice": "L22",
+    "probabilities": {
+     "L17": 0,
+     "L21": 0,
+     "L22": 1
+    },
+    "confidence": 1
+   },
+   "unpack_line": {
+    "type": "choice",
+    "choice": "L21",
+    "probabilities": {
+     "L17": 0,
+     "L21": 1,
+     "L22": 0
+    },
+    "confidence": 1
+   },
+   "language": {
+    "type": "choice",
+    "choice": "python",
+    "probabilities": {
+     "python": 1,
+     "javascript": 0,
+     "go": 0,
+     "rust": 0
+    },
+    "confidence": 1
+   },
+   "functions": {
+    "type": "choice",
+    "choice": "two",
+    "probabilities": {
+     "one": 0,
+     "two": 1,
+     "three": 0,
+     "four": 0
+    },
+    "confidence": 1
+   },
+   "returns_tuple": {
+    "type": "choice",
+    "choice": "tuple",
+    "probabilities": {
+     "tuple": 1,
+     "list": 0,
+     "dict": 0,
+     "string": 0
+    },
+    "confidence": 1
+   },
+   "describe_returns": {
+    "type": "choice",
+    "choice": "string",
+    "probabilities": {
+     "tuple": 0,
+     "list": 0,
+     "dict": 0,
+     "string": 1
+    },
+    "confidence": 1
+   },
+   "spec_mode": {
+    "type": "choice",
+    "choice": "yes",
+    "probabilities": {
+     "yes": 1,
+     "no": 0
+    },
+    "confidence": 1
+   },
+   "scope": {
+    "type": "choice",
+    "choice": "declared_standalone",
+    "probabilities": {
+     "project": 0,
+     "declared_standalone": 1,
+     "owner_isolated": 0
+    },
+    "confidence": 1
+   },
+   "bug_line": {
+    "type": "choice",
+    "choice": "L5",
+    "probabilities": {
+     "L5": 1,
+     "L8": 0,
+     "L12": 0,
+     "L16": 0
+    },
+    "confidence": 1
+   },
+   "bug_kind": {
+    "type": "choice",
+    "choice": "boundary",
+    "probabilities": {
+     "boundary": 1,
+     "division": 0,
+     "type": 0,
+     "none": 0
+    },
+    "confidence": 1
+   },
+   "riskiest_input": {
+    "type": "choice",
+    "choice": "equal",
+    "probabilities": {
+     "empty": 0,
+     "equal": 1,
+     "negative": 0,
+     "large": 0
+    },
+    "confidence": 1
+   },
+   "perf": {
+    "type": "choice",
+    "choice": "single_pass",
+    "probabilities": {
+     "builtin_sum": 0.28,
+     "builtin_max": 0.04,
+     "single_pass": 0.67,
+     "nothing": 0.01
+    },
+    "confidence": 0.56
+   },
+   "style": {
+    "type": "choice",
+    "choice": "naming",
+    "probabilities": {
+     "naming": 0.67,
+     "length": 0.09,
+     "comments": 0.05,
+     "none": 0.19
+    },
+    "confidence": 0.56
+   },
+   "describe_none": {
+    "type": "choice",
+    "choice": "prints_none",
+    "probabilities": {
+     "prints_none": 0.98,
+     "raises": 0.02,
+     "skips": 0
+    },
+    "confidence": 0.97
+   },
+   "mean_format": {
+    "type": "choice",
+    "choice": "two",
+    "probabilities": {
+     "zero": 0,
+     "one": 0,
+     "two": 1,
+     "three": 0
+    },
+    "confidence": 1
+   },
+   "kept_type": {
+    "type": "choice",
+    "choice": "list",
+    "probabilities": {
+     "list": 1,
+     "set": 0,
+     "tuple": 0,
+     "dict": 0
+    },
+    "confidence": 1
+   },
+   "limit_role": {
+    "type": "choice",
+    "choice": "filter",
+    "probabilities": {
+     "filter": 1,
+     "count": 0,
+     "format": 0,
+     "unused": 0
+    },
+    "confidence": 1
+   },
+   "test_first": {
+    "type": "choice",
+    "choice": "equal_limit",
+    "probabilities": {
+     "equal_limit": 0.97,
+     "empty": 0.03,
+     "single": 0,
+     "many": 0
+    },
+    "confidence": 0.96
+   },
+   "rename": {
+    "type": "choice",
+    "choice": "kept",
+    "probabilities": {
+     "kept": 0.62,
+     "value": 0.07,
+     "stats": 0.28,
+     "peak": 0.03
+    },
+    "confidence": 0.49
+   },
+   "author_intent": {
+    "type": "choice",
+    "choice": "lt",
+    "probabilities": {
+     "lt": 0.98,
+     "le": 0.02
+    },
+    "confidence": 0.96
+   },
+   "ambiguous_pair": {
+    "type": "choice",
+    "choice": "L12",
+    "probabilities": {
+     "L12": 0.98,
+     "L16": 0.02
+    },
+    "confidence": 0.96
+   },
+   "coin": {
+    "type": "choice",
+    "choice": "a",
+    "probabilities": {
+     "a": 0.85,
+     "b": 0.15
+    },
+    "confidence": 0.7
+   }
+  },
+  "usage": {
+   "input_tokens": 4239,
+   "output_tokens": 0,
+   "cost": 0.0004239
+  },
+  "id": "<gen-id>",
+  "provider": "OpenAI"
+ },
+ "builder": {
+  "state_layout": "v1"
+ }
+}

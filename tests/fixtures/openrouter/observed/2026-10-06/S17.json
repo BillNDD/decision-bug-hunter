@@ -1,0 +1,45 @@
+{
+ "id": "S17",
+ "route": "openrouter",
+ "request_sha256": "2bd0e083b5d3ee85f4a76d54b7cfc3df8a77c7d225cb705ecfbf2f4b5b8b2d7b",
+ "status": 200,
+ "code": null,
+ "headers": {
+  "content-type": "application/json",
+  "x-generation-id": "<gen-id>"
+ },
+ "dropped_header_names": [],
+ "error": null,
+ "body": {
+  "model": "openai/gpt-6-luna-decisions-20261006",
+  "answers": {
+   "severity": {
+    "type": "score",
+    "score": 2,
+    "legend": {
+     "0": "<withheld>",
+     "1": "<withheld>",
+     "2": "<withheld>",
+     "3": "<withheld>"
+    },
+    "probabilities": {
+     "0": 0,
+     "1": 0,
+     "2": 1,
+     "3": 0
+    },
+    "confidence": 1
+   }
+  },
+  "usage": {
+   "input_tokens": 601,
+   "output_tokens": 0,
+   "cost": 6.01e-05
+  },
+  "id": "<gen-id>",
+  "provider": "OpenAI"
+ },
+ "builder": {
+  "state_layout": "v1"
+ }
+}

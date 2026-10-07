@@ -1,12 +1,25 @@
 {
  "endpoint": "https://openrouter.ai/api/alpha/decisions",
+ "state_layout": "v2",
  "entries": [
   {
    "id": "S01",
    "file": "S01-baseline.json",
    "purpose": "Response shape, model string, usage and cost, id, provider, decimal places.",
    "repeat": 1,
-   "expect": "ok"
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "a69553d2a43588a52d64db8ae03cc9a456c6942296c303e27f118c175430eed0"
+  },
+  {
+   "id": "S01h",
+   "file": "S01h-hardened-baseline.local.json",
+   "purpose": "S01 through the splice, routing default and exchange: framing, model echo, usage and cost, generation id header.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "c28d1ba654b1208ee2a7536c7f3b0672a7b8908d31860dd99b7c4ec7ec02a402",
+   "family": "S01h"
   },
   {
    "id": "S02",
@@ -14,6 +27,8 @@
    "purpose": "Exact DBH screening batch, state as JSON object: acceptance of names/values, answer quality.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "4a8a9065908d73adbe6477692bc8b0e434b8baf832677067925412010f73316f",
    "labels": {
     "bug_lines": [
      5
@@ -27,6 +42,8 @@
    "purpose": "Same batch, state as a JSON string.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "c0a4a9c36e7609e7544c3e92debebdabb6055d533f393eaa17cc96ce449da0fd",
    "labels": {
     "bug_lines": [
      5
@@ -40,6 +57,8 @@
    "purpose": "Same batch, state as numbered plain text.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "09d9dc1e283e27a8a2c5907d9bd26a750ddf707efcf42d9f648f2b6c107503f1",
    "labels": {
     "bug_lines": [
      5
@@ -53,6 +72,8 @@
    "purpose": "Same batch with the policy preamble moved once into state: token saving and answer agreement.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "b7ffdb0ff2cb418876e8de165a9efaf1d95387bc768eb65c2df557b0aaae4fa1",
    "labels": {
     "bug_lines": [
      5
@@ -66,6 +87,8 @@
    "purpose": "64 questions; per-line localization; polarity twin (line_ok should be about 1 - line_bug).",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "ac128297c10bf837248430f9f94bd44ca311d0c374ffb60e0d688f7f9543d2e5",
    "labels": {
     "bug_lines": [
      5
@@ -78,6 +101,8 @@
    "purpose": "200 questions (documented maximum) with objective truth: noul polarity and accuracy, latency, cost.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "2a730145f7a9550f48057f4c25683acdf1b4d9d6313cfc71d604be76078a97f9",
    "truth": {
     "tok_L1_def": true,
     "tok_L1_for": false,
@@ -286,14 +311,18 @@
    "file": "S08-count-201.json",
    "purpose": "201 questions: expected rejection; captures the error body.",
    "repeat": 1,
-   "expect": "error"
+   "expect": "error",
+   "send": "body",
+   "request_sha256": "1b6b70d93fa8863028a85f20da18f4ac2be5bc1d61a171e1879ab45336031c05"
   },
   {
    "id": "S09",
    "file": "S09-long-instruction.json",
    "purpose": "Instruction of 13233 characters: length acceptance.",
    "repeat": 1,
-   "expect": "ok"
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "dfaaf5c8ae992da9695f195cf4d25d848ae751115cf57f9397a7c58b2d3bccd8"
   },
   {
    "id": "S10",
@@ -301,6 +330,8 @@
    "purpose": "Real localize menu: 212 nested options; mass, precision, argmax, confidence.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "bba30405bf22664aaf45eeab2425a48ece7813a7bd6d3b12baac3f7fa133b5ec",
    "labels": {
     "bug_lines": [
      5
@@ -313,6 +344,8 @@
    "purpose": "Non-nested 20-option menu over single lines, for comparison with S10.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "534974f2003cb6caeb839f427276bf15ce5d7178b0ab249ee45462d6660c4892",
    "labels": {
     "bug_lines": [
      5
@@ -324,7 +357,9 @@
    "file": "S11-confidence-sweep.json",
    "purpose": "30 choice questions from unambiguous to arbitrary: confidence vs top-two margin, precision, sums.",
    "repeat": 1,
-   "expect": "ok"
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "e67b61d60622dddef30b903c35fc383c752095971cc667aa2fb5726f2b5b5075"
   },
   {
    "id": "S12",
@@ -332,6 +367,8 @@
    "purpose": "Test-retest: S02 repeated five times.",
    "repeat": 5,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "4a8a9065908d73adbe6477692bc8b0e434b8baf832677067925412010f73316f",
    "labels": {
     "bug_lines": [
      5
@@ -339,11 +376,139 @@
    }
   },
   {
+   "id": "S02s-1",
+   "file": "S02s-1-production-split.local.json",
+   "purpose": "S02 questions in production batches through the splice: caps, receipts, partial handling.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "2e840f2a2c215170a71038417eb18c7c93b3c603c18233b7b0de3a22bef86795",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S02s"
+  },
+  {
+   "id": "S02s-2",
+   "file": "S02s-2-production-split.local.json",
+   "purpose": "S02 questions in production batches through the splice: caps, receipts, partial handling.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "52d7df9b24f4f46244c4eddda049af9ee75d8774812ae20597f4324c68a21561",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S02s"
+  },
+  {
+   "id": "S12b-1",
+   "file": "S12b-1-geometry.local.json",
+   "purpose": "S02s questions in reversed fixed-size batches: max |delta| against S02s above 0.02 puts geometry into the calibration key.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "74dedba5e1b7f708cdecdd64d24d6ace30e22c4c906f529e5d14cc4e86ec9984",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S12b",
+   "compare": "S02s"
+  },
+  {
+   "id": "S12b-2",
+   "file": "S12b-2-geometry.local.json",
+   "purpose": "S02s questions in reversed fixed-size batches: max |delta| against S02s above 0.02 puts geometry into the calibration key.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "c3820cda89c1825365361f8adb69fbe4553860d060068625e6d6f7c8de370207",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S12b",
+   "compare": "S02s"
+  },
+  {
+   "id": "S12b-3",
+   "file": "S12b-3-geometry.local.json",
+   "purpose": "S02s questions in reversed fixed-size batches: max |delta| against S02s above 0.02 puts geometry into the calibration key.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "693863758afff1015fb40c3d2b6372704c420c37434491557da9706be30c16ed",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S12b",
+   "compare": "S02s"
+  },
+  {
+   "id": "S12b-4",
+   "file": "S12b-4-geometry.local.json",
+   "purpose": "S02s questions in reversed fixed-size batches: max |delta| against S02s above 0.02 puts geometry into the calibration key.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "efbf048723aa0e461d065dc3f68f9440a70cbf7025528caeaf2839d9a73dfcd8",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S12b",
+   "compare": "S02s"
+  },
+  {
+   "id": "S12c-1",
+   "file": "S12c-1-canary-composition.local.json",
+   "purpose": "S02s batch plus the two canaries: max |delta| against S02s above 0.02 keeps canaries off by default.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "5bc0ad00415f748846fcaf2aba42eb5a072c6595853b608e75d6e4dbf5a3e4a3",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S12c",
+   "compare": "S02s"
+  },
+  {
+   "id": "S12c-2",
+   "file": "S12c-2-canary-composition.local.json",
+   "purpose": "S02s batch plus the two canaries: max |delta| against S02s above 0.02 keeps canaries off by default.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "49c5eff3c582034da55abbe4afc85005323dbffb4cc6dc42483b3bcf5ddc1e8a",
+   "labels": {
+    "bug_lines": [
+     5
+    ]
+   },
+   "family": "S12c",
+   "compare": "S02s"
+  },
+  {
    "id": "S13a",
    "file": "S13a-inject-suppress.json",
    "purpose": "Prompt injection in the source with must-true/must-false canaries.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "9a98529b7c1e7ce15d4460f6134573262a594309192a6a488b4bd94c5dd107ea",
    "labels": {
     "bug_lines": [
      6
@@ -351,14 +516,76 @@
    }
   },
   {
+   "id": "S13c-suppress-1",
+   "file": "S13c-suppress-1-inject-production.local.json",
+   "purpose": "Injection under the shipped pack and layout: canaries and screens gate STATE_LAYOUT.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "ad6f876cbf17b9328b5c414b075d5605c01baa3d7d35cb7bd2030cb393baf2ea",
+   "labels": {
+    "bug_lines": [
+     6
+    ]
+   },
+   "family": "S13c",
+   "cell": "suppress"
+  },
+  {
+   "id": "S13c-suppress-pis",
+   "file": "S13c-suppress-pis-inject-policy-in-state.local.json",
+   "purpose": "Injection with the policy moved once into state (placement cell).",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "7da55d3154cbe853f99cbe2c49bb4753c80d638fbe6cfdb3b8c26e0e5dc2fd96",
+   "labels": {
+    "bug_lines": [
+     6
+    ]
+   },
+   "family": "S13c-pis",
+   "cell": "suppress"
+  },
+  {
    "id": "S13b",
    "file": "S13b-inject-flood.json",
    "purpose": "Prompt injection in the source with must-true/must-false canaries.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "0351396e86d68a147c6b5fe96c8325262503a533366d876f9f7eaa7467b3936c",
    "labels": {
     "bug_lines": []
    }
+  },
+  {
+   "id": "S13c-flood-1",
+   "file": "S13c-flood-1-inject-production.local.json",
+   "purpose": "Injection under the shipped pack and layout: canaries and screens gate STATE_LAYOUT.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "f29e69beee390e2e99d0023d5691043c2df7f15d572cd7d9e6fa9da49148cfda",
+   "labels": {
+    "bug_lines": []
+   },
+   "family": "S13c",
+   "cell": "flood"
+  },
+  {
+   "id": "S13c-flood-pis",
+   "file": "S13c-flood-pis-inject-policy-in-state.local.json",
+   "purpose": "Injection with the policy moved once into state (placement cell).",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "cb60b9e17b4db531607502d6a731f59f2eb7c13da94951c24dfde195e34b258f",
+   "labels": {
+    "bug_lines": []
+   },
+   "family": "S13c-pis",
+   "cell": "flood"
   },
   {
    "id": "S14-1",
@@ -366,6 +593,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "d8f9a1a538ea17a6e7498af24b77d28741fe069247a01029e8dd0ee173ea4ea5",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -380,6 +609,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "28d4fc3afe955393fffe04292549dd7d2b7a203acc1633a359a89cc4d858b3b6",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -392,6 +623,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "69fd7981f4c01e85b519cbefb1c5eab86326c0a9324db30b029f814cf04dc30d",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -406,6 +639,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "fb8687775906e28b36837e4e4c5b8664a954104b10c1b857d51dff0f1d304e38",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -418,6 +653,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "0e04bd29d173d9b95cc24d1d673eedf0522076711247b6b50053099db3269564",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -432,6 +669,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "a8818ebf48de1256f46e6e7c0dc2d3498036a6ff77f83fc3e8c101acc81efbef",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -444,6 +683,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "c6119168709f22a4671336ca53376690545bb48aba94910b22633bf17d070074",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -458,6 +699,8 @@
    "purpose": "Known-answer pair member.",
    "repeat": 1,
    "expect": "ok",
+   "send": "body",
+   "request_sha256": "c8c72e14ce605402903f8db3c7ab94b66c704a5b3ff55c984fde209687746a10",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -469,28 +712,121 @@
    "file": "S16-error-bad-model.json",
    "purpose": "Invalid model id: error status and error body shape.",
    "repeat": 1,
-   "expect": "error"
+   "expect": "error",
+   "send": "body",
+   "request_sha256": "229dfe116b1dae2a72ce42d35aebe21e2516b0d9d0804017cef4cb3725d152db"
   },
   {
    "id": "S17",
    "file": "S17-score-severity.json",
    "purpose": "Score type shape: legend, probabilities, score, confidence.",
    "repeat": 1,
-   "expect": "ok"
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "8ca7cc88c67036707bc4e967022449831947ecef5418e6fb59c90176869d834e"
   },
   {
    "id": "S18",
    "file": "S18-zdr-probe.json",
    "purpose": "Is the Luna route eligible for zero-data-retention routing?",
    "repeat": 1,
-   "expect": "ok"
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "52e15f7cd391fcf3eed67cf023d76ea9610a25f83e74eb44544b1222d41b9969"
   },
   {
    "id": "S19",
    "file": "S19-data-collection-deny.json",
    "purpose": "Is the Luna route available with data_collection deny?",
    "repeat": 1,
-   "expect": "ok"
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "3d1a632b38adb9c6e99e0f637a5e32634f2daad057ce72ca335d4a25cdfeaf2a"
+  },
+  {
+   "id": "S19b",
+   "file": "S19b-default-routing.local.json",
+   "purpose": "The shipped default provider object (allow_fallbacks false, data_collection deny): a 404 or 400 moves the default to account-default.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "a269c58aa59e999360c355402dad36ffaf4965224abd0448ef1c54210c7bfb7f",
+   "family": "S19b"
+  },
+  {
+   "id": "S19c",
+   "file": "S19c-unsatisfiable-routing.json",
+   "purpose": "No endpoint can serve the request: status (503 or 404) and routing-metadata keys.",
+   "repeat": 1,
+   "expect": "error",
+   "send": "body",
+   "request_sha256": "42d6083f7272b0dfab43d35f9dda5fa6ccc20aa98ba15e2b6cfc270ce8722766"
+  },
+  {
+   "id": "S20",
+   "file": "S19b-default-routing.local.json",
+   "purpose": "Keep-alive: two back-to-back requests on one exchange; is the second reused?",
+   "repeat": 2,
+   "pause": 0,
+   "expect": "ok",
+   "send": "splice",
+   "request_sha256": "a269c58aa59e999360c355402dad36ffaf4965224abd0448ef1c54210c7bfb7f",
+   "family": "S20"
+  },
+  {
+   "id": "S21",
+   "file": "S21-invalid-token.json",
+   "purpose": "Optional: a 401 with a fixed invalid token; the extractor must drop the message.",
+   "repeat": 1,
+   "expect": "error",
+   "send": "body",
+   "request_sha256": "98c732f8da1827a5f40dedc1ca6fd3c9f2ed90e46419997b7cf102677ae437cf",
+   "optional": true,
+   "auth": "invalid"
+  },
+  {
+   "id": "S22",
+   "file": "S22-only-openai.json",
+   "purpose": "Optional: provider.only openai; a 404 means no provider pin.",
+   "repeat": 1,
+   "expect": "ok",
+   "send": "body",
+   "request_sha256": "c68faa5f2e97b8138aba7bf14e2d354007b72ae06dd6e9c14ef5c93e90c253a8",
+   "optional": true
   }
- ]
+ ],
+ "observed": {
+  "2026-10-06": {
+   "state_layout": "v1",
+   "request_sha256": {
+    "S01": "a69553d2a43588a52d64db8ae03cc9a456c6942296c303e27f118c175430eed0",
+    "S02": "ac4ebcf7e1525f23a597d45263f9005dbe1c4e2758dbbbd90009c8dc7547c0f5",
+    "S03": "62c6b2827e8e44f71717d82b2293b5fe31026b3cd5f67239ebd4a76abd21efb2",
+    "S04": "a9fa8791020a8bec6b0a8f3eafb2042c767ced2b0b12a9b5141b04c72fe64949",
+    "S05": "5967f1867818a4a91393720b4dc3fb9907459055700dedc8f70ae5bd47e64f50",
+    "S06": "ef677c7b60fc7b73b030e1dd39de62d815403228a36ee79e581591a0e9038469",
+    "S07": "72c075955bb14436f411467e83d1310c8f0eb262d227a12f35b7599f0d2baca3",
+    "S08": "65bf1e6b16337af18609f500454c9b1c3be641001399b2f9a7a71648e21a6d6b",
+    "S09": "5f8e3226cdf3e820d8be7e336125c5e03085578fe53b88fad06d7b59d374fb41",
+    "S10": "4b7672bceb83cb9ea1bcfd46d107fd4342a913b2d21bf933edebabd38a378443",
+    "S10b": "997a076532ed67320335ccba06510b05c49b35f2de41e3c7a64c78017aa1f3ad",
+    "S11": "6ec00275f46d10e38f9ec227639c3f5bbf1d6bc8d5959a99f3d0205f1f27f878",
+    "S12": "ac4ebcf7e1525f23a597d45263f9005dbe1c4e2758dbbbd90009c8dc7547c0f5",
+    "S13a": "565dca332069a8f82fced2f3da80b12cad5628f652b2289b95d2765bded8d34e",
+    "S13b": "2c3ffeb2ad24078d7cbba2f0931dc086715b0cb71bef4a637e04fc98875d4a63",
+    "S14-1": "f73098a5f77af29e9ed843682cc9e83fdb2a0eb3d1be5a5efc40d72edbc0d40e",
+    "S14-2": "048895ebdcda3b7768be9279ec7c07751db7de1605e49e2ead88f00712ec372b",
+    "S14-3": "15df9781f62d11dab5b36a3a6f4913343be04cb3a51453c84f99afc6192ca4e1",
+    "S14-4": "aef429b8a4a9cdbfb5e0299dcf96b4d2f3b8b9af75e255abae0a67501e393e1f",
+    "S14-5": "6288dcd8004675468e4078e17d22c6cb5e84caa87d82f9a5d285cfc42678cddd",
+    "S14-6": "2d3c69ba468cdcf4294d003aff8bb4dc3877134ec129b0eaefeea263fea6222c",
+    "S14-7": "6d773e9d3835541b1eb2e1374212ed4fd215d88f66eecb7c775d9cbb7966c034",
+    "S14-8": "b481ca97eec11e726710cbcf65505f1bc296eb6e52b99a581b1ee8a256ceaf69",
+    "S16": "229dfe116b1dae2a72ce42d35aebe21e2516b0d9d0804017cef4cb3725d152db",
+    "S17": "2bd0e083b5d3ee85f4a76d54b7cfc3df8a77c7d225cb705ecfbf2f4b5b8b2d7b",
+    "S18": "52e15f7cd391fcf3eed67cf023d76ea9610a25f83e74eb44544b1222d41b9969",
+    "S19": "3d1a632b38adb9c6e99e0f637a5e32634f2daad057ce72ca335d4a25cdfeaf2a"
+   }
+  }
+ }
 }

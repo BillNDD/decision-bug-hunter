@@ -1,0 +1,1 @@
+{"contract":"dbh-judge-v1","state":{"text":"Hello there."},"questions":{"q":{"type":"noul","instructions":"Does the text contain a greeting?","criteria":{"true":"Yes, the statement holds.","false":"No, the statement does not hold."}}}}

@@ -1,0 +1,18 @@
+{
+ "model": "openai/gpt-6-luna-decisions",
+ "state": "Hello there.",
+ "questions": {
+  "q": {
+   "type": "noul",
+   "instructions": "Does the text contain a greeting?",
+   "criteria": {
+    "true": "Yes, the statement holds.",
+    "false": "No, the statement does not hold."
+   }
+  }
+ },
+ "provider": {
+  "allow_fallbacks": false,
+  "data_collection": "deny"
+ }
+}

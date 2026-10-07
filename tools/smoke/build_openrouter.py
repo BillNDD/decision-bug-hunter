@@ -1,28 +1,59 @@
 """Build the OpenRouter Decisions smoke suite from DBH's own question code.
 
-Writes request bodies to tools/smoke/openrouter/ and a manifest describing
+Writes request files to tools/smoke/openrouter/ and a manifest describing
 what each request is meant to reveal. No network use. Ground-truth labels
 used for analysis live only in the manifest; they are never sent.
+
+Two kinds of request file exist:
+
+* ``send: "body"`` files (``<id>-<name>.json``) are complete OpenRouter
+  bodies, sent byte for byte. They probe shapes DBH itself never sends
+  (score questions, string state, 201 questions, a bad model, routing
+  objects) and keep the first-contact requests comparable.
+* ``send: "splice"`` files (``<id>-<name>.local.json``) are DBH local
+  envelopes, exactly as the engine's packer produces them. The runner hands
+  them to ``OpenRouterProvider``, so they reach the wire through the shipped
+  splice, routing default, exchange and decoder.
+
+The manifest also pins, under ``observed``, the request hashes of the
+2026-10-06 first-contact run. Those bodies are what this builder produces
+with ``STATE_LAYOUT = "v1"``; a test rebuilds them in memory to prove that
+the promoted fixtures still describe this code.
 
     python tools/smoke/build_openrouter.py
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+import hashlib
 import json
 from pathlib import Path
 import re
 import sys
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from decision_bug_hunter import questions as qmod  # noqa: E402
 from decision_bug_hunter.core import Source, Span, contiguous_candidates  # noqa: E402
-from decision_bug_hunter.protocol import QUESTION  # noqa: E402
+from decision_bug_hunter.protocol import QUESTION, encode_request  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "openrouter"
 LUNA = "openai/gpt-6-luna-decisions"
+ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 SCOPE = "declared_standalone"
+#: Ids of the 2026-10-06 first-contact run whose bodies the v1 build
+#: reproduces. S15 ran against a model DBH no longer targets and is never
+#: listed, summarized or promoted.
+OBSERVED_DATE = "2026-10-06"
+OBSERVED_LAYOUT = "v1"
+OBSERVED_IDS = ("S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10",
+                "S10b", "S11", "S12", "S13a", "S13b", "S14-1", "S14-2", "S14-3", "S14-4",
+                "S14-5", "S14-6", "S14-7", "S14-8", "S16", "S17", "S18", "S19")
+#: Questions per batch in the alternative geometry of S12b.
+GEOMETRY_CHUNK = 8
 
 SUMMARIZE = '''\
 def summarize(readings, limit):
@@ -116,9 +147,10 @@ def body(state, questions, model=LUNA, **extra) -> dict:
 
 def numbered_text(state: dict) -> str:
     spec = state["specification"]
+    mode = (f"specification_mode: {state['specification_mode']}" if "specification_mode" in state
+            else f"specification.mode: {spec['mode']}")
     rows = [f"file: {state['file']}  sha256: {state['source_sha256']}  total_lines: {state['total_lines']}",
-            f"context_scope: {state.get('context_scope')}",
-            f"specification_mode: {state['specification_mode']}"]
+            f"context_scope: {state.get('context_scope')}", mode]
     rows += [f"  R{line['line']}| {line['text']}" for line in spec["lines"]]
     for excerpt in state["excerpts"]:
         rows.append(f"source excerpt, lines {excerpt['start_line']}-{excerpt['end_line']}:")
@@ -142,33 +174,74 @@ def yes_no(instructions: str) -> dict:
             "criteria": {"true": "Yes, the statement holds.", "false": "No, the statement does not hold."}}
 
 
-def build() -> list[dict]:
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+@contextmanager
+def state_layout(layout: str | None) -> Iterator[None]:
+    """Build under ``layout`` (``None`` keeps the shipped one), then restore it."""
+    saved = qmod.STATE_LAYOUT
+    if layout is not None:
+        qmod.state_layout(layout)
+        qmod.STATE_LAYOUT = layout
+    try:
+        yield
+    finally:
+        qmod.STATE_LAYOUT = saved
+
+
+S01_STATE = {"customer_tier": "enterprise",
+             "ticket": "My checkout page shows a blank screen after I click Pay. I have tried two browsers."}
+S01_QUESTIONS = {
+    "is_bug": {"type": "noul", "instructions": "Is the customer reporting a software defect?",
+               "criteria": {"true": "The customer describes broken or unexpected product behavior.",
+                            "false": "The customer is asking a question or requesting a feature."}},
+    "team": {"type": "choice", "instructions": "Which team should own this ticket?",
+             "criteria": {"account": "Login, permissions, or profile issues.",
+                          "frontend": "Rendering, layout, or browser compatibility issues.",
+                          "payments": "Checkout, billing, or payment processing issues."}}}
+
+
+def build(layout: str | None = None) -> tuple[list[dict], dict[str, bytes]]:
+    """Return (manifest entries, {file name: exact bytes}); writes nothing."""
+    with state_layout(layout):
+        return _build()
+
+
+def _build() -> tuple[list[dict], dict[str, bytes]]:
     pack, _ = qmod.load_pack()
     policy = qmod.policy(pack)
     entries: list[dict] = []
+    files: dict[str, bytes] = {}
 
     def add(sid, name, request, purpose, **meta):
-        path = OUT / f"{sid}-{name}.json"
-        path.write_text(json.dumps(request, ensure_ascii=False, indent=1) + "\n",
-                        encoding="utf-8", newline="\n")
-        entries.append({"id": sid, "file": path.name, "purpose": purpose, "repeat": 1,
-                        "expect": "ok", **meta})
+        file = f"{sid}-{name}.json"
+        files[file] = (json.dumps(request, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+        entries.append({"id": sid, "file": file, "purpose": purpose, "repeat": 1,
+                        "expect": "ok", "send": "body", "request_sha256": sha256(files[file]),
+                        **meta})
+
+    def add_local(sid, name, payload: bytes, purpose, **meta):
+        """A DBH local envelope, sent through OpenRouterProvider's splice."""
+        file = f"{sid}-{name}.local.json"
+        files[file] = payload
+        entries.append({"id": sid, "file": file, "purpose": purpose, "repeat": 1,
+                        "expect": "ok", "send": "splice", "request_sha256": sha256(payload),
+                        **meta})
 
     # S01: OpenRouter's own documented example, pointed at Luna.
     add("S01", "baseline", body(
-        {"customer_tier": "enterprise",
-         "ticket": "My checkout page shows a blank screen after I click Pay. I have tried two browsers."},
-        {"is_bug": {"type": "noul", "instructions": "Is the customer reporting a software defect?",
-                    "criteria": {"true": "The customer describes broken or unexpected product behavior.",
-                                 "false": "The customer is asking a question or requesting a feature."}},
-         "team": {"type": "choice", "instructions": "Which team should own this ticket?",
-                  "criteria": {"account": "Login, permissions, or profile issues.",
-                               "frontend": "Rendering, layout, or browser compatibility issues.",
-                               "payments": "Checkout, billing, or payment processing issues."}},
+        S01_STATE,
+        {**S01_QUESTIONS,
          "urgency": {"type": "score", "instructions": "How urgent is this ticket?",
                      "criteria": ["Can wait for the next release", "Should be fixed this week",
                                   "Blocking revenue right now"]}}),
         "Response shape, model string, usage and cost, id, provider, decimal places.")
+    # S01h: the same ticket through the shipped path (score is rejected locally).
+    add_local("S01h", "hardened-baseline", encode_request(S01_STATE, S01_QUESTIONS),
+              "S01 through the splice, routing default and exchange: framing, model echo, "
+              "usage and cost, generation id header.", family="S01h")
 
     # S02-S05: one real DBH screening batch, four evidence/policy renderings.
     src = source(SUMMARIZE, "summarize.py")
@@ -290,12 +363,40 @@ def build() -> list[dict]:
 
     entries.append({"id": "S12", "file": "S02-dbh-screen-object.json", "purpose":
                     "Test-retest: S02 repeated five times.", "repeat": 5,
-                    "expect": "ok", "labels": labels})
+                    "expect": "ok", "send": "body",
+                    "request_sha256": sha256(files["S02-dbh-screen-object.json"]),
+                    "labels": labels})
 
-    # S13: injection, suppression and flooding, with canaries.
     def canaries():
         return {"canary_true": yes_no("Does the supplied state declare a context_scope value?"),
                 "canary_false": yes_no("Does any source line contain the word 'zebra'?")}
+
+    # S02s: the S02 screening questions split exactly as the engine's packer
+    # splits them (shipped pack and layout, production caps), via the splice.
+    production = []
+    for index, (batch, failed, wire) in enumerate(qmod.prepared_question_batches(state, screen), 1):
+        if failed is not None or wire is None:
+            raise SystemExit(f"S02s question {failed} does not fit a production request")
+        production.append(batch)
+        add_local(f"S02s-{index}", "production-split", wire,
+                  "S02 questions in production batches through the splice: caps, receipts, "
+                  "partial handling.", labels=labels, family="S02s")
+    # S12b: the same questions in another geometry (reversed, fixed-size batches).
+    names = list(screen)[::-1]
+    for index, start in enumerate(range(0, len(names), GEOMETRY_CHUNK), 1):
+        chunk = {name: screen[name] for name in names[start:start + GEOMETRY_CHUNK]}
+        add_local(f"S12b-{index}", "geometry", encode_request(state, chunk),
+                  "S02s questions in reversed fixed-size batches: max |delta| against S02s "
+                  "above 0.02 puts geometry into the calibration key.",
+                  labels=labels, family="S12b", compare="S02s")
+    # S12c: each S02s batch with the two canary controls appended.
+    for index, batch in enumerate(production, 1):
+        add_local(f"S12c-{index}", "canary-composition",
+                  encode_request(state, {**batch, **canaries()}),
+                  "S02s batch plus the two canaries: max |delta| against S02s above 0.02 keeps "
+                  "canaries off by default.", labels=labels, family="S12c", compare="S02s")
+
+    # S13: injection, suppression and flooding, with canaries.
     for sid, name, text, spec, labels_i in (
             ("S13a", "inject-suppress", INJECT_SUPPRESS, INJECT_SUPPRESS_SPEC, {"bug_lines": [6]}),
             ("S13b", "inject-flood", INJECT_FLOOD, INJECT_FLOOD_SPEC, {"bug_lines": []})):
@@ -305,6 +406,19 @@ def build() -> list[dict]:
         qs = {**qmod.screening(pack, whole, [whole], bug_lenses=True, state=st), **canaries()}
         add(sid, name, body(st, qs), "Prompt injection in the source with must-true/must-false canaries.",
             labels=labels_i)
+        # S13c: the same request under the shipped layout through the splice,
+        # and policy-in-state as a separate cell.
+        cell = name.split("-")[1]
+        for index, (batch, failed, wire) in enumerate(qmod.prepared_question_batches(st, qs), 1):
+            if failed is not None or wire is None:
+                raise SystemExit(f"S13c question {failed} does not fit a production request")
+            add_local(f"S13c-{cell}-{index}", "inject-production", wire,
+                      "Injection under the shipped pack and layout: canaries and screens gate "
+                      "STATE_LAYOUT.", labels=labels_i, family="S13c", cell=cell)
+        add_local(f"S13c-{cell}-pis", "inject-policy-in-state",
+                  encode_request({"policy": policy, **st}, strip_policy(qs, policy)),
+                  "Injection with the policy moved once into state (placement cell).",
+                  labels=labels_i, family="S13c-pis", cell=cell)
 
     # S14: planted-bug and clean pairs (separation preview, not calibration).
     for index, (name, buggy, bug_lines, spec, text) in enumerate(KNOWN, start=1):
@@ -330,18 +444,52 @@ def build() -> list[dict]:
         "Is the Luna route eligible for zero-data-retention routing?")
     add("S19", "data-collection-deny", body("Hello there.", tiny, provider={"data_collection": "deny"}),
         "Is the Luna route available with data_collection deny?")
-    return entries
+    # S19b: DBH's exact default routing object, added by the splice.
+    add_local("S19b", "default-routing", encode_request({"text": "Hello there."}, tiny),
+              "The shipped default provider object (allow_fallbacks false, data_collection "
+              "deny): a 404 or 400 moves the default to account-default.", family="S19b")
+    add("S19c", "unsatisfiable-routing", body("Hello there.", tiny, provider={
+        "ignore": ["OpenAI"], "allow_fallbacks": False, "data_collection": "deny"}),
+        "No endpoint can serve the request: status (503 or 404) and routing-metadata keys.",
+        expect="error")
+    entries.append({"id": "S20", "file": "S19b-default-routing.local.json", "purpose":
+                    "Keep-alive: two back-to-back requests on one exchange; is the second reused?",
+                    "repeat": 2, "pause": 0, "expect": "ok", "send": "splice",
+                    "request_sha256": sha256(files["S19b-default-routing.local.json"]),
+                    "family": "S20"})
+    add("S21", "invalid-token", body("Hello there.", tiny, provider={
+        "allow_fallbacks": False, "data_collection": "deny"}),
+        "Optional: a 401 with a fixed invalid token; the extractor must drop the message.",
+        expect="error", optional=True, auth="invalid")
+    add("S22", "only-openai", body("Hello there.", tiny, provider={
+        "only": ["openai"], "allow_fallbacks": False, "data_collection": "deny"}),
+        "Optional: provider.only openai; a 404 means no provider pin.", optional=True)
+    return entries, files
+
+
+def manifest(entries: list[dict]) -> dict[str, Any]:
+    """The manifest document: entries plus the pinned first-contact hashes."""
+    observed_entries, _files = build(OBSERVED_LAYOUT)
+    by_id = {entry["id"]: entry["request_sha256"] for entry in observed_entries}
+    return {"endpoint": ENDPOINT, "state_layout": qmod.state_layout(),
+            "entries": entries,
+            "observed": {OBSERVED_DATE: {"state_layout": OBSERVED_LAYOUT,
+                                         "request_sha256": {sid: by_id[sid] for sid in OBSERVED_IDS}}}}
+
+
+def manifest_bytes(entries: list[dict]) -> bytes:
+    return (json.dumps(manifest(entries), indent=1) + "\n").encode("utf-8")
 
 
 def main() -> int:
+    entries, files = build()
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.json"):
         old.unlink()
-    entries = build()
-    (OUT / "manifest.json").write_text(json.dumps({"endpoint": "https://openrouter.ai/api/alpha/decisions",
-                                                   "entries": entries}, indent=1) + "\n",
-                                       encoding="utf-8", newline="\n")
-    total = sum((OUT / e["file"]).stat().st_size * e["repeat"] for e in entries)
+    for name, data in files.items():
+        (OUT / name).write_bytes(data)
+    (OUT / "manifest.json").write_bytes(manifest_bytes(entries))
+    total = sum(len(files[e["file"]]) * e["repeat"] for e in entries)
     print(f"Wrote {len(entries)} manifest entries to {OUT.relative_to(ROOT)} "
           f"({total} request bytes including repeats).")
     return 0

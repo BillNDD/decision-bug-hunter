@@ -1,0 +1,25 @@
+{
+ "id": "S16",
+ "route": "openrouter",
+ "request_sha256": "229dfe116b1dae2a72ce42d35aebe21e2516b0d9d0804017cef4cb3725d152db",
+ "status": 400,
+ "code": "http_rejected",
+ "headers": {
+  "content-type": "application/json",
+  "x-generation-id": "<gen-id>"
+ },
+ "dropped_header_names": [],
+ "error": {
+  "error_code": 400,
+  "moderation": false,
+  "routing_metadata": false
+ },
+ "body": {
+  "error": {
+   "code": 400
+  }
+ },
+ "builder": {
+  "state_layout": "v1"
+ }
+}

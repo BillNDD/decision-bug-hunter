@@ -1,0 +1,25 @@
+{
+ "id": "S08",
+ "route": "openrouter",
+ "request_sha256": "65bf1e6b16337af18609f500454c9b1c3be641001399b2f9a7a71648e21a6d6b",
+ "status": 400,
+ "code": "http_rejected",
+ "headers": {
+  "content-type": "application/json",
+  "x-generation-id": "<gen-id>"
+ },
+ "dropped_header_names": [],
+ "error": {
+  "error_code": 400,
+  "moderation": false,
+  "routing_metadata": false
+ },
+ "body": {
+  "error": {
+   "code": 400
+  }
+ },
+ "builder": {
+  "state_layout": "v1"
+ }
+}

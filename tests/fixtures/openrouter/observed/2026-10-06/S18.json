@@ -1,0 +1,34 @@
+{
+ "id": "S18",
+ "route": "openrouter",
+ "request_sha256": "52e15f7cd391fcf3eed67cf023d76ea9610a25f83e74eb44544b1222d41b9969",
+ "status": 404,
+ "code": "routing_no_endpoint",
+ "headers": {
+  "content-type": "application/json",
+  "x-generation-id": "<gen-id>"
+ },
+ "dropped_header_names": [],
+ "error": {
+  "error_code": 404,
+  "moderation": false,
+  "routing_metadata": true
+ },
+ "body": {
+  "error": {
+   "code": 404,
+   "metadata": {
+    "routing_funnel": [
+     {
+      "step": "<withheld>",
+      "endpoint_count": 1
+     }
+    ],
+    "failed_routing_step": "<withheld>"
+   }
+  }
+ },
+ "builder": {
+  "state_layout": "v1"
+ }
+}

@@ -1,0 +1,141 @@
+{
+ "id": "S02",
+ "route": "openrouter",
+ "request_sha256": "ac4ebcf7e1525f23a597d45263f9005dbe1c4e2758dbbbd90009c8dc7547c0f5",
+ "status": 200,
+ "code": null,
+ "headers": {
+  "content-type": "application/json",
+  "x-generation-id": "<gen-id>"
+ },
+ "dropped_header_names": [],
+ "error": null,
+ "body": {
+  "model": "openai/gpt-6-luna-decisions-20261006",
+  "answers": {
+   "screen_L1-8": {
+    "type": "noul",
+    "noul": 0.73
+   },
+   "screen_L9-17": {
+    "type": "noul",
+    "noul": 0.68
+   },
+   "screen_L18-22": {
+    "type": "noul",
+    "noul": 0.35
+   },
+   "screen_L1-22": {
+    "type": "noul",
+    "noul": 0.84
+   },
+   "lens_functional_L1-8": {
+    "type": "noul",
+    "noul": 0.78
+   },
+   "lens_contract_L1-8": {
+    "type": "noul",
+    "noul": 0.64
+   },
+   "lens_boundary_L1-8": {
+    "type": "noul",
+    "noul": 0.5
+   },
+   "lens_state_L1-8": {
+    "type": "noul",
+    "noul": 0.85
+   },
+   "lens_integration_L1-8": {
+    "type": "noul",
+    "noul": 0.57
+   },
+   "lens_functional_L9-17": {
+    "type": "noul",
+    "noul": 0.48
+   },
+   "lens_contract_L9-17": {
+    "type": "noul",
+    "noul": 0.7
+   },
+   "lens_boundary_L9-17": {
+    "type": "noul",
+    "noul": 0.48
+   },
+   "lens_state_L9-17": {
+    "type": "noul",
+    "noul": 0.62
+   },
+   "lens_integration_L9-17": {
+    "type": "noul",
+    "noul": 0.47
+   },
+   "lens_functional_L18-22": {
+    "type": "noul",
+    "noul": 0.38
+   },
+   "lens_contract_L18-22": {
+    "type": "noul",
+    "noul": 0.48
+   },
+   "lens_boundary_L18-22": {
+    "type": "noul",
+    "noul": 0.41
+   },
+   "lens_state_L18-22": {
+    "type": "noul",
+    "noul": 0.23
+   },
+   "lens_integration_L18-22": {
+    "type": "noul",
+    "noul": 0.35
+   },
+   "lens_functional_L1-22": {
+    "type": "noul",
+    "noul": 0.79
+   },
+   "lens_contract_L1-22": {
+    "type": "noul",
+    "noul": 0.73
+   },
+   "lens_boundary_L1-22": {
+    "type": "noul",
+    "noul": 0.56
+   },
+   "lens_state_L1-22": {
+    "type": "noul",
+    "noul": 0.73
+   },
+   "lens_integration_L1-22": {
+    "type": "noul",
+    "noul": 0.49
+   },
+   "need_context": {
+    "type": "noul",
+    "noul": 0.1
+   },
+   "rank_0": {
+    "type": "choice",
+    "choice": "L1-8",
+    "probabilities": {
+     "L1-8": 0.96,
+     "L9-17": 0.01,
+     "L18-22": 0.01,
+     "L1-22": 0,
+     "none": 0.02,
+     "unlocalized": 0
+    },
+    "confidence": 0.95
+   }
+  },
+  "usage": {
+   "input_tokens": 8457,
+   "output_tokens": 0,
+   "cost": 0.0008457
+  },
+  "id": "<gen-id>",
+  "provider": "OpenAI"
+ },
+ "builder": {
+  "state_layout": "v1"
+ }
+}
