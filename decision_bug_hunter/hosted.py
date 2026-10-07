@@ -45,11 +45,18 @@ _MODEL_ID = re.compile(r"[A-Za-z0-9_.:/-]{1,128}\Z")
 _RETRY_SECONDS = re.compile(r"[0-9]{1,5}\Z")
 #: Retry-After values above this are capped (ADR-2(3)).
 MAX_RETRY_AFTER_SECONDS = 60.0
+#: The date the list prices in the route model specs were read (ADR-9(2)).
+PRICE_TABLE_DATE = "2026-10-06"
 
 
 @dataclass(frozen=True)
 class ModelSpec:
-    """One allow-listed model of a route and its local bounds."""
+    """One allow-listed model of a route and its local bounds.
+
+    Prices are USD per million tokens from the public model page on
+    ``price_table_date``. ``price_out_upper_per_mtok`` prices the output
+    allowance of an attempt whose usage is unknown (ADR-9(3)).
+    """
 
     id: str
     price_in_per_mtok: Decimal
@@ -59,6 +66,7 @@ class ModelSpec:
     display_places: int = 2
     confidence_identity: str | None = None
     expected_upstream: str | None = None
+    price_table_date: str = PRICE_TABLE_DATE
 
 
 @dataclass(frozen=True)
@@ -326,6 +334,20 @@ class HostedProvider:
                    "Content-Type": "application/json", "Accept": "application/json",
                    "Accept-Encoding": "identity", **self.extra_headers()}
         return body, questions, headers, float(timeout)
+
+    def wire_size(self, payload: bytes) -> int | None:
+        """Bytes of the wire body ``payload`` would be sent as, or None.
+
+        Used only to bound the cost of an attempt before it is dispatched
+        (ADR-9(3)); nothing is sent and no credential is involved.
+        """
+        if type(payload) is not bytes:
+            return None
+        try:
+            body, _questions = self.encode(payload)
+        except ProviderError:
+            return None
+        return len(body)
 
     def close(self) -> None:
         """Close the kept-alive connection, if any; the provider stays usable."""

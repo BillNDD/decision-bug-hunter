@@ -5,7 +5,8 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import (ROUND_CEILING, ROUND_HALF_EVEN, Context, Decimal, DivisionByZero,
+                     InvalidOperation, Overflow)
 import hashlib
 import math
 import os
@@ -148,6 +149,7 @@ _CLASSES: dict[str, tuple[str, bool, bool]] = {
     "run_deadline_exceeded": ("not_sent", False, False),
     "run_deadline_reserved": ("not_sent", False, False),
     "provider_stopped": ("not_sent", False, False),
+    "cost_budget_exhausted": ("not_sent", False, False),
     "receipt_failed": ("not_sent", True, False),
 }
 #: Batch-level 200 defects: possible submission, deterministic for the request.
@@ -446,8 +448,91 @@ def make_provider(route: str, *, model: str | None = None, api_key: str | None =
     raise ProviderError("invalid_provider")
 
 
+#: Where an attempt's counted cost came from (ADR-9(1)).
+COST_SOURCES = frozenset({"provider_reported", "list_price_estimate", "none"})
+#: A reported cost must be a finite Decimal in [0, this) USD.
+MAX_REPORTED_COST_USD = Decimal(10)
+#: Largest accepted ``--max-cost``, in USD.
+MAX_COST_LIMIT_USD = Decimal(1000)
+#: Tokens allowed per question on top of the wire bytes for the input bound,
+#: and as the output bound, of an attempt whose usage is unknown (ADR-9(3)).
+QUESTION_TOKEN_ALLOWANCE = 64
+_MILLION = Decimal(1_000_000)
+_MICRO = Decimal("0.000001")
+#: Cost arithmetic never depends on the caller's thread-local decimal context.
+_COST = Context(prec=34, rounding=ROUND_HALF_EVEN,
+                traps=[InvalidOperation, Overflow, DivisionByZero])
+
+
+def usd(value: Decimal) -> str:
+    """A USD amount as a plain decimal string (never exponent notation)."""
+    return format(value, "f")
+
+
+def validate_max_cost(value: Any) -> Decimal | None:
+    """``--max-cost`` as a Decimal in (0, 1000] USD, None when unset.
+
+    Anything else, including floats, is ``invalid_request``.
+    """
+    if value is None:
+        return None
+    if type(value) is int:
+        value = Decimal(value)
+    if (type(value) is not Decimal or not value.is_finite()
+            or not 0 < value <= MAX_COST_LIMIT_USD):
+        raise ProviderError("invalid_request")
+    return value
+
+
+def reported_cost(value: Any) -> Decimal | None:
+    """A provider-reported cost that may be counted, else None (ADR-9(1))."""
+    if type(value) is Decimal and value.is_finite() and 0 <= value < MAX_REPORTED_COST_USD:
+        return value
+    return None
+
+
+def list_price(tokens_in: int, tokens_out: int, price_in: Decimal,
+               price_out: Decimal) -> Decimal:
+    """Tokens at USD-per-million list prices, exact in Decimal."""
+    total = _COST.add(_COST.multiply(Decimal(tokens_in), price_in),
+                      _COST.multiply(Decimal(tokens_out), price_out))
+    return _COST.divide(total, _MILLION)
+
+
+def attempt_cost_bound(wire_bytes: int, questions: int, price_in: Decimal,
+                       price_out: Decimal) -> Decimal:
+    """Upper bound on one possibly billed attempt whose usage is unknown.
+
+    Input tokens <= wire bytes + 64 per question; output tokens <= 64 per
+    question, priced at the model's output upper price (ADR-9(3)).
+    """
+    allowance = QUESTION_TOKEN_ALLOWANCE * questions
+    return list_price(wire_bytes + allowance, allowance, price_in, price_out)
+
+
+def _sync_directory(directory: Path) -> None:
+    """fsync a directory so a completed rename survives a crash (POSIX only).
+
+    Windows has no directory handle to fsync; there ``os.replace`` is the
+    whole transition and this is a no-op.
+    """
+    if os.name != "posix":
+        return
+    handle = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(handle)
+    finally:
+        os.close(handle)
+
+
 def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
-    """Durable atomic journal transition; no request or raw response bodies."""
+    """Durable atomic journal transition; no request or raw response bodies.
+
+    The file is fsynced before the rename. The directory is not: the gateway
+    syncs it after each dispatching write and once at ``close()`` (ADR-9,
+    F23), so a crash right after a settlement can at worst leave the
+    dispatching receipt, which records a possible submission.
+    """
     temp: Path | None = None
     error = False
     try:
@@ -458,12 +543,6 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
             os.fsync(stream.fileno())
         os.replace(temp, path)
         temp = None
-        if os.name == "posix":
-            directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
     except Exception:
         error = True
     finally:
@@ -505,6 +584,15 @@ class ValidatedGateway:
     ``clock`` (monotonic seconds), ``sleep`` and ``rng`` are injectable so
     tests never wait on the wall clock. ``progress`` is an optional text
     stream for the count-only progress line (ADR-9(5)).
+
+    Cost (ADR-9): every attempt receipt carries ``cost_usd``, ``cost_source``
+    (``provider_reported``, ``list_price_estimate`` or ``none``) and
+    ``cost_bound_usd``, the amount it adds to the unknown-usage upper bound.
+    ``spend`` sums them exactly in Decimal. With ``max_cost`` set, an attempt
+    (first or retry) whose bound would take spent plus bounded cost above it
+    is not dispatched: the gateway stops with ``cost_budget_exhausted``.
+    Estimates and bounds need the provider's ``model_spec`` prices; without
+    them they are None and ``max_cost`` is refused.
     """
 
     #: The p95 multiplier over recent attempts for the run reserve (ADR-2(7)).
@@ -522,7 +610,8 @@ class ValidatedGateway:
                  sleep: Callable[[float], None] | None = None,
                  rng: random.Random | None = None,
                  progress: TextIO | None = None,
-                 reserve_floor_seconds: float = 3.0) -> None:
+                 reserve_floor_seconds: float = 3.0,
+                 max_cost: Decimal | None = None) -> None:
         deadline = validate_call_deadline(deadline_seconds)
         _rounding_profile(rounding_places)
         if type(provider.identity) is not ProviderIdentity:
@@ -534,6 +623,21 @@ class ValidatedGateway:
                 or not math.isfinite(reserve_floor_seconds)
                 or not 0 <= reserve_floor_seconds <= MAX_CALL_DEADLINE_SECONDS):
             raise ProviderError("invalid_deadline")
+        self.max_cost = validate_max_cost(max_cost)
+        spec = getattr(provider, "model_spec", None)
+        price_in = getattr(spec, "price_in_per_mtok", None)
+        price_out = getattr(spec, "price_out_upper_per_mtok", None)
+        self._prices: tuple[Decimal, Decimal] | None = None
+        if (isinstance(price_in, Decimal) and isinstance(price_out, Decimal)
+                and price_in.is_finite() and price_out.is_finite()
+                and price_in >= 0 and price_out >= 0):
+            self._prices = (price_in, price_out)
+        date = getattr(spec, "price_table_date", None)
+        self.price_table_date = (date if self._prices is not None and type(date) is str
+                                 and _TOKEN.fullmatch(date) else None)
+        if self.max_cost is not None and self._prices is None:
+            # A budget that cannot bound unknown usage would be a false promise.
+            raise ProviderError("invalid_request")
         self.provider = provider
         self.provider_id = provider.identity.name
         self.model_id = provider.identity.model
@@ -568,6 +672,12 @@ class ValidatedGateway:
         self._started = self._now()
         self._progress_calls = 0
         self._progress_at = self._started
+        self._reported = Decimal(0)
+        self._estimated = Decimal(0)
+        self._unknown_bound = Decimal(0)
+        self._cost_counts = dict.fromkeys(("provider_reported", "list_price_estimate",
+                                           "unknown_bounded", "not_billable"), 0)
+        self._dispatch_writes = 0
 
     # -- state -------------------------------------------------------------
     def _now(self) -> float:
@@ -616,6 +726,90 @@ class ValidatedGateway:
         ordered = sorted(self._elapsed)
         p95 = ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
         return max(self.reserve_floor_seconds, self.RESERVE_P95_FACTOR * p95)
+
+    @property
+    def spend(self) -> dict[str, Any]:
+        """Spend so far as Decimal strings, reconciling exactly with receipts.
+
+        ``provider_reported_usd`` sums reported costs; ``estimated_usd`` known
+        usage at list price; ``unknown_usage_upper_bound_usd`` the bounds of
+        possibly billed attempts without usage. Estimates and bounds are None
+        without a price table.
+        """
+        priced = self._prices is not None
+        return {
+            "provider_reported_usd": usd(self._reported),
+            "estimated_usd": usd(self._estimated) if priced else None,
+            "unknown_usage_upper_bound_usd": usd(self._unknown_bound) if priced else None,
+            "upper_bound_usd": usd(self._spent_upper()) if priced else None,
+            "price_table_date": self.price_table_date,
+            "max_cost_usd": usd(self.max_cost) if self.max_cost is not None else None,
+            "attempts": dict(self._cost_counts),
+        }
+
+    def _spent_upper(self) -> Decimal:
+        return _COST.add(_COST.add(self._reported, self._estimated), self._unknown_bound)
+
+    def _over_budget(self, bound: Decimal | None) -> bool:
+        """Whether one more attempt could take spend above ``max_cost``."""
+        if self.max_cost is None or bound is None:
+            return False
+        return _COST.add(self._spent_upper(), bound) > self.max_cost
+
+    def _wire_bytes(self, wire: bytes) -> int:
+        """The adapter's wire size for this envelope, else the envelope size."""
+        sizer = getattr(self.provider, "wire_size", None)
+        if callable(sizer):
+            try:
+                size = sizer(wire)
+            except Exception:
+                size = None
+            if type(size) is int and size >= 0:
+                return max(size, len(wire))
+        return len(wire)
+
+    def _attempt_bound(self, wire: bytes, questions: int) -> Decimal | None:
+        if self._prices is None:
+            return None
+        return attempt_cost_bound(self._wire_bytes(wire), questions, *self._prices)
+
+    def _zero_bound(self) -> str | None:
+        return usd(Decimal(0)) if self._prices is not None else None
+
+    def _settle_cost(self, receipt: dict[str, Any], bound: Decimal | None) -> None:
+        """Fix an attempt's cost fields and add them to ``spend`` (once per attempt).
+
+        A reported cost wins; otherwise known usage is priced at list price;
+        otherwise a possibly billed attempt adds its bound. A cost flagged
+        invalid counts as unknown, never as zero. Not-sent, rejected and
+        terminal attempts add nothing.
+        """
+        error = receipt.get("provider_error")
+        invalid = isinstance(error, dict) and error.get("cost_error") == "invalid"
+        usage = receipt.get("usage")
+        estimate: Decimal | None = None
+        if self._prices is not None and isinstance(usage, dict):
+            estimate = list_price(usage["input_tokens"], usage["output_tokens"],
+                                  *self._prices)
+        if receipt.get("cost_source") == "provider_reported":
+            self._reported = _COST.add(self._reported, Decimal(receipt["cost_usd"]))
+            self._cost_counts["provider_reported"] += 1
+            receipt["cost_bound_usd"] = self._zero_bound()
+            return
+        receipt.update(cost_usd=None, cost_source="none")
+        if estimate is not None and not invalid:
+            receipt.update(cost_usd=usd(estimate), cost_source="list_price_estimate",
+                           cost_bound_usd=self._zero_bound())
+            self._estimated = _COST.add(self._estimated, estimate)
+            self._cost_counts["list_price_estimate"] += 1
+        elif receipt.get("submission") == "possible" and bound is not None:
+            chosen = bound if estimate is None else max(bound, estimate)
+            receipt["cost_bound_usd"] = usd(chosen)
+            self._unknown_bound = _COST.add(self._unknown_bound, chosen)
+            self._cost_counts["unknown_bounded"] += 1
+        else:
+            receipt["cost_bound_usd"] = self._zero_bound()
+            self._cost_counts["not_billable"] += 1
 
     @property
     def last_call_stats(self) -> dict[str, Any] | None:
@@ -687,12 +881,19 @@ class ValidatedGateway:
         try:
             if not self._closed:
                 error = None
+                if self._dispatch_writes:
+                    # The one directory sync that makes every settlement
+                    # rename durable (settlements skip it; ADR-9, F23).
+                    try:
+                        _sync_directory(self.receipt_dir)
+                    except Exception:
+                        error = "receipt_failed"
                 try:
                     self.provider.close()
                 except ProviderError as exc:
-                    error = exc.code
+                    error = error or exc.code
                 except Exception:
-                    error = "transport_failed"
+                    error = error or "transport_failed"
                 if error:
                     self._block(error)
                     raise ProviderError(error)
@@ -772,6 +973,7 @@ class ValidatedGateway:
             "status": "dispatching", "submission": "possible",
             "submission_possible": True, "usage": None, "answers": None, "error": None,
             "scoped": None, "provider_error": None,
+            "cost_usd": None, "cost_source": "none", "cost_bound_usd": self._zero_bound(),
         }
 
     def _logical(self, wire: bytes, expected: dict[str, Any], key: str,
@@ -780,6 +982,12 @@ class ValidatedGateway:
         used = {"not_sent": 0, "rejected": 0, "possible": 0, "stale_connection": 0}
         usage_total: dict[str, int] | None = None
         attempt, waited, reason, duplicate = 0, 0.0, None, False
+        bound = self._attempt_bound(wire, len(expected))
+        if self._over_budget(bound):
+            # Refused before any receipt or byte, like the reserve refusal.
+            self._stop("cost_budget_exhausted")
+            raise ProviderError("cost_budget_exhausted",
+                                classification=classify("cost_budget_exhausted"))
         while True:
             attempt += 1
             self.attempts += 1
@@ -792,6 +1000,10 @@ class ValidatedGateway:
                                          timeout)
             receipt.update(retry_reason=reason, waited_seconds=waited,
                            duplicate_billing_possible=duplicate)
+            if bound is not None:
+                # The dispatching receipt carries the full bound: after a
+                # crash it alone says what this attempt may have cost.
+                receipt["cost_bound_usd"] = usd(bound)
             path = self.receipt_dir / (uuid.uuid4().hex + ".json")
             try:
                 answers, error, classification = self._journaled_attempt(
@@ -800,8 +1012,10 @@ class ValidatedGateway:
                 if not isinstance(exc, Exception):
                     # Block before another filesystem operation or propagation.
                     # The shared local receipt retains usage learned before.
+                    self._settle_cost(receipt, bound)
                     self._fail_receipt(path, receipt, "interrupted", persist=True)
                 raise
+            self._settle_cost(receipt, bound)
             if receipt["submission"] != "not_sent":
                 self.attempts_transmitted += 1
                 self._elapsed.append(float(receipt.get("elapsed_seconds", 0.0)))
@@ -811,7 +1025,7 @@ class ValidatedGateway:
                                + usage[name] for name in ("input_tokens", "output_tokens")}
             plan: tuple[float, str, bool] | str | None = None
             if error is not None and classification is not None and self._block_code is None:
-                plan = self._plan_retry(classification, used)
+                plan = self._plan_retry(classification, used, bound)
             if isinstance(plan, tuple):
                 wait, next_reason, next_duplicate = plan
                 self._settle(path, receipt)
@@ -831,9 +1045,12 @@ class ValidatedGateway:
                 continue
             receipt.update(logical_status="failed" if error else receipt["status"],
                            logical_attempts=attempt, logical_usage=usage_total)
-            if plan == "run_deadline":
-                receipt["retry_abandoned"] = "run_deadline"
+            if plan in {"run_deadline", "cost_budget"}:
+                receipt["retry_abandoned"] = plan
             self._settle(path, receipt)
+            if plan == "cost_budget":
+                # The retry was not sent; nothing more is dispatched this run.
+                self._stop("cost_budget_exhausted")
             if self._block_code is None and self.breaker.record(error, classification):
                 self._stop(self.breaker.stop_reason or "")
             if error:
@@ -842,9 +1059,14 @@ class ValidatedGateway:
             self._last_defects = dict(receipt["scoped"] or {})
             return answers
 
-    def _plan_retry(self, classification: Classification,
-                    used: dict[str, int]) -> tuple[float, str, bool] | str | None:
-        """(wait, reason, duplicate billing possible), ``"run_deadline"`` or None."""
+    def _plan_retry(self, classification: Classification, used: dict[str, int],
+                    bound: Decimal | None = None) -> tuple[float, str, bool] | str | None:
+        """(wait, reason, duplicate billing possible), a refusal reason or None.
+
+        The refusal reasons are ``"run_deadline"`` (the wait would cut into
+        the reserve) and ``"cost_budget"`` (the retry could exceed
+        ``max_cost``; ADR-9(4) checks retries too).
+        """
         policy = self.retry_policy
         code, submission = classification.code, classification.submission
         kind: str | None = None
@@ -873,6 +1095,8 @@ class ValidatedGateway:
         if (self._deadline is not None
                 and self._now() + wait > self._deadline - self.reserve_seconds()):
             return "run_deadline"
+        if self._over_budget(bound):
+            return "cost_budget"
         used[kind] = retry
         return (wait, "stale_connection" if kind == "stale_connection" else code,
                 kind in {"stale_connection", "possible"})
@@ -930,9 +1154,14 @@ class ValidatedGateway:
             self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             self.check_sensitive(str(path), receipt)
             _write_receipt(path, receipt)
+            # The dispatching receipt must survive a crash before dispatch:
+            # its directory entry is made durable here, settlements skip it.
+            self._dispatch_writes += 1
+            _sync_directory(self.receipt_dir)
         except Exception:
             # The provider was never called: nothing can have been submitted.
-            receipt.update(submission="not_sent", submission_possible=False)
+            receipt.update(submission="not_sent", submission_possible=False,
+                           cost_bound_usd=self._zero_bound())
             self._fail_receipt(path, receipt, "receipt_failed", persist=True)
             raise ProviderError("receipt_failed") from None
         self._note_receipt(path)
@@ -961,6 +1190,12 @@ class ValidatedGateway:
             if type(response) is not ProviderResponse:
                 raise ProviderError("response_schema")
             _record_details(receipt, response.provenance, self.check_sensitive)
+            if response.cost_usd is not None:
+                cost = reported_cost(response.cost_usd)
+                if cost is None:
+                    _record_details(receipt, {"cost_error": "invalid"}, self.check_sensitive)
+                else:
+                    receipt.update(cost_usd=usd(cost), cost_source="provider_reported")
             if type(response.order_mismatch) is int and response.order_mismatch > 0:
                 receipt["answer_order_mismatch"] = True
             if response.usage is not None:
@@ -1022,10 +1257,13 @@ class ValidatedGateway:
         self._progress_calls, self._progress_at = self.logical_requests, now
         remaining = ("none" if self._deadline is None
                      else f"{max(0.0, self._deadline - now):.0f}s")
+        spend = ("unknown" if self._prices is None
+                 else "$" + usd(self._spent_upper().quantize(_MICRO, rounding=ROUND_CEILING)))
         try:
             self._progress.write(
                 f"progress: calls={self.logical_requests} attempts={self.attempts} "
-                f"elapsed={max(0.0, now - self._started):.0f}s remaining={remaining}\n")
+                f"elapsed={max(0.0, now - self._started):.0f}s remaining={remaining} "
+                f"spend<={spend}\n")
             self._progress.flush()
         except Exception:
             pass

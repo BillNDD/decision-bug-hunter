@@ -15,7 +15,8 @@ import time
 from .core import Config, Source, format_findings, scan
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
-from .providers import ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline
+from .providers import (ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
+                        validate_max_cost)
 from . import providers
 from .decisions import (CREDENTIAL_VARIABLE, ORGANIZATION_VARIABLE, PROJECT_VARIABLE,
                         DecisionsProvider)
@@ -144,6 +145,10 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--no-retry", action="store_true",
                         help="One attempt per request: no retries after connect failures, "
                              "rate limits, overload or a stale keep-alive connection.")
+    result.add_argument("--max-cost", type=decimal_argument, default=None, metavar="USD",
+                        help="Stop before any attempt (retries included) whose cost bound "
+                             "could take reported, estimated and unknown-usage spend above "
+                             "USD (default: unset).")
     return result
 
 
@@ -320,6 +325,7 @@ def execute(args: argparse.Namespace) -> int:
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.
     call_deadline = validate_call_deadline(args.deadline_seconds)
+    max_cost = validate_max_cost(getattr(args, "max_cost", None))
     # The route is the caller's explicit choice of data processor; it and
     # availability are checked before source reads, indexing, or output writes.
     try:
@@ -369,6 +375,7 @@ def execute(args: argparse.Namespace) -> int:
                          else args.choice_rounding_places),
         retry_policy=RetryPolicy.none() if getattr(args, "no_retry", False) else RetryPolicy(),
         progress=sys.stderr,
+        max_cost=max_cost,
     )
     result = None
     try:
@@ -428,6 +435,11 @@ def execute(args: argparse.Namespace) -> int:
         # A fixed DBH code; never a provider message.
         print(f"Provider stopped ({result['stop_reason']}); remaining work was not sent.",
               file=sys.stderr)
+    spend = result.get("spend")
+    if isinstance(spend, dict) and spend.get("upper_bound_usd") is not None:
+        print(f"Spend (USD): provider-reported {spend['provider_reported_usd']}, "
+              f"estimated {spend['estimated_usd']}, unknown-usage bound "
+              f"{spend['unknown_usage_upper_bound_usd']}.", file=sys.stderr)
     complete = result["status"] == "complete"
     count = len(result["findings"])
     status = "complete" if complete else "incomplete"

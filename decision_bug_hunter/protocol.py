@@ -67,6 +67,8 @@ ERROR_CODES = frozenset({
     "run_deadline_reserved", "provider_stopped",
     # Answer-level defects (ADR-3).
     "question_refused",
+    # Cost accounting (ADR-9(4)): --max-cost refused the next attempt.
+    "cost_budget_exhausted",
 })
 #: Defects that cost one answer, never the batch (ADR-3(1)). A refused
 #: question, a choice without its vector, a choice whose mass or option keys

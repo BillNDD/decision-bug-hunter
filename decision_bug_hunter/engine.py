@@ -31,7 +31,8 @@ from .questions import (load_pack, noul, choice, screening, fitting_state,
 
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
 #: Gateway refusals that never reached the provider and end the run's dispatch.
-_DISPATCH_REFUSALS = frozenset({"run_deadline_reserved", "provider_stopped"})
+_DISPATCH_REFUSALS = frozenset({"run_deadline_reserved", "provider_stopped",
+                                "cost_budget_exhausted"})
 #: Choice questions that only route the search (ADR-3(5)): a defect in one
 #: of them is counted but does not by itself make the run incomplete.
 _ROUTING_QUESTION = re.compile(r"(?:rank_[0-9]+|where|context_where|action)\Z")
@@ -125,6 +126,31 @@ def _permanent(exc):
 
 def _count(value):
     return value if type(value) is int and value >= 0 else None
+
+
+_SPEND_AMOUNTS = ("provider_reported_usd", "estimated_usd", "unknown_usage_upper_bound_usd",
+                  "upper_bound_usd", "max_cost_usd")
+
+
+def _spend(value):
+    """A gateway's spend summary, copied only when well formed."""
+    if type(value) is not dict:
+        return None
+    result = {}
+    for name in _SPEND_AMOUNTS:
+        amount = value.get(name)
+        if amount is not None and not (type(amount) is str
+                                       and re.fullmatch(r"[0-9]{1,6}(?:\.[0-9]{1,40})?", amount)):
+            return None
+        result[name] = amount
+    date = value.get("price_table_date")
+    result["price_table_date"] = (date if type(date) is str
+                                  and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date) else None)
+    attempts = value.get("attempts")
+    result["attempts"] = ({k: v for k, v in attempts.items()
+                           if type(k) is str and _count(v) is not None}
+                          if type(attempts) is dict else {})
+    return result
 
 
 def digest(value):
@@ -238,9 +264,11 @@ class Search:
     def expired(self, region, phase):
         if self.stop_reason() is not None:
             # A blocked or breaker-stopped provider ends dispatch: one
-            # whole-file limitation, no further calls, rows or usage.
-            self.issue("provider_stopped", Span(1, max(1, len(self.source.lines))),
-                       "provider")
+            # whole-file limitation, no further calls, rows or usage. A spent
+            # --max-cost budget names itself (ADR-9(4)).
+            code = ("cost_budget_exhausted" if self.stop_reason() == "cost_budget_exhausted"
+                    else "provider_stopped")
+            self.issue(code, Span(1, max(1, len(self.source.lines))), "provider")
             return True
         if self.dispatch_refused is not None:
             self.issue(self.dispatch_refused, region, phase)
@@ -1723,6 +1751,9 @@ class Search:
                 "stopped_at_sequence": (_count(getattr(self.gw, "stopped_at_sequence", None))
                                         if self.stop_reason() is not None else None),
                 "usage": dict(self.usage),
+                # Spend comes from the gateway's receipts (ADR-9(2)); a custom
+                # gateway without accounting reports None.
+                "spend": _spend(getattr(self.gw, "spend", None)),
                 "questions_validated": self.validated_questions,
                 **self.answer_quality(),
                 "calibration": dict(CALIBRATION),

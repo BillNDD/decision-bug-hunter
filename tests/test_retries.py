@@ -457,8 +457,10 @@ class ReceiptAndReserveTests(Base):
         lines = stream.getvalue().splitlines()
         self.assertEqual(len(lines), 2)
         for line in lines:
+            # The scripted provider has no price table, so the spend bound
+            # (ADR-9(5), added by WP-08) is unknown; priced runs show $X.
             self.assertRegex(line, r"\Aprogress: calls=\d+ attempts=\d+ elapsed=\d+s "
-                                   r"remaining=\d+s\Z")
+                                   r"remaining=\d+s spend<=unknown\Z")
         self.assertTrue(lines[0].startswith("progress: calls=10 attempts=10 "))
         self.assertTrue(lines[1].startswith("progress: calls=11 attempts=11 elapsed=31s "))
         self.assertNotIn(KEY, stream.getvalue())
