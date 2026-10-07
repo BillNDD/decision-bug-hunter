@@ -281,7 +281,7 @@ class CompactCliTests(unittest.TestCase):
         provider=FixtureProvider([(9,9)],override=override)
         out,err=io.StringIO(),io.StringIO()
         with              patch.object(socket,'create_connection',side_effect=AssertionError('no network')), \
-             patch.object(cli,'DecisionsProvider',return_value=SyntheticProvider(fixture=provider, secret=KEY)), \
+             patch.object(cli,'make_provider',return_value=SyntheticProvider(fixture=provider, secret=KEY)), \
              redirect_stdout(out),redirect_stderr(err):
             code=cli.main(argv)
         results=list((root/'runs').glob('run-*/report.json'))

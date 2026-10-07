@@ -331,7 +331,7 @@ class ProjectAndCliRepairTests(unittest.TestCase):
             out, err = io.StringIO(), io.StringIO()
             outputs = root / "private-user-marker" / "runs"
             with patch.dict(os.environ, {"DBH_TEST_SECRET": KEY}), \
-                 patch.object(cli, "DecisionsProvider", return_value=SyntheticProvider(fixture=provider)), \
+                 patch.object(cli, "make_provider", return_value=SyntheticProvider(fixture=provider)), \
                  redirect_stdout(out), redirect_stderr(err):
                 code = cli.main([str(target), "--scope", "standalone", "--output-dir", str(outputs)])
             self.assertEqual(code, 0)
@@ -347,7 +347,7 @@ class ProjectAndCliRepairTests(unittest.TestCase):
             target.write_text("x\n")
             spec.write_text("x\n" * 2000)
             with patch.dict(os.environ, {"DBH_TEST_SECRET": KEY}), \
-                 patch.object(cli, "DecisionsProvider", return_value=SyntheticProvider(fixture=FixtureProvider())) as transport, \
+                 patch.object(cli, "make_provider", return_value=SyntheticProvider(fixture=FixtureProvider())) as transport, \
                  redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 code = cli.main([str(target), "--scope", "standalone", "--spec-file", str(spec), "--output-dir", str(root / "runs")])
             self.assertEqual(code, 2)

@@ -18,7 +18,12 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -e ".[dev]"
-      - run: python -m unittest discover -s tests
+      # -t . imports the tests package, whose init installs the socket guard.
+      # Dummy keys prove no test depends on, or leaks, a real credential.
+      - run: python -m unittest discover -s tests -t .
+        env:
+          OPENAI_API_KEY: dbh-ci-dummy-openai-key-not-a-credential
+          OPENROUTER_API_KEY: dbh-ci-dummy-openrouter-key-not-a-credential
       - run: python -m ruff check .
       - run: python -m mypy
       - run: python -m build --no-isolation

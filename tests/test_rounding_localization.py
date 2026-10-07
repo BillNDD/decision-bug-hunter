@@ -61,7 +61,7 @@ class RoundedLocalizationTests(unittest.TestCase):
                 args.append("--strict-choice-mass")
             else:
                 args.extend(["--choice-rounding-places", "2"])
-            with patch.object(cli, "DecisionsProvider", return_value=SyntheticProvider(fixture=provider)), \
+            with patch.object(cli, "make_provider", return_value=SyntheticProvider(fixture=provider)), \
                     patch("socket.socket", side_effect=AssertionError("network forbidden")), \
                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 code = cli.main(args)

@@ -2,15 +2,109 @@
 
 No network, no learned model, no runtime fallback. Faults are preassigned spans.
 """
+from contextlib import contextmanager
 from decimal import Decimal
 import hashlib
 import json
+import os
 import re
+from typing import Iterator
+from unittest.mock import patch
 
 from decision_bug_hunter.core import Source, Span
 from decision_bug_hunter import protocol
 
 KEY = "offline-synthetic-key-not-a-real-credential"
+
+#: Exact names removed by ``clean_provider_env`` besides the prefix rules.
+PROVIDER_VARIABLES = ("DBH_PROVIDER", "SSLKEYLOGFILE", "HTTP_PROXY", "HTTPS_PROXY",
+                      "ALL_PROXY", "NO_PROXY")
+PROVIDER_PREFIXES = ("OPENAI_", "OPENROUTER_")
+
+
+def is_provider_variable(name):
+    upper = name.upper()
+    return (upper.endswith("_API_KEY") or upper.startswith(PROVIDER_PREFIXES)
+            or upper in PROVIDER_VARIABLES)
+
+
+@contextmanager
+def clean_provider_env(*also_remove: str, **values: str) -> Iterator[None]:
+    """Scrub every provider, credential, proxy and TLS key-log variable.
+
+    Removes ``*_API_KEY``, ``OPENAI_*``, ``OPENROUTER_*``, ``DBH_PROVIDER``,
+    ``SSLKEYLOGFILE`` and the proxy variables (any case), plus ``also_remove``;
+    then sets ``values``. The original environment is restored on exit.
+    """
+    drop = {name.upper() for name in also_remove}
+    kept = {k: v for k, v in os.environ.items()
+            if not is_provider_variable(k) and k.upper() not in drop}
+    with patch.dict(os.environ, kept, clear=True):
+        os.environ.update(values)
+        yield
+
+
+def _number(value):
+    """Fixture numbers go on the wire as plain JSON numbers."""
+    if isinstance(value, Decimal):
+        return int(value) if value == value.to_integral_value() else float(value)
+    return value
+
+
+def openrouter_body(answers, *, model="openai/gpt-6-luna-decisions-20261006",
+                    provider="OpenAI", generation_id="gen-dec-offlinefixture0000000000000000",
+                    input_tokens=100, output_tokens=0, cost=None, omit=(), **extra):
+    """A 200 body in the shape OpenRouter returned on 2026-10-06.
+
+    ``answers`` is the local map {name: answer}; OpenRouter returns the same
+    map. ``cost`` defaults to input_tokens * 1e-7 (Luna bills input only).
+    ``omit`` drops top-level keys; ``extra`` adds or replaces them.
+    """
+    if cost is None:
+        cost = float(Decimal(input_tokens) * Decimal("1e-7"))
+    data = {"answers": {name: {k: (_number(v) if k != "probabilities" else
+                                   {o: _number(p) for o, p in v.items()})
+                               for k, v in answer.items()}
+                        for name, answer in answers.items()},
+            "id": generation_id, "model": model, "provider": provider,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens,
+                      "cost": cost}}
+    data.update(extra)
+    for key in omit:
+        data.pop(key, None)
+    return json.dumps(data).encode()
+
+
+def openai_body(answers, *, model="gpt-6-luna", input_tokens=100, output_tokens=0,
+                omit=(), **extra):
+    """A 200 body in the documented OpenAI Decisions shape.
+
+    Local noul answers become ``predicate`` objects and choice answers carry a
+    list of {value, probability}; the answers travel as a list with names.
+    """
+    documented = []
+    for name, answer in answers.items():
+        if answer["type"] == "noul":
+            documented.append({"type": "predicate", "name": name,
+                               "probability": _number(answer["noul"])})
+        elif answer["type"] == "choice":
+            documented.append({
+                "type": "choice", "name": name, "choice": answer["choice"],
+                "probabilities": [{"value": k, "probability": _number(v)}
+                                  for k, v in answer["probabilities"].items()],
+                "confidence": _number(answer["confidence"])})
+        else:
+            documented.append({"name": name, **answer})
+    data = {"model": model, "answers": documented,
+            "usage": {"input_tokens": input_tokens,
+                      "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+                      "output_tokens": output_tokens,
+                      "output_tokens_details": {"reasoning_tokens": 0},
+                      "total_tokens": input_tokens + output_tokens}}
+    data.update(extra)
+    for key in omit:
+        data.pop(key, None)
+    return json.dumps(data).encode()
 
 
 

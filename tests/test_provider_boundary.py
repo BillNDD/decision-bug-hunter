@@ -4,7 +4,6 @@ from copy import deepcopy
 from decimal import Decimal
 import io
 import json
-import os
 from pathlib import Path
 import socket
 import tempfile
@@ -18,13 +17,12 @@ from decision_bug_hunter.decisions import DecisionsProvider
 from decision_bug_hunter.protocol import ProviderError, QUESTION, encode_request
 from decision_bug_hunter.providers import (ProviderIdentity, ProviderRequest,
                                           ProviderResponse, ValidatedGateway)
-from tests.support import FixtureProvider
+from tests.support import FixtureProvider, clean_provider_env
 
 
 def without_credential():
-    """The hosted adapter reads OPENAI_API_KEY only; tests clear it explicitly."""
-    environment = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
-    return patch.dict("os.environ", environment, clear=True)
+    """Every provider credential, routing and proxy variable is cleared explicitly."""
+    return clean_provider_env()
 
 
 class SyntheticProvider:
@@ -292,7 +290,7 @@ class ProviderBoundaryTests(unittest.TestCase):
         source.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n", encoding="utf-8")
         provider = SyntheticProvider(fixture=FixtureProvider([(2, 2)]))
         out, err = io.StringIO(), io.StringIO()
-        with patch.object(cli, "DecisionsProvider", return_value=provider), \
+        with patch.object(cli, "make_provider", return_value=provider), \
                 patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main([str(source), "--scope", "standalone", "--output-dir", str(self.root / "runs"),

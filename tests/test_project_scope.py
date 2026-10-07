@@ -5,7 +5,6 @@ and judge never decides whether related files exist."""
 import contextlib
 import io
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +12,7 @@ from pathlib import Path
 from decision_bug_hunter import core
 from decision_bug_hunter.__main__ import main
 from decision_bug_hunter.repository import ProjectIndex
-from tests.support import FixtureProvider, source
+from tests.support import FixtureProvider, clean_provider_env, source
 
 
 class TestScopeContract(unittest.TestCase):
@@ -26,14 +25,7 @@ class TestScopeContract(unittest.TestCase):
         self.target = self.root / 'target.py'
         self.target.write_text('def f(x):\n    return x / 0\n', encoding='utf-8')
         self.out = self.root / 'out'
-        self._saved = {name: os.environ.pop(name, None)
-                       for name in ('DBH_TEST_SECRET', 'OPENAI_API_KEY')}
-        self.addCleanup(self._restore_keys)
-
-    def _restore_keys(self):
-        for name, value in self._saved.items():
-            if value is not None:
-                os.environ[name] = value
+        self.enterContext(clean_provider_env('DBH_TEST_SECRET'))
 
     def run_main(self, *extra):
         err = io.StringIO()

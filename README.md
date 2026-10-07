@@ -185,7 +185,7 @@ grant is required, and the suite forbids real sockets.
 
 ```sh
 python -m pip install -e ".[dev]"
-python -m unittest discover -s tests
+python -m unittest discover -s tests -t .
 python -m ruff check .
 python -m mypy
 python -m build

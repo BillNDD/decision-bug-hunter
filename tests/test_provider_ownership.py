@@ -58,7 +58,7 @@ class ProviderOwnershipTests(unittest.TestCase):
 
         provider = TrackedProvider(fixture=FixtureProvider(), secret=KEY)
         provider.close_calls = 0
-        with patch.object(cli, "DecisionsProvider", return_value=provider), \
+        with patch.object(cli, "make_provider", return_value=provider), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             args = [str(target), "--scope", "standalone", "--output-dir", str(output),
                     "--no-whole-file", "--no-bug-lenses", "--width", "2", "--min-width", "1",

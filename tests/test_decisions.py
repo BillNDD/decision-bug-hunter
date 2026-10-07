@@ -23,7 +23,7 @@ from decision_bug_hunter.decisions import (DecisionsProvider, translate_request,
                                            translate_response)
 from decision_bug_hunter.protocol import ProviderError, QUESTION, _json, encode_request
 from decision_bug_hunter.providers import ProviderRequest, ValidatedGateway
-from tests.support import FixtureProvider
+from tests.support import FixtureProvider, clean_provider_env
 
 
 KEY = "offline-sentinel-credential-7c2e"
@@ -419,10 +419,8 @@ class AvailabilityTests(unittest.TestCase):
             gateway.close()
 
     def test_cli_without_credential_stops_before_any_source_read_or_output(self):
-        environment = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
         out, err = io.StringIO(), io.StringIO()
-        with tempfile.TemporaryDirectory() as td, \
-                patch.dict("os.environ", environment, clear=True), no_network(), \
+        with tempfile.TemporaryDirectory() as td, clean_provider_env(), no_network(), \
                 patch.object(decisions.http.client, "HTTPSConnection",
                              side_effect=AssertionError("no transport")), \
                 redirect_stdout(out), redirect_stderr(err):

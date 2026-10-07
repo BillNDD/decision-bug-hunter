@@ -34,7 +34,7 @@ class CliTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
         self.gateway = Mock()
         self.provider = SyntheticProvider(secret=SENTINEL)
-        self.enterContext(patch.object(cli, "DecisionsProvider", return_value=self.provider))
+        self.enterContext(patch.object(cli, "make_provider", return_value=self.provider))
         self.gateway.check_sensitive.side_effect = self.provider.check_sensitive
         self.gateway_constructor = patch.object(
             cli, "make_gateway", return_value=self.gateway,

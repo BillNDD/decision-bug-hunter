@@ -136,6 +136,15 @@ def need_user_input(field: str, hint: str) -> int:
     return 3
 
 
+def make_provider(args: argparse.Namespace) -> DecisionsProvider:
+    """The provider for this run; the single construction point tests replace.
+
+    The hosted OpenAI Decisions adapter is the only route today. Construction
+    reads the environment once and never touches the network.
+    """
+    return DecisionsProvider()
+
+
 def make_gateway(provider, receipt_dir, **kwargs):
     return ValidatedGateway(provider, receipt_dir, **kwargs)
 
@@ -189,7 +198,7 @@ def execute(args: argparse.Namespace) -> int:
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Availability is checked before source reads, indexing, or output writes.
-    provider = DecisionsProvider()
+    provider = make_provider(args)
     provider.require_available()
     source = Source.read(args.file, encoding=args.encoding)
     spec = None
