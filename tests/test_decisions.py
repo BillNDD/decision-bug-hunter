@@ -400,13 +400,16 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertNotIn(KEY, json.dumps(receipt))
 
     def test_semantic_rejections_keep_usage_and_withhold_every_judgment(self):
+        # Batch-level defects only: wrong types, missing or extra names,
+        # extra keys, out-of-range numbers and malformed vectors. The
+        # answer-scoped codes are in test_scoped_defects_keep_other_judgments.
         refusal = {"type": "refusal", "name": "where"}
 
         def chosen(**changes):
             return {**CHOSEN, **changes}
 
         cases = [
-            ((PREDICATE, refusal), "response_refused"),
+            (({**PREDICATE, "type": "refusal"}, refusal), "response_refused"),
             ((PREDICATE,), "response_schema"),
             ((PREDICATE, CHOSEN, PREDICATE), "response_schema"),
             ((PREDICATE, CHOSEN, {"type": "predicate", "name": "extra", "probability": 0.5}),
@@ -418,18 +421,16 @@ class AdapterExchangeTests(unittest.TestCase):
             (({**PREDICATE, "probability": True}, CHOSEN), "response_probability"),
             (({**PREDICATE, "probability": "0.95"}, CHOSEN), "response_probability"),
             (({**PREDICATE, "probability": 1.5}, CHOSEN), "response_probability"),
-            ((PREDICATE, chosen(probabilities=[{"value": "L1-1", "probability": 0.95},
-                                                 {"value": "elsewhere", "probability": 0.05}])),
-             "response_distribution"),
             ((PREDICATE, chosen(probabilities=[{"value": "L1-1", "probability": 0.5},
                                                  {"value": "L1-1", "probability": 0.5}])),
              "response_distribution"),
             ((PREDICATE, chosen(probabilities={"L1-1": 1, "none": 0})), "response_distribution"),
-            ((PREDICATE, chosen(choice=True)), "response_distribution"),
-            ((PREDICATE, chosen(probabilities=[{"value": "L1-1", "probability": 0.6},
-                                                 {"value": "none", "probability": 0.6}])),
-             "response_distribution"),
-            ((PREDICATE, chosen(choice="none")), "choice_argmax_mismatch"),
+            # A non-string choice is a wrong type (was response_distribution
+            # while every defect withheld the batch).
+            ((PREDICATE, chosen(choice=True)), "response_schema"),
+            ((PREDICATE, chosen(probabilities=[{"value": "L1-1", "probability": 1.5},
+                                                 {"value": "elsewhere", "probability": 0.05}])),
+             "response_probability"),
         ]
         for answers, code in cases:
             with self.subTest(code=code, answers=answers):
@@ -445,6 +446,34 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertEqual(receipt["usage"]["input_tokens"], 42)
         _, receipt, *_ = self.exchange(documented(model="gpt-6-luna-2026-10-06"))
         self.assertEqual(receipt["status"], "validated")
+
+    def test_scoped_defects_keep_other_judgments(self):
+        # ADR-3: these codes cost one answer; the rest of the batch is kept.
+        def chosen(**changes):
+            return {**CHOSEN, **changes}
+
+        cases = [
+            ((PREDICATE, {"type": "refusal", "name": "where"}), "question_refused"),
+            ((PREDICATE, chosen(probabilities=[{"value": "L1-1", "probability": 0.95},
+                                                 {"value": "elsewhere", "probability": 0.05}])),
+             "response_distribution"),
+            ((PREDICATE, chosen(choice="elsewhere")), "response_distribution"),
+            ((PREDICATE, chosen(probabilities=[{"value": "L1-1", "probability": 0.6},
+                                                 {"value": "none", "probability": 0.6}])),
+             "response_distribution"),
+            ((PREDICATE, chosen(choice="none")), "choice_argmax_mismatch"),
+        ]
+        for answers, code in cases:
+            with self.subTest(code=code, answers=answers):
+                outcome, receipt, *_ = self.exchange(documented(answers=answers))
+                self.assertEqual(outcome, {"screen": {"type": "noul",
+                                                      "noul": Decimal("0.95")}})
+                self.assertEqual((receipt["status"], receipt["error"]),
+                                 ("validated_partial", None))
+                self.assertEqual(receipt["logical_status"], "validated_partial")
+                self.assertEqual(receipt["scoped"], {"where": code})
+                self.assertEqual(set(receipt["answers"]), {"screen"})
+                self.assertEqual(receipt["usage"], {"input_tokens": 42, "output_tokens": 0})
 
     def test_malformed_usage_is_a_limitation_not_zero_tokens(self):
         for usage in ({"input_tokens": 42}, {"input_tokens": "42", "output_tokens": 0},

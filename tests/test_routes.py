@@ -384,7 +384,10 @@ class OpenAIRouteTests(unittest.TestCase):
                 answers = [body["answers"][0], {**where, **change}]
                 raw = json.dumps({**body, "answers": answers}).encode()
                 outcome, receipt = self.evaluate(raw)
-                self.assertIn(outcome.code, {"response_distribution", "response_probability"})
+                # A boolean choice is a wrong type (batch-level response_schema
+                # since ADR-3); boolean values are response_probability.
+                self.assertIn(outcome.code, {"response_distribution", "response_probability",
+                                             "response_schema"})
                 self.assertIsNone(receipt["answers"])
 
     def test_order_mismatch_counted_not_fatal(self):

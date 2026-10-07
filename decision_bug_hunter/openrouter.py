@@ -17,8 +17,11 @@ option.
 Responses carry an answer map keyed by question name, the echoed model,
 an optional upstream ``provider`` and ``usage`` with ``cost``; the cost is
 split out before the gateway's exact usage validation. Only an explicit
-``{"type":"refusal"}`` counts as a refusal; any other unknown answer type is
-a batch-level ``response_schema``. Error bodies keep only structural fields
+``{"type":"refusal"}`` counts as a refusal (an answer-scoped
+``question_refused``; two or more withhold the batch as ``response_refused``)
+and a choice without its vector is an answer-scoped
+``response_vector_missing``; any other unknown answer type is a batch-level
+``response_schema``. Error bodies keep only structural fields
 (numeric ``error.code``, moderation and routing-metadata key presence, and
 token-charset ``metadata.error_type``, ``provider_code``, ``provider_name``),
 never ``message``, ``reasons``, ``flagged_input`` or routing metadata values.
@@ -34,7 +37,8 @@ from typing import Any
 from .exchange import HttpsExchange, Outcome
 from .hosted import (HostedProvider, ModelSpec, RouteSpec, identifier, model_echo_ok,
                      model_returned, upstream_name)
-from .protocol import (CONTRACT_VERSION, MAX_RESPONSE_BYTES, ProviderError, _REQUEST_PREFIX,
+from .protocol import (CONTRACT_VERSION, MAX_REFUSALS_PER_REQUEST, MAX_RESPONSE_BYTES,
+                       ProviderError, _REQUEST_PREFIX,
                        _constant, _decimal, _json, _pairs, _secret_in, validate_questions)
 from .providers import ProviderResponse
 
@@ -126,12 +130,19 @@ def _usage(value: Any) -> tuple[dict[str, Any] | None, Decimal | None, bool]:
     return usage, cost, False
 
 
-def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
-    """The answer map, exactly the requested names, in question order."""
+def _answers(items: Any, questions: Mapping[str, Any]
+             ) -> tuple[dict[str, Any], dict[str, str], int]:
+    """The answer map, exactly the requested names, in question order.
+
+    Returns the usable answers, the answer-scoped defects (an explicit
+    refusal is ``question_refused``; a choice without its probability vector
+    or confidence is ``response_vector_missing``) and the order flag. More
+    than one refusal in a request withholds the batch (``response_refused``).
+    """
     if type(items) is not dict or items.keys() != questions.keys():
         raise ProviderError("response_schema")
     result: dict[str, Any] = {}
-    refused = vector_missing = False
+    scoped: dict[str, str] = {}
     for name, question in questions.items():
         item = items[name]
         if type(item) is not dict:
@@ -140,7 +151,7 @@ def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], 
         if kind == "refusal":
             if not item.keys() <= _REFUSAL_KEYS or item.get("name", name) != name:
                 raise ProviderError("response_schema")
-            refused = True
+            scoped[name] = "question_refused"
         elif question["type"] == "noul":
             if kind != "noul" or item.keys() != _NOUL_KEYS:
                 raise ProviderError("response_schema")
@@ -149,17 +160,14 @@ def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], 
             if kind != "choice" or not item.keys() <= _CHOICE_KEYS or "choice" not in item:
                 raise ProviderError("response_schema")
             if not {"probabilities", "confidence"} <= item.keys():
-                vector_missing = True
+                scoped[name] = "response_vector_missing"
                 continue
             result[name] = {"type": "choice", "choice": item["choice"],
                             "probabilities": item["probabilities"],
                             "confidence": item["confidence"]}
-    # Answer-scoped codes, still whole-batch until partial batches land.
-    if vector_missing:
-        raise ProviderError("response_vector_missing")
-    if refused:
+    if sum(code == "question_refused" for code in scoped.values()) > MAX_REFUSALS_PER_REQUEST:
         raise ProviderError("response_refused")
-    return result, int(list(items) != list(questions))
+    return result, scoped, int(list(items) != list(questions))
 
 
 def _metadata(error: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
@@ -268,11 +276,11 @@ def decode_response(raw: bytes, questions: Mapping[str, Any],
     try:
         if not model_echo_ok(data.get("model"), model, _ECHO_SUFFIXES):
             raise ProviderError("response_model")
-        answers, mismatch = _answers(data["answers"], questions)
+        answers, scoped, mismatch = _answers(data["answers"], questions)
     except ProviderError as exc:
         return ProviderResponse({}, usage, True, exc.code, cost_usd=cost, provenance=provenance)
-    return ProviderResponse(answers, usage, cost_usd=cost, provenance=provenance,
-                            order_mismatch=mismatch)
+    return ProviderResponse(answers, usage, cost_usd=cost, scoped=scoped,
+                            provenance=provenance, order_mismatch=mismatch)
 
 
 class OpenRouterProvider(HostedProvider):

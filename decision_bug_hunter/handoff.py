@@ -12,6 +12,7 @@ import json
 
 from .core import Span, windows
 from .evidence import evidence_label
+from .protocol import ANSWER_SCOPED_CODES
 from .questions import noul, target_text
 
 DISPLAY_REFS = 2
@@ -267,6 +268,8 @@ LIMITS = {
     "relationship_payload_too_large": "relationship-payload-limit",
     "response_distribution": "choice-distribution-invalid",
     "choice_argmax_mismatch": "choice-argmax-mismatch",
+    "question_refused": "question-refused",
+    "response_vector_missing": "choice-vector-missing",
     "choice_distribution_uninformative": "uninformative-choice",
     "action_target_limit": "action-target-limit",
     "response_schema": "response-schema-invalid",
@@ -358,7 +361,9 @@ def annotate_findings(search, selected):
         limits = set()
         for issue in search.issues:
             lo, hi = issue["range"]
-            if not issue["affects_completion"]:
+            # A defective routing answer does not make the run incomplete,
+            # but the finding it would have narrowed still names it.
+            if not issue["affects_completion"] and issue["code"] not in ANSWER_SCOPED_CODES:
                 continue
             if issue["phase"].startswith("handoff-"):
                 relevant = [lo, hi] == [target.start, target.end]

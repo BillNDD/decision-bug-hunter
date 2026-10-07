@@ -90,30 +90,43 @@ class RoundedLocalizationTests(unittest.TestCase):
                 self.assertEqual(answer["confidence"], "0.99")
 
     def test_explicit_strict_keeps_limitation_and_rejects_entire_pair(self):
+        # Since partial batches (ADR-3) the strict-mass failure costs only the
+        # routing answer "where": the localization pair is still not used, the
+        # broad finding names the limitation, and a routing defect does not
+        # by itself make the run incomplete (it used to withhold the batch).
         for policy in ("legacy-v1", "scoped-v2-beta"):
             with self.subTest(policy=policy):
                 code, report, receipts = self.run_cli(policy, strict=True)
-                self.assertEqual(code, 2)
-                self.assertEqual(report["status"], "incomplete")
+                self.assertEqual(code, 1)
+                self.assertEqual(report["status"], "complete")
                 self.assertNotIn((7, 7), {(f["start_line"], f["end_line"]) for f in report["findings"]})
                 self.assertTrue(any(i["code"] == "response_distribution" and i["phase"] == "localize"
-                                    for i in report["issues"]))
+                                    and not i["affects_completion"] for i in report["issues"]))
+                self.assertTrue(all("choice-distribution-invalid" in f["limitations"]
+                                    for f in report["findings"]))
+                self.assertEqual(report["answer_defects"]["by_code"], {"response_distribution": 1})
                 self.assertFalse(report["existence_checks"])
                 failed = [r for r in receipts if r["metadata"]["phase"] == "localize"]
                 self.assertTrue(failed)
-                self.assertTrue(all(r["answers"] is None and r["usage"] is not None
+                self.assertTrue(all(r["status"] == "validated_partial"
+                                    and r["scoped"] == {"where": "response_distribution"}
+                                    and set(r["answers"]) == {"exists"}
+                                    and r["usage"] is not None
                                     and r["rounding_places"] is None for r in failed))
 
     def test_explicit_profile_still_rejects_impossible_mass_and_wrong_argmax(self):
         for fault, error in (("impossible_mass", "response_distribution"),
                              ("wrong_argmax", "choice_argmax_mismatch")):
             with self.subTest(fault=fault):
+                # Answer-scoped since ADR-3: the "where" answer is withheld
+                # and counted; the routing defect leaves the run complete.
                 code, report, receipts = self.run_cli("legacy-v1", fault=fault)
-                self.assertEqual(code, 2)
+                self.assertEqual(code, 1)
                 self.assertTrue(any(i["code"] == error and i["phase"] == "localize"
                                     for i in report["issues"]))
+                self.assertEqual(report["answer_defects"]["by_code"], {error: 1})
                 self.assertFalse(report["existence_checks"])
-                self.assertTrue(all(r["answers"] is None for r in receipts
+                self.assertTrue(all("where" not in r["answers"] for r in receipts
                                     if r["metadata"]["phase"] == "localize"))
 
     def test_local_json_objects_and_custom_gateway_require_explicit_rounding(self):

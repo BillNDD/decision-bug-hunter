@@ -19,7 +19,7 @@ from typing import Any, Protocol, TextIO
 import uuid
 
 from .protocol import (ERROR_CODES, ProviderError, _json, _metadata, encode_request,
-                       plain, validate_answer_objects, validate_usage,
+                       plain, validate_answer_objects_scoped, validate_usage,
                        _rounding_profile)
 
 
@@ -65,8 +65,10 @@ class ProviderResponse:
     `error` carries a fixed failure code for a documented whole-batch
     rejection learned after usage; the gateway journals both.
     `cost_usd` is a provider-reported cost, when one was reported and valid.
-    `scoped` maps a question name to an answer-scoped defect code; it is
-    reserved for partial batches and adapters leave it empty today.
+    `scoped` maps a question name the adapter could not hand over to an
+    answer-scoped defect code (``protocol.ADAPTER_SCOPED_CODES``: an explicit
+    refusal or a choice without its vector); `answers` then holds exactly
+    the other names (ADR-3).
     `provenance` holds receipt-only, charset-limited identifiers (see
     ``PROVENANCE_FIELDS``); anything else in it is dropped by the gateway.
     `order_mismatch` is 1 when answers arrived in a different order than
@@ -381,6 +383,15 @@ def _record_details(receipt: dict[str, Any], details: Any, check: Any) -> None:
         receipt["provider_error"] = {**(receipt.get("provider_error") or {}), **errors}
 
 
+def _adapter_scoped(value: Any) -> dict[str, str]:
+    """An adapter's answer-scoped defects as a plain dict; contents are checked later."""
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ProviderError("response_schema")
+    return dict(value)
+
+
 class DecisionProvider(Protocol):
     identity: ProviderIdentity
 
@@ -486,6 +497,11 @@ class ValidatedGateway:
     ``stop_reason`` is set and later calls raise ``provider_stopped``.
     Undocumented adapter exceptions become ``internal_error``.
 
+    Answer-scoped defects (ADR-3) cost their answers only: such an attempt
+    is ``validated_partial`` with ``scoped: {name: code}`` in its receipt,
+    ``evaluate`` returns the other answers and ``last_defects`` the defects.
+    They never trigger a retry and never reach the breaker.
+
     ``clock`` (monotonic seconds), ``sleep`` and ``rng`` are injectable so
     tests never wait on the wall clock. ``progress`` is an optional text
     stream for the count-only progress line (ADR-9(5)).
@@ -535,6 +551,7 @@ class ValidatedGateway:
         self._last_stats: dict[str, Any] | None = None
         self._last_receipt: str | None = None
         self._last_receipts: tuple[str, ...] = ()
+        self._last_defects: dict[str, str] = {}
         self._stats_owner: int | None = None
         self._busy = False
         self._block_code: str | None = None
@@ -619,6 +636,27 @@ class ValidatedGateway:
             return ()
         return self._last_receipts
 
+    @property
+    def last_defects(self) -> dict[str, str]:
+        """The answer-scoped defects of the last logical request, by name."""
+        if self._stats_owner != threading.get_ident():
+            return {}
+        return dict(self._last_defects)
+
+    @property
+    def confidence_identity(self) -> str | None:
+        """The model's documented confidence identity, when one is known."""
+        spec = getattr(self.provider, "model_spec", None)
+        value = getattr(spec, "confidence_identity", None)
+        return value if type(value) is str else None
+
+    @property
+    def display_places(self) -> int | None:
+        """The model's declared display precision in decimal places, if known."""
+        spec = getattr(self.provider, "model_spec", None)
+        value = getattr(spec, "display_places", None)
+        return value if type(value) is int and 0 <= value <= 8 else None
+
     def require_available(self) -> None:
         if self._closed or self._busy:
             raise ProviderError("transport_failed")
@@ -671,6 +709,7 @@ class ValidatedGateway:
             self._last_stats = None
             self._last_receipt = None
             self._last_receipts = ()
+            self._last_defects = {}
             self.require_available()
             self._busy = True
             return self._evaluate(state, questions, metadata=metadata)
@@ -732,7 +771,7 @@ class ValidatedGateway:
             "deadline_seconds": max(0.0, timeout), "timeout_seconds": max(0.0, timeout),
             "status": "dispatching", "submission": "possible",
             "submission_possible": True, "usage": None, "answers": None, "error": None,
-            "provider_error": None,
+            "scoped": None, "provider_error": None,
         }
 
     def _logical(self, wire: bytes, expected: dict[str, Any], key: str,
@@ -790,7 +829,7 @@ class ValidatedGateway:
                     raise KeyboardInterrupt
                 waited, reason, duplicate = wait, next_reason, next_duplicate
                 continue
-            receipt.update(logical_status="failed" if error else "validated",
+            receipt.update(logical_status="failed" if error else receipt["status"],
                            logical_attempts=attempt, logical_usage=usage_total)
             if plan == "run_deadline":
                 receipt["retry_abandoned"] = "run_deadline"
@@ -800,6 +839,7 @@ class ValidatedGateway:
             if error:
                 raise ProviderError(error, classification=classification)
             assert answers is not None
+            self._last_defects = dict(receipt["scoped"] or {})
             return answers
 
     def _plan_retry(self, classification: Classification,
@@ -936,8 +976,11 @@ class ValidatedGateway:
             # A complete 200 that arrived after the deadline is still the
             # answer that was paid for: kept, marked late, never blocking.
             receipt["late"] = self._now() - started >= timeout
-            answers = validate_answer_objects(response.answers, expected, self.rounding_places)
+            answers, defects = validate_answer_objects_scoped(
+                response.answers, expected, self.rounding_places,
+                _adapter_scoped(response.scoped))
             self.check_sensitive(answers, receipt["usage"])
+            receipt["scoped"] = defects or None
         except ProviderError as exc:
             error = exc.code
             _record_details(receipt, getattr(exc, "info", None), self.check_sensitive)
@@ -959,7 +1002,11 @@ class ValidatedGateway:
                            submission_possible=classification.submission_possible)
             if classification.retry_after is not None:
                 receipt["retry_after_seconds"] = classification.retry_after
-        receipt.update(status="failed" if error else "validated", error=error,
+        status = "failed" if error else (
+            "validated_partial" if receipt["scoped"] else "validated")
+        if error:
+            receipt["scoped"] = None
+        receipt.update(status=status, error=error,
                        answers=plain(answers) if error is None else None,
                        elapsed_seconds=max(0.0, self._now() - started))
         return answers, error, classification

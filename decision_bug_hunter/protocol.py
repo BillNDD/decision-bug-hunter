@@ -65,7 +65,22 @@ ERROR_CODES = frozenset({
     "invalid_provider", "response_vector_missing",
     # Retries, reserve and the breaker (ADR-2(5), (7), (8)).
     "run_deadline_reserved", "provider_stopped",
+    # Answer-level defects (ADR-3).
+    "question_refused",
 })
+#: Defects that cost one answer, never the batch (ADR-3(1)). A refused
+#: question, a choice without its vector, a choice whose mass or option keys
+#: are wrong, and a choice whose displayed argmax differs from its choice.
+#: Wrong types, missing or extra names, extra keys and non-finite or
+#: out-of-range numbers stay batch-level.
+ANSWER_SCOPED_CODES = frozenset({"question_refused", "response_vector_missing",
+                                 "response_distribution", "choice_argmax_mismatch"})
+#: Answer-scoped codes an adapter may report for answers it could not hand
+#: over at all; the scoped validator finds the other two itself.
+ADAPTER_SCOPED_CODES = frozenset({"question_refused", "response_vector_missing"})
+#: More refusals than this in one request withhold the whole batch as
+#: ``response_refused`` (ADR-3(2): the service "may decline one question").
+MAX_REFUSALS_PER_REQUEST = 1
 QUESTION = {
     "type": "noul",
     "instructions": (
@@ -393,6 +408,79 @@ def _validated_answer_objects(answers, questions, rounding_places):
         except (KeyError, TypeError, ValueError):
             raise ProviderError("response_schema") from None
     return result
+
+
+def validate_answer_objects_scoped(answers, questions, places=DEFAULT_CHOICE_ROUNDING_PLACES,
+                                   refused=()):
+    """Validate a possibly partial batch; return ``(answers, defects)``.
+
+    ``refused`` maps the names an adapter could not hand over to an
+    ``ADAPTER_SCOPED_CODES`` code (an iterable of names means refusals).
+    ``answers`` must hold exactly the other names. A choice whose mass or
+    option keys are wrong (``response_distribution``) or whose displayed
+    argmax is not its choice (``choice_argmax_mismatch``) becomes a defect
+    of that answer alone; ``defects`` maps every defective name to its code
+    and no defective answer is returned. Every other defect, and more than
+    ``MAX_REFUSALS_PER_REQUEST`` refusals (``response_refused``), still
+    rejects the whole batch. ``validate_answer_objects`` stays atomic.
+    """
+    _rounding_profile(places)
+    validate_questions(questions)
+    if isinstance(refused, dict):
+        scoped = dict(refused)
+    elif type(refused) in (list, tuple, set, frozenset):
+        scoped = dict.fromkeys(refused, "question_refused")
+    else:
+        raise ProviderError("response_schema")
+    if any(type(name) is not str or name not in questions
+           or type(code) is not str or code not in ADAPTER_SCOPED_CODES
+           for name, code in scoped.items()):
+        raise ProviderError("response_schema")
+    if sum(code == "question_refused" for code in scoped.values()) > MAX_REFUSALS_PER_REQUEST:
+        raise ProviderError("response_refused")
+    if any(code == "response_vector_missing" and questions[name]["type"] != "choice"
+           for name, code in scoped.items()):
+        raise ProviderError("response_schema")
+    if type(answers) is not dict or answers.keys() != questions.keys() - scoped.keys():
+        raise ProviderError("response_schema")
+    result = {}
+    defects = dict(scoped)
+    for qid in questions:
+        if qid in scoped:
+            continue
+        raw, q = answers[qid], questions[qid]
+        try:
+            if type(raw) is not dict or raw.get("type") != q["type"]:
+                raise ProviderError("response_schema")
+            if q["type"] == "noul":
+                if raw.keys() != _NOUL_FIELDS:
+                    raise ProviderError("response_schema")
+                result[qid] = {"type": "noul", "noul": _probability(raw["noul"])}
+                continue
+            if raw.keys() != _CHOICE_FIELDS or type(raw["choice"]) is not str:
+                raise ProviderError("response_schema")
+            confidence = _probability(raw["confidence"])
+            probs = raw["probabilities"]
+            if type(probs) is not dict:
+                raise ProviderError("response_schema")
+            # Out-of-range or non-finite numbers stay batch-level, whatever
+            # the keys: check every value before judging the distribution.
+            for value in probs.values():
+                _probability(value)
+            try:
+                distribution = _distribution(probs, q["criteria"], raw["choice"], places)
+            except ProviderError as exc:
+                if exc.code not in ("response_distribution", "choice_argmax_mismatch"):
+                    raise
+                defects[qid] = exc.code
+                continue
+            result[qid] = {"type": "choice", "choice": raw["choice"],
+                           "probabilities": distribution, "confidence": confidence}
+        except ProviderError:
+            raise
+        except (KeyError, TypeError, ValueError):
+            raise ProviderError("response_schema") from None
+    return result, {name: defects[name] for name in questions if name in defects}
 
 
 def validate_response(raw: bytes, api_key="") -> tuple[Decimal, dict]:

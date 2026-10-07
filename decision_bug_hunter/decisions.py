@@ -13,6 +13,10 @@ A non-200 body is read only when it is small JSON free of every configured
 credential, and only structural fields are kept from it (``error.type``,
 ``error.code`` and, on 400/422, an ``error.param`` path into DBH-authored
 request structure); the message never is (ADR-8).
+
+One refused question costs that answer alone: it travels as an
+answer-scoped ``question_refused`` defect (ADR-3); two or more refusals in
+one request withhold the batch as ``response_refused``.
 """
 from __future__ import annotations
 
@@ -26,7 +30,8 @@ from typing import Any
 from .exchange import HttpsExchange, Outcome
 from .hosted import (HostedProvider, ModelSpec, RouteSpec, identifier, model_echo_ok,
                      model_returned, token)
-from .protocol import (CONTRACT_VERSION, MAX_RESPONSE_BYTES, ProviderError,
+from .protocol import (CONTRACT_VERSION, MAX_REFUSALS_PER_REQUEST, MAX_RESPONSE_BYTES,
+                       ProviderError,
                        _constant, _decimal, _json, _pairs, _secret_in,
                        validate_questions)
 from .providers import ProviderResponse
@@ -130,16 +135,19 @@ def _table(entries: Any) -> dict[str, Any]:
     return table
 
 
-def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], int]:
+def _answers(items: Any, questions: Mapping[str, Any]
+             ) -> tuple[dict[str, Any], dict[str, str], int]:
     """Associate answers by echoed name; every expected name exactly once.
 
-    Returns the answers in question order and 1 when they arrived in a
-    different order (counted, never fatal: association is by name).
+    Returns the answers in question order without refused names, the
+    refused names as answer-scoped ``question_refused`` defects, and 1 when
+    the answers arrived in a different order (counted, never fatal:
+    association is by name). More than one refusal withholds the batch.
     """
     if type(items) is not list:
         raise ProviderError("response_schema")
     result: dict[str, Any] = {}
-    refused = False
+    refused: list[str] = []
     for item in items:
         if type(item) is not dict:
             raise ProviderError("response_schema")
@@ -147,7 +155,7 @@ def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], 
         if type(name) is not str or name not in questions or name in result:
             raise ProviderError("response_schema")
         if kind == "refusal":
-            refused = True
+            refused.append(name)
             result[name] = None
         elif questions[name]["type"] == "noul":
             if kind != "predicate" or "probability" not in item:
@@ -161,12 +169,13 @@ def _answers(items: Any, questions: Mapping[str, Any]) -> tuple[dict[str, Any], 
                             "confidence": item["confidence"]}
     if result.keys() != questions.keys():
         raise ProviderError("response_schema")
-    if refused:
-        # A declined question withholds the whole atomic batch; nothing is
-        # substituted for the missing judgment.
+    if len(refused) > MAX_REFUSALS_PER_REQUEST:
+        # The service may decline one question; more is a batch defect.
         raise ProviderError("response_refused")
     mismatch = int(list(result) != list(questions))
-    return {name: result[name] for name in questions}, mismatch
+    # A declined question costs that answer only; nothing is substituted.
+    return ({name: result[name] for name in questions if name not in refused},
+            dict.fromkeys(refused, "question_refused"), mismatch)
 
 
 def param_path(value: Any) -> str | None:
@@ -275,10 +284,11 @@ def translate_response(raw: bytes, questions: Mapping[str, Any],
     try:
         if not model_echo_ok(data.get("model"), MODEL, _ECHO_SUFFIXES):
             raise ProviderError("response_model")
-        answers, mismatch = _answers(data["answers"], questions)
+        answers, scoped, mismatch = _answers(data["answers"], questions)
     except ProviderError as exc:
         return ProviderResponse({}, usage, True, exc.code, provenance=provenance)
-    return ProviderResponse(answers, usage, provenance=provenance, order_mismatch=mismatch)
+    return ProviderResponse(answers, usage, scoped=scoped, provenance=provenance,
+                            order_mismatch=mismatch)
 
 
 class DecisionsProvider(HostedProvider):

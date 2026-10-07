@@ -12,6 +12,7 @@ from fractions import Fraction
 import hashlib
 import json
 import math
+import re
 import time
 
 from . import __version__
@@ -20,8 +21,9 @@ from .core import Config, Source, Span, _coverage, windows, multiscale
 from .core import contiguous_candidates, _window_count, _window_at
 from .evidence import EvidenceRef, evidence_label, fitting_pair_state, excerpt
 from .protocol import (ProviderError, encode_request, plain, validate_answer_objects, validate_usage,
-                  CONTRACT_VERSION, MAX_REQUEST_BYTES, DEFAULT_CHOICE_ROUNDING_PLACES)
-from .providers import Classification, classify
+                  CONTRACT_VERSION, MAX_REQUEST_BYTES, DEFAULT_CHOICE_ROUNDING_PLACES,
+                  ANSWER_SCOPED_CODES)
+from .providers import Classification, ValidatedGateway, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
                         evidence_noul, LENS_KINDS)
@@ -30,6 +32,87 @@ from .questions import (load_pack, noul, choice, screening, fitting_state,
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
 #: Gateway refusals that never reached the provider and end the run's dispatch.
 _DISPATCH_REFUSALS = frozenset({"run_deadline_reserved", "provider_stopped"})
+#: Choice questions that only route the search (ADR-3(5)): a defect in one
+#: of them is counted but does not by itself make the run incomplete.
+_ROUTING_QUESTION = re.compile(r"(?:rank_[0-9]+|where|context_where|action)\Z")
+#: Questions whose name ends in the target window they judge.
+_WINDOW_QUESTION = re.compile(
+    r"(?:screen|verify|" + "|".join(LENS_KINDS) + r")_L([0-9]+)-([0-9]+)\Z")
+#: Banner thresholds (ADR-4(2), (4)).
+ARGMAX_BANNER_RATE = Fraction(2, 100)
+ARGMAX_BANNER_MIN_ANSWERS = 50
+IDENTITY_BANNER_VIOLATIONS = 3
+#: The b1 report's calibration record (ADR-7(1)); no profile exists yet.
+CALIBRATION = {"status": "uncalibrated", "profile_id": None}
+
+
+def _binomial_cdf(k, n, p):
+    """P(X <= k) for X ~ Binomial(n, p), summed in log space."""
+    if k < 0:
+        return 0.0
+    if k >= n or p <= 0.0:
+        return 1.0
+    if p >= 1.0:
+        return 0.0
+    if k > n // 2:
+        # Sum the shorter tail: P(X <= k) = 1 - P(n - X <= n - k - 1).
+        return 1.0 - _binomial_cdf(n - k - 1, n, 1.0 - p)
+    log_p, log_q, base = math.log(p), math.log1p(-p), math.lgamma(n + 1)
+    total = sum(math.exp(base - math.lgamma(i + 1) - math.lgamma(n - i + 1)
+                         + i * log_p + (n - i) * log_q) for i in range(k + 1))
+    return min(1.0, total)
+
+
+def clopper_pearson(k, n, confidence=0.95):
+    """The exact (Clopper-Pearson) two-sided interval for k successes in n.
+
+    Returns ``None`` when ``n`` is 0. Bounds are found by bisection on the
+    binomial tails and rounded outward to six decimal places.
+    """
+    if type(k) is not int or type(n) is not int or not 0 <= k <= n:
+        raise ValueError("invalid_binomial_counts")
+    if n == 0:
+        return None
+    tail = (1.0 - confidence) / 2.0
+
+    def solve(predicate):
+        lo, hi = 0.0, 1.0
+        for _ in range(64):
+            mid = (lo + hi) / 2.0
+            if predicate(mid):
+                hi = mid
+            else:
+                lo = mid
+        return lo, hi
+
+    lower = 0.0 if k == 0 else solve(lambda p: 1.0 - _binomial_cdf(k - 1, n, p) >= tail)[0]
+    upper = 1.0 if k == n else solve(lambda p: _binomial_cdf(k, n, p) <= tail)[1]
+    return [math.floor(lower * 1e6) / 1e6, math.ceil(upper * 1e6) / 1e6]
+
+
+def _decimal_places(value):
+    exponent = value.as_tuple().exponent if isinstance(value, Decimal) else 0
+    return max(0, -exponent) if type(exponent) is int else 0
+
+
+def confidence_identity_violation(answer, places):
+    """Whether a choice breaks ``chance_normalized_p1`` beyond display rounding.
+
+    The identity is c = (p1 - 1/k) / (1 - 1/k); with half a display quantum
+    h, a violation is |c - (p1 - 1/k) / (1 - 1/k)| > h / (1 - 1/k) + h
+    (ADR-4(4)). ``places`` is the display precision; ``None`` uses the
+    places observed in this answer, a lower bound on the true precision.
+    """
+    probabilities = answer["probabilities"]
+    k = len(probabilities)
+    if places is None:
+        places = max(_decimal_places(v) for v in (answer["confidence"],
+                                                  *probabilities.values()))
+    chance = Fraction(1, k)
+    p1 = Fraction(max(probabilities.values()))
+    half = Fraction(1, 2 * 10 ** places)
+    expected = (p1 - chance) / (1 - chance)
+    return abs(Fraction(answer["confidence"]) - expected) > half / (1 - chance) + half
 
 
 def _permanent(exc):
@@ -117,6 +200,12 @@ class Search:
         self.route_key = (getattr(gateway, "provider_id", "custom-unverified"),
                           getattr(gateway, "model_id", None))
         self.models_returned, self.answer_order_mismatch = set(), 0
+        # Answer-level defects (ADR-3, ADR-4): counted on fresh responses
+        # only; ``suppressed`` holds windows lost to refusal or moderation.
+        self.answer_defects, self.routing_defects = {}, 0
+        self.answers_received = self.choice_answers = 0
+        self.identity_checked = self.identity_violations = 0
+        self.suppressed = set()
         self.search_memos = {}
         self._root_packets = None
         self.scoped = None
@@ -217,10 +306,14 @@ class Search:
             ckey = (*self.route_key, key)
             if ckey in self.cache:
                 # Never return cache-owned mutable dictionaries to a caller.
-                result.update(_copy_validated_answers(self.cache[ckey]))
+                cached, defects = self.cache[ckey]
+                result.update(_copy_validated_answers(cached))
                 self.cache_hits += 1
                 self.events.append({"phase": "judgment_reuse", "request_sha256": key,
                                     "origin": self.request_origins[ckey]})
+                # A defective answer is never asked again; its limitation is
+                # issued again for this caller's region.
+                self.issue_defects(defects, region, phase)
                 continue
             if ckey in self.failed_requests:
                 pin = self.failed_requests[ckey]
@@ -262,10 +355,16 @@ class Search:
                 answers = self.gw.evaluate(sent["state"], sent["questions"], metadata={
                     "sequence": self.calls, "phase": phase,
                     "window_id": region.id, "source_sha256": self.source.sha256})
-                # A conforming Gateway validates types and values atomically;
-                # the engine re-checks shapes anyway; custom gateways are not trusted.
-                answers = validate_answer_objects(answers, batch,
+                # A conforming Gateway validates types and values; the engine
+                # re-checks the answers it kept. Only a ValidatedGateway may
+                # report answer-scoped defects: custom gateways stay atomic.
+                defects = self.gateway_defects(batch)
+                kept = {qid: q for qid, q in batch.items() if qid not in defects}
+                if kept:
+                    answers = validate_answer_objects(answers, kept,
                                   getattr(self.gw, "rounding_places", DEFAULT_CHOICE_ROUNDING_PLACES))
+                elif answers != {}:
+                    raise ProviderError("response_schema")
                 # Menu size controls maximum mass tolerance, not semantic
                 # informativeness. Retain the actual numeric diagnostic only.
                 places = getattr(self.gw, "rounding_places", DEFAULT_CHOICE_ROUNDING_PLACES)
@@ -273,10 +372,14 @@ class Search:
                     qid: str(Fraction(len(raw["probabilities"]), 2 * 10 ** places))
                     for qid, raw in answers.items()
                     if raw["type"] == "choice" and places is not None}
-                self.cache[ckey] = answers
+                self.cache[ckey] = (answers, defects)
                 result.update(_copy_validated_answers(answers))
-                self.validated_questions += len(batch)
-                row.update(status="validated", answers=plain(answers))
+                self.validated_questions += len(answers)
+                row.update(status="validated_partial" if defects else "validated",
+                           answers=plain(answers))
+                if defects:
+                    row["scoped"] = dict(defects)
+                self.record_answers(batch, answers, defects, region, phase)
             except ProviderError as exc:
                 # Only documented failure codes are recorded here; other
                 # exceptions are real defects and must reach the CLI's
@@ -292,6 +395,8 @@ class Search:
                 permanent = _permanent(exc)
                 row["error"] = error
                 self.issue(error, region, phase)
+                if error == "provider_moderated":
+                    self.suppressed.add((region.start, region.end))
             stats = getattr(self.gw, "last_call_stats", None)
             usage = None
             if type(stats) is dict and stats.get("request_sha256") == key:
@@ -334,6 +439,85 @@ class Search:
                     origins.append({"request_sha256": key, "question_ids": list(batch),
                                     "status": "not-dispatched", "sequence": None})
         return result
+
+    def gateway_defects(self, batch):
+        """The last call's answer-scoped defects, from a ValidatedGateway only."""
+        if not isinstance(self.gw, ValidatedGateway):
+            return {}
+        defects = self.gw.last_defects
+        if type(defects) is not dict or any(
+                qid not in batch or code not in ANSWER_SCOPED_CODES
+                for qid, code in defects.items()):
+            raise ProviderError("response_schema")
+        return defects
+
+    def defect_span(self, qid, region):
+        """The window a defective question judged, else the request region."""
+        match = _WINDOW_QUESTION.fullmatch(qid)
+        if match is not None:
+            start, end = int(match.group(1)), int(match.group(2))
+            if 1 <= start <= end <= len(self.source.lines):
+                return Span(start, end)
+        return region
+
+    def issue_defects(self, defects, region, phase):
+        """One limitation per defective answer (ADR-3(5))."""
+        for qid, code in defects.items():
+            span = self.defect_span(qid, region)
+            self.issue(code, span, phase, affects=_ROUTING_QUESTION.fullmatch(qid) is None)
+            if code == "question_refused":
+                self.suppressed.add((span.start, span.end))
+
+    def record_answers(self, batch, answers, defects, region, phase):
+        """Count a fresh response's answers, defects and judge diagnostics."""
+        self.answers_received += len(batch)
+        for code in defects.values():
+            self.answer_defects[code] = self.answer_defects.get(code, 0) + 1
+        self.routing_defects += sum(_ROUTING_QUESTION.fullmatch(qid) is not None
+                                    for qid in defects)
+        self.choice_answers += sum(q["type"] == "choice" for q in batch.values())
+        if getattr(self.gw, "confidence_identity", None) == "chance_normalized_p1":
+            places = getattr(self.gw, "rounding_places", None)
+            if places is None:
+                places = getattr(self.gw, "display_places", None)
+            for answer in answers.values():
+                if answer["type"] == "choice":
+                    self.identity_checked += 1
+                    if confidence_identity_violation(answer, places):
+                        self.identity_violations += 1
+        self.issue_defects(defects, region, phase)
+
+    def answer_quality(self):
+        """Report fields for answer-level defects and judge diagnostics."""
+        refused = self.answer_defects.get("question_refused", 0)
+        mismatches = self.answer_defects.get("choice_argmax_mismatch", 0)
+        banners = []
+        if (self.choice_answers >= ARGMAX_BANNER_MIN_ANSWERS
+                and Fraction(mismatches, self.choice_answers) > ARGMAX_BANNER_RATE):
+            banners.append("judge_inconsistent")
+        if self.identity_violations >= IDENTITY_BANNER_VIOLATIONS:
+            banners.append("judge_semantics_changed")
+        overlaps = any(lo <= span.end and span.start <= hi
+                       for lo, hi in self.suppressed for span in self.support)
+        return {
+            "answer_defects": {"total": sum(self.answer_defects.values()),
+                               "by_code": dict(sorted(self.answer_defects.items())),
+                               "choice_routing": self.routing_defects},
+            "refusals": {"refused": refused, "answers": self.answers_received,
+                         "rate": (round(refused / self.answers_received, 6)
+                                  if self.answers_received else None),
+                         "interval_95": clopper_pearson(refused, self.answers_received),
+                         "method": "clopper-pearson"},
+            "possible_suppression": {
+                "flagged": len(self.suppressed) >= 2 or overlaps,
+                "windows": len(self.suppressed), "overlaps_support": overlaps},
+            "judge_diagnostics": {
+                "choice_answers": self.choice_answers, "argmax_mismatches": mismatches,
+                "confidence_identity": getattr(self.gw, "confidence_identity", None),
+                "confidence_identity_checked": self.identity_checked,
+                "confidence_identity_violations": self.identity_violations},
+            "banners": banners,
+        }
 
     def request_origins_for(self, state, questions):
         origins = []
@@ -399,7 +583,9 @@ class Search:
                 "depth": depths.get(span, 0), "phase": phase,
                 "score": str(score) if score is not None else None,
                 "judgments": {k: str(v) for k, v in judgments.items()},
-                "status": "scored" if score is not None else "unreviewed",
+                # Only the general screen reviews a window (ADR-3(6)); lens
+                # answers alone still route drilling but leave it unreviewed.
+                "status": "scored" if "screen" in judgments else "unreviewed",
                 "context": context, "state_sha256": state_sha256})
             if score is not None:
                 # Report support comes from the general screen only; lens
@@ -1480,7 +1666,7 @@ class Search:
         self.finalize_relationship_promotions()
         selected = self.reconcile()
         assessed = [Span(o["start_line"], o["end_line"])
-                    for o in self.observations if o["score"] is not None]
+                    for o in self.observations if o["status"] == "scored"]
         coverage = _coverage(assessed, len(self.source.lines))
         complete = coverage["all_lines_assessed"] and not any(
             issue["affects_completion"] for issue in self.issues)
@@ -1491,7 +1677,9 @@ class Search:
         findings = [{"window_id": s.id, "start_line": s.start, "end_line": s.end,
                      "resolution": ("directly_rechecked" if s in self.verified
                                     else "unresolved_initial_suspicion"),
-                     "support": self.support[s], **annotations[s]}
+                     "support": self.support[s],
+                     "support_paths": sorted({row["origin"] for row in self.support[s]}),
+                     **annotations[s]}
                     for s in sorted(selected)]
         result = {"schema_version": 6 if self.scoped else 5, "tool_version": __version__, "contract": CONTRACT_VERSION,
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
@@ -1536,6 +1724,8 @@ class Search:
                                         if self.stop_reason() is not None else None),
                 "usage": dict(self.usage),
                 "questions_validated": self.validated_questions,
+                **self.answer_quality(),
+                "calibration": dict(CALIBRATION),
                 "cache_hits": self.cache_hits, "windows_planned": self.window_count,
                 "findings": findings, "coverage": coverage,
                 "windows": self.observations, "requests": self.trace,
@@ -1565,7 +1755,6 @@ class Search:
             result["scoped_verification"] = self.scoped.report()
             result["policy_sha256"] = identity({"configuration": self.cfg.as_dict(),
                                                "contract": result["scoped_verification"]["contract_version"]})
-            result["calibration"] = "uncalibrated-operating-policy"
             result["execution_status"] = "incomplete" if (not coverage["all_lines_assessed"] or
                 any(i["affects_completion"] and not i["code"].startswith("claim_")
                     for i in self.issues)) else "complete"

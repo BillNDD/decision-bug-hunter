@@ -182,23 +182,25 @@ class ProviderBoundaryTests(unittest.TestCase):
         self.assertEqual(self.saved(gateway)["usage"]["input_tokens"], 2)
 
     def test_wrong_choice_argmax_and_impossible_mass_are_rejected(self):
+        # Answer-scoped since ADR-3: the defective answer is withheld and
+        # reported as a defect; the request itself does not fail.
         self.questions = {"pick": {"type": "choice", "instructions": "Choose.", "criteria": {"a": "A", "b": "B"}}}
         for values, chosen, code in (({"a": .4, "b": .6}, "a", "choice_argmax_mismatch"),
                                      ({"a": .7, "b": .7}, "a", "response_distribution")):
             with self.subTest(code=code):
                 gateway, _ = self.gateway(ProviderResponse({"pick": {"type": "choice", "choice": chosen,
                         "confidence": .9, "probabilities": values}}))
-                with self.assertRaises(ProviderError) as caught:
-                    self.evaluate(gateway)
-                self.assertEqual(caught.exception.code, code)
+                self.assertEqual(self.evaluate(gateway), {})
+                self.assertEqual(gateway.last_defects, {"pick": code})
+                self.assertEqual(self.saved(gateway)["scoped"], {"pick": code})
 
     def test_strict_default_and_explicit_rounding_never_renormalize(self):
         self.questions = {"pick": {"type": "choice", "instructions": "Choose.", "criteria": {"a": "A", "b": "B", "c": "C"}}}
         response = ProviderResponse({"pick": {"type": "choice", "choice": "a", "confidence": .9,
                                               "probabilities": {"a": .6, "b": .2, "c": .19}}})
         gateway, _ = self.gateway(response)
-        with self.assertRaises(ProviderError):
-            self.evaluate(gateway)
+        self.assertEqual(self.evaluate(gateway), {})
+        self.assertEqual(gateway.last_defects, {"pick": "response_distribution"})
         gateway.rounding_places = 2
         answer = self.evaluate(gateway)
         self.assertEqual(sum(answer["pick"]["probabilities"].values()), Decimal(".99"))

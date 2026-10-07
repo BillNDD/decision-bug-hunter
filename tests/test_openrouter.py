@@ -224,26 +224,36 @@ class DecodingTests(unittest.TestCase):
                 response = self.decode(json.dumps(
                     {**wire, "answers": {**wire["answers"], name: item}}).encode())
                 self.assertEqual(response.error, "response_schema")
-        # Only the explicit refusal type counts as a refusal.
+        # Only the explicit refusal type counts as a refusal: one is an
+        # answer-scoped defect, two withhold the batch.
         for item in ({"type": "refusal"}, {"type": "refusal", "name": "where"}):
             response = self.decode(json.dumps(
                 {**wire, "answers": {**wire["answers"], "where": item}}).encode())
-            self.assertEqual(response.error, "response_refused")
+            self.assertIsNone(response.error)
+            self.assertEqual(response.scoped, {"where": "question_refused"})
+            self.assertEqual(list(response.answers), ["screen"])
+        response = self.decode(json.dumps(
+            {**wire, "answers": {"screen": {"type": "refusal"},
+                                 "where": {"type": "refusal"}}}).encode())
+        self.assertEqual(response.error, "response_refused")
+        self.assertEqual(response.answers, {})
 
     def test_choice_without_vector_is_vector_missing(self):
-        # The answer-scoped code is reserved; until partial batches land the
-        # whole batch is withheld (asserted here through the gateway too).
+        # Answer-scoped since partial batches (ADR-3): the choice is lost,
+        # the noul in the same request is kept (asserted through the gateway).
         wire = json.loads(openrouter_body(ANSWERS))
         for missing in ("probabilities", "confidence"):
             with self.subTest(missing=missing):
                 where = {k: v for k, v in wire["answers"]["where"].items() if k != missing}
                 body = json.dumps({**wire, "answers": {**wire["answers"], "where": where}})
                 response = self.decode(body.encode())
-                self.assertEqual(response.error, "response_vector_missing")
-                self.assertEqual(response.answers, {})
+                self.assertIsNone(response.error)
+                self.assertEqual(response.scoped, {"where": "response_vector_missing"})
+                self.assertEqual(list(response.answers), ["screen"])
                 outcome, receipt = Harness(self, [reply(body.encode())]).evaluate()
-                self.assertEqual(outcome.code, "response_vector_missing")
-                self.assertIsNone(receipt["answers"])
+                self.assertEqual(outcome, {"screen": ANSWERS["screen"]})
+                self.assertEqual(receipt["status"], "validated_partial")
+                self.assertEqual(receipt["scoped"], {"where": "response_vector_missing"})
                 self.assertEqual(receipt["usage"], {"input_tokens": 100, "output_tokens": 0})
 
     def test_usage_cost_split_before_validate_usage(self):

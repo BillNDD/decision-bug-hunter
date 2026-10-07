@@ -129,12 +129,12 @@ class GatewayHygieneTests(unittest.TestCase):
                 protocol.validate_answer_objects({"pick": answer}, {"pick": CHOICE})
             self.assertEqual(caught.exception.code, "response_distribution")
             gateway, provider = self.gateway(p.ProviderResponse({"pick": answer}, USAGE))
-            with self.assertRaises(ProviderError) as caught:
-                self.evaluate(gateway, {"pick": CHOICE})
-        self.assertEqual(caught.exception.code, "response_distribution")
-        self.assertEqual(self.saved(gateway)["error"], "response_distribution")
+            # Answer-scoped since ADR-3: the answer is withheld as a defect.
+            self.assertEqual(self.evaluate(gateway, {"pick": CHOICE}), {})
+        self.assertEqual(gateway.last_defects, {"pick": "response_distribution"})
+        self.assertEqual(self.saved(gateway)["scoped"], {"pick": "response_distribution"})
         self.assertEqual(self.saved(gateway)["usage"], USAGE)
-        # A distribution defect is a batch verdict, not a blocked gateway.
+        # A distribution defect is an answer verdict, not a blocked gateway.
         gateway.provider.response = p.ProviderResponse(GOOD, USAGE)
         self.evaluate(gateway)
         self.assertEqual(len(provider.requests), 2)

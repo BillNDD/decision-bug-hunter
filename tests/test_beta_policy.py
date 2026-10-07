@@ -360,7 +360,7 @@ class ScopedEngineTests(unittest.TestCase):
         self.assertEqual(result["schema_version"], 6)
         self.assertEqual(result["handoff"]["schema_version"], 3)
         self.assertEqual(result["configuration"]["search_policy"], "scoped-v2-beta")
-        self.assertEqual(result["calibration"], "uncalibrated-operating-policy")
+        self.assertEqual(result["calibration"], {"status": "uncalibrated", "profile_id": None})
         self.assertTrue(result["findings"])
         self.assertTrue(all(c["kind"] == "provisional-scoped-proposition"
                             for c in result["scoped_verification"]["claims"]))
