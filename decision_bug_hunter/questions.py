@@ -1,21 +1,25 @@
 """Versioned, generic decision questions. No bug taxonomy or generated text."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 from importlib.resources import files
 
-from .core import Source, Span, physical_lines
+from .core import Source, Span, physical_lines, STATE_LAYOUTS, DEFAULT_STATE_LAYOUT
 from .protocol import (encode_request, ProviderError, MAX_QUESTIONS, MAX_STATE_BYTES,
                   MAX_REQUEST_BYTES, CONTRACT_VERSION, _snapshot, _json, validate_questions,
                   _encode_validated_request)
 
-#: Request state layout (ADR-5(4)). ``"v2"`` puts the four DBH-authored scalars
-#: first and moves ``specification.mode`` to top-level ``specification_mode``;
-#: ``"v1"`` reproduces the pre-release layout and policy byte for byte. This one
-#: constant is the pre-registered keep-or-revert switch; it is read at call time.
-STATE_LAYOUT = "v2"
-STATE_LAYOUTS = ("v1", "v2")
+#: Default request state layout (ADR-5(4)). ``"v1"`` is the pre-release layout
+#: and policy (byte for byte, requirement wording excepted); ``"v2"`` puts the
+#: four DBH-authored scalars first, moves ``specification.mode`` to top-level
+#: ``specification_mode`` and adds the imitation warning to the policy. v1 is
+#: the default because the labeled catalog showed v2 adding false positives on
+#: corrected controls. It is read at call time; a scan selects its layout with
+#: ``Config.state_layout``, which overrides this constant for the run.
+STATE_LAYOUT = DEFAULT_STATE_LAYOUT
 #: The only top-level fields DBH writes itself, in v2 wire order.
 TRUSTED_STATE_FIELDS = ("source_sha256", "total_lines", "context_scope",
                         "specification_mode")
@@ -23,14 +27,33 @@ TRUSTED_STATE_FIELDS = ("source_sha256", "total_lines", "context_scope",
 #: follows these in its existing order.
 UNTRUSTED_STATE_FIELDS = ("file", "excerpts", "specification", "related_sources",
                           "investigation", "investigation_evidence")
+#: The layout selected for the current scan (``using_state_layout``), if any.
+_ACTIVE_LAYOUT: ContextVar[str | None] = ContextVar("dbh_state_layout", default=None)
 
 
 def state_layout(layout=None):
-    """Return the active layout name, validating an explicit override."""
-    layout = STATE_LAYOUT if layout is None else layout
+    """Return the active layout name, validating an explicit override.
+
+    Precedence: an explicit *layout*, then the scan's layout set by
+    ``using_state_layout``, then the module constant ``STATE_LAYOUT``.
+    """
+    if layout is None:
+        layout = _ACTIVE_LAYOUT.get()
+    if layout is None:
+        layout = STATE_LAYOUT
     if layout not in STATE_LAYOUTS:
         raise ValueError("invalid_state_layout")
     return layout
+
+
+@contextmanager
+def using_state_layout(layout):
+    """Build every state and policy inside the block under *layout*."""
+    token = _ACTIVE_LAYOUT.set(state_layout(layout))
+    try:
+        yield
+    finally:
+        _ACTIVE_LAYOUT.reset(token)
 
 
 def _ordered_state(state, layout=None):

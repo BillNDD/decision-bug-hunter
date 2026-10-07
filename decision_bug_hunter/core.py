@@ -123,6 +123,12 @@ class Source:
                    physical_lines(text), "utf-8", byte_count=len(raw))
 
 
+#: Request state layouts (ADR-5(4)); see ``questions.STATE_LAYOUT``. Defined
+#: here so Config can validate without importing the question module.
+STATE_LAYOUTS = ("v1", "v2")
+DEFAULT_STATE_LAYOUT = "v1"
+
+
 @dataclass(frozen=True)
 class Config:
     width: int = 48
@@ -154,6 +160,10 @@ class Config:
     run_deadline_seconds: float = 1800.0
     search_policy: str = "legacy-v1"
     refute_threshold: Decimal = Decimal("0.80")
+    #: Request state layout and matching policy preamble for every request of
+    #: the scan. "v1" (default) is the pre-release layout; "v2" puts the
+    #: DBH-authored scalars first and adds the imitation warning.
+    state_layout: str = DEFAULT_STATE_LAYOUT
 
     def __post_init__(self):
         limits = ((self.width, 2, 4096), (self.min_width, 1, self.width),
@@ -186,6 +196,8 @@ class Config:
             raise ValueError("drill_threshold_exceeds_report_threshold")
         if self.search_policy not in ("legacy-v1", "scoped-v2-beta"):
             raise ValueError("invalid_search_policy")
+        if type(self.state_layout) is not str or self.state_layout not in STATE_LAYOUTS:
+            raise ValueError("invalid_state_layout")
         if type(self.whole_file) is not bool:
             raise ValueError("invalid_whole_file_flag")
         if type(self.bug_lenses) is not bool:

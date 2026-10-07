@@ -76,6 +76,23 @@ class CliTests(unittest.TestCase):
                 code = cli.main(argv)
         return code, stdout.getvalue(), stderr.getvalue(), scan
 
+    def test_state_layout_flag_defaults_to_v1_and_selects_v2(self):
+        code, _, _, scan = self.run_cli()
+        self.assertEqual(code, 0)
+        self.assertEqual(scan.call_args.kwargs["config"].state_layout, "v1")
+        self.assertEqual(scan.call_args.kwargs["config"].as_dict()["state_layout"], "v1")
+        code, _, _, scan = self.run_cli("--state-layout", "v2")
+        self.assertEqual(code, 0)
+        self.assertEqual(scan.call_args.kwargs["config"].state_layout, "v2")
+
+    def test_state_layout_flag_rejects_unknown_layout(self):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            cli.main([str(self.source), "--scope", "standalone", "--state-layout", "v3"])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("Invalid command-line arguments", stderr.getvalue())
+        self.assertEqual(self.artifacts(), [])
+
     def artifacts(self):
         return list(self.output.glob("run-*/report.json"))
 

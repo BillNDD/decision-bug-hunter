@@ -1,6 +1,6 @@
 {
  "endpoint": "https://openrouter.ai/api/alpha/decisions",
- "state_layout": "v2",
+ "state_layout": "v1",
  "entries": [
   {
    "id": "S01",
@@ -28,7 +28,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "4a8a9065908d73adbe6477692bc8b0e434b8baf832677067925412010f73316f",
+   "request_sha256": "ac4ebcf7e1525f23a597d45263f9005dbe1c4e2758dbbbd90009c8dc7547c0f5",
    "labels": {
     "bug_lines": [
      5
@@ -43,7 +43,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "c0a4a9c36e7609e7544c3e92debebdabb6055d533f393eaa17cc96ce449da0fd",
+   "request_sha256": "62c6b2827e8e44f71717d82b2293b5fe31026b3cd5f67239ebd4a76abd21efb2",
    "labels": {
     "bug_lines": [
      5
@@ -58,7 +58,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "09d9dc1e283e27a8a2c5907d9bd26a750ddf707efcf42d9f648f2b6c107503f1",
+   "request_sha256": "a9fa8791020a8bec6b0a8f3eafb2042c767ced2b0b12a9b5141b04c72fe64949",
    "labels": {
     "bug_lines": [
      5
@@ -73,7 +73,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "b7ffdb0ff2cb418876e8de165a9efaf1d95387bc768eb65c2df557b0aaae4fa1",
+   "request_sha256": "5967f1867818a4a91393720b4dc3fb9907459055700dedc8f70ae5bd47e64f50",
    "labels": {
     "bug_lines": [
      5
@@ -88,7 +88,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "ac128297c10bf837248430f9f94bd44ca311d0c374ffb60e0d688f7f9543d2e5",
+   "request_sha256": "ef677c7b60fc7b73b030e1dd39de62d815403228a36ee79e581591a0e9038469",
    "labels": {
     "bug_lines": [
      5
@@ -102,7 +102,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "2a730145f7a9550f48057f4c25683acdf1b4d9d6313cfc71d604be76078a97f9",
+   "request_sha256": "72c075955bb14436f411467e83d1310c8f0eb262d227a12f35b7599f0d2baca3",
    "truth": {
     "tok_L1_def": true,
     "tok_L1_for": false,
@@ -313,16 +313,16 @@
    "repeat": 1,
    "expect": "error",
    "send": "body",
-   "request_sha256": "1b6b70d93fa8863028a85f20da18f4ac2be5bc1d61a171e1879ab45336031c05"
+   "request_sha256": "65bf1e6b16337af18609f500454c9b1c3be641001399b2f9a7a71648e21a6d6b"
   },
   {
    "id": "S09",
    "file": "S09-long-instruction.json",
-   "purpose": "Instruction of 13233 characters: length acceptance.",
+   "purpose": "Instruction of 13025 characters: length acceptance.",
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "dfaaf5c8ae992da9695f195cf4d25d848ae751115cf57f9397a7c58b2d3bccd8"
+   "request_sha256": "5f8e3226cdf3e820d8be7e336125c5e03085578fe53b88fad06d7b59d374fb41"
   },
   {
    "id": "S10",
@@ -331,7 +331,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "bba30405bf22664aaf45eeab2425a48ece7813a7bd6d3b12baac3f7fa133b5ec",
+   "request_sha256": "4b7672bceb83cb9ea1bcfd46d107fd4342a913b2d21bf933edebabd38a378443",
    "labels": {
     "bug_lines": [
      5
@@ -345,7 +345,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "534974f2003cb6caeb839f427276bf15ce5d7178b0ab249ee45462d6660c4892",
+   "request_sha256": "997a076532ed67320335ccba06510b05c49b35f2de41e3c7a64c78017aa1f3ad",
    "labels": {
     "bug_lines": [
      5
@@ -359,7 +359,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "e67b61d60622dddef30b903c35fc383c752095971cc667aa2fb5726f2b5b5075"
+   "request_sha256": "6ec00275f46d10e38f9ec227639c3f5bbf1d6bc8d5959a99f3d0205f1f27f878"
   },
   {
    "id": "S12",
@@ -368,7 +368,7 @@
    "repeat": 5,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "4a8a9065908d73adbe6477692bc8b0e434b8baf832677067925412010f73316f",
+   "request_sha256": "ac4ebcf7e1525f23a597d45263f9005dbe1c4e2758dbbbd90009c8dc7547c0f5",
    "labels": {
     "bug_lines": [
      5
@@ -382,7 +382,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "2e840f2a2c215170a71038417eb18c7c93b3c603c18233b7b0de3a22bef86795",
+   "request_sha256": "6dd0300e3b8c61366dc23c6302496f420b80113c2145b02a14455fb40ea08c97",
    "labels": {
     "bug_lines": [
      5
@@ -397,7 +397,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "52d7df9b24f4f46244c4eddda049af9ee75d8774812ae20597f4324c68a21561",
+   "request_sha256": "c2f20e46b5e410cf2e9139e8941cfc665a3d4ce020dbaba614fbc2e2e3385bec",
    "labels": {
     "bug_lines": [
      5
@@ -412,7 +412,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "74dedba5e1b7f708cdecdd64d24d6ace30e22c4c906f529e5d14cc4e86ec9984",
+   "request_sha256": "4ffe02f46b2f68759e39836fb7ed1cb0f5b8783a7f22f3de53c0418b8078f865",
    "labels": {
     "bug_lines": [
      5
@@ -428,7 +428,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "c3820cda89c1825365361f8adb69fbe4553860d060068625e6d6f7c8de370207",
+   "request_sha256": "6d6fd6c38c0069f3df7288a408d17fd384f78c6d3adcdf11fda2e3b59b1fcc27",
    "labels": {
     "bug_lines": [
      5
@@ -444,7 +444,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "693863758afff1015fb40c3d2b6372704c420c37434491557da9706be30c16ed",
+   "request_sha256": "9e14ce60b6b2f09a6fb768335d9e405f7b91710939c63383b504ea2b828fddea",
    "labels": {
     "bug_lines": [
      5
@@ -460,7 +460,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "efbf048723aa0e461d065dc3f68f9440a70cbf7025528caeaf2839d9a73dfcd8",
+   "request_sha256": "ece1973db170ac6a8df97b5d958954f4a1e6d5cc49ed009df7407fc212f0a42c",
    "labels": {
     "bug_lines": [
      5
@@ -476,7 +476,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "5bc0ad00415f748846fcaf2aba42eb5a072c6595853b608e75d6e4dbf5a3e4a3",
+   "request_sha256": "f1134ca233959c30d03a209a0a7500469a105cb1ef02dc48a43139933d6a6b88",
    "labels": {
     "bug_lines": [
      5
@@ -492,7 +492,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "49c5eff3c582034da55abbe4afc85005323dbffb4cc6dc42483b3bcf5ddc1e8a",
+   "request_sha256": "a13d707eb65aa1e793ad5322dfb2cf9b286e0ff9bc9c2567b1c531d25ee7b1b1",
    "labels": {
     "bug_lines": [
      5
@@ -508,7 +508,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "9a98529b7c1e7ce15d4460f6134573262a594309192a6a488b4bd94c5dd107ea",
+   "request_sha256": "565dca332069a8f82fced2f3da80b12cad5628f652b2289b95d2765bded8d34e",
    "labels": {
     "bug_lines": [
      6
@@ -522,7 +522,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "ad6f876cbf17b9328b5c414b075d5605c01baa3d7d35cb7bd2030cb393baf2ea",
+   "request_sha256": "62fc8efc6082cb2486b06c70a31b9b9cd9191593eb5bbd61d701a944f98509c1",
    "labels": {
     "bug_lines": [
      6
@@ -538,7 +538,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "7da55d3154cbe853f99cbe2c49bb4753c80d638fbe6cfdb3b8c26e0e5dc2fd96",
+   "request_sha256": "78bbeb6cbc9ec30775f70b3939df24e7f109a0bf782a541370202671aba1c862",
    "labels": {
     "bug_lines": [
      6
@@ -554,7 +554,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "0351396e86d68a147c6b5fe96c8325262503a533366d876f9f7eaa7467b3936c",
+   "request_sha256": "2c3ffeb2ad24078d7cbba2f0931dc086715b0cb71bef4a637e04fc98875d4a63",
    "labels": {
     "bug_lines": []
    }
@@ -566,7 +566,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "f29e69beee390e2e99d0023d5691043c2df7f15d572cd7d9e6fa9da49148cfda",
+   "request_sha256": "c5658a4f6f1a1b7f283ee08c146af391c7b4a36dea22b96bf264749943834686",
    "labels": {
     "bug_lines": []
    },
@@ -580,7 +580,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "splice",
-   "request_sha256": "cb60b9e17b4db531607502d6a731f59f2eb7c13da94951c24dfde195e34b258f",
+   "request_sha256": "2641a49b245fd092010ee831480e250dcdf3bb1601e60365e9f919e9658871c2",
    "labels": {
     "bug_lines": []
    },
@@ -594,7 +594,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "d8f9a1a538ea17a6e7498af24b77d28741fe069247a01029e8dd0ee173ea4ea5",
+   "request_sha256": "f73098a5f77af29e9ed843682cc9e83fdb2a0eb3d1be5a5efc40d72edbc0d40e",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -610,7 +610,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "28d4fc3afe955393fffe04292549dd7d2b7a203acc1633a359a89cc4d858b3b6",
+   "request_sha256": "048895ebdcda3b7768be9279ec7c07751db7de1605e49e2ead88f00712ec372b",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -624,7 +624,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "69fd7981f4c01e85b519cbefb1c5eab86326c0a9324db30b029f814cf04dc30d",
+   "request_sha256": "15df9781f62d11dab5b36a3a6f4913343be04cb3a51453c84f99afc6192ca4e1",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -640,7 +640,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "fb8687775906e28b36837e4e4c5b8664a954104b10c1b857d51dff0f1d304e38",
+   "request_sha256": "aef429b8a4a9cdbfb5e0299dcf96b4d2f3b8b9af75e255abae0a67501e393e1f",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -654,7 +654,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "0e04bd29d173d9b95cc24d1d673eedf0522076711247b6b50053099db3269564",
+   "request_sha256": "6288dcd8004675468e4078e17d22c6cb5e84caa87d82f9a5d285cfc42678cddd",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -670,7 +670,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "a8818ebf48de1256f46e6e7c0dc2d3498036a6ff77f83fc3e8c101acc81efbef",
+   "request_sha256": "2d3c69ba468cdcf4294d003aff8bb4dc3877134ec129b0eaefeea263fea6222c",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -684,7 +684,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "c6119168709f22a4671336ca53376690545bb48aba94910b22633bf17d070074",
+   "request_sha256": "6d773e9d3835541b1eb2e1374212ed4fd215d88f66eecb7c775d9cbb7966c034",
    "labels": {
     "buggy": true,
     "bug_lines": [
@@ -700,7 +700,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "c8c72e14ce605402903f8db3c7ab94b66c704a5b3ff55c984fde209687746a10",
+   "request_sha256": "b481ca97eec11e726710cbcf65505f1bc296eb6e52b99a581b1ee8a256ceaf69",
    "labels": {
     "buggy": false,
     "bug_lines": []
@@ -723,7 +723,7 @@
    "repeat": 1,
    "expect": "ok",
    "send": "body",
-   "request_sha256": "8ca7cc88c67036707bc4e967022449831947ecef5418e6fb59c90176869d834e"
+   "request_sha256": "2bd0e083b5d3ee85f4a76d54b7cfc3df8a77c7d225cb705ecfbf2f4b5b8b2d7b"
   },
   {
    "id": "S18",

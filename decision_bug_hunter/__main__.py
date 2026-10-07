@@ -12,7 +12,8 @@ import sys
 import tempfile
 import time
 
-from .core import Config, Source, format_findings, scan
+from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
+                   DEFAULT_STATE_LAYOUT)
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
 from .providers import (ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
@@ -78,6 +79,11 @@ def parser() -> argparse.ArgumentParser:
                         default="legacy-v1", help="Opt in to scoped verification and exploratory beams.")
     result.add_argument("--refute-threshold", type=decimal_argument, default=Decimal("0.80"),
                         help="Explicit-refutation threshold for scoped-v2-beta only.")
+    result.add_argument("--state-layout", choices=STATE_LAYOUTS, default=DEFAULT_STATE_LAYOUT,
+                        help="Request state layout and matching policy preamble "
+                             "(default: %(default)s, the pre-release layout; v2 puts the "
+                             "DBH-written fields first and warns about envelope imitation). "
+                             "Recorded in the report configuration.")
     result.add_argument("--max-calls", type=int, default=1000)
     result.add_argument("--max-questions", type=int, default=20000)
     result.add_argument("--max-windows", type=int, default=50000)
@@ -333,6 +339,7 @@ def execute(args: argparse.Namespace) -> int:
         report_threshold=args.report_threshold,
         search_policy=args.search_policy,
         refute_threshold=args.refute_threshold,
+        state_layout=args.state_layout,
         max_calls=args.max_calls,
         max_questions=args.max_questions,
         max_windows=args.max_windows,

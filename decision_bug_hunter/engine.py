@@ -26,7 +26,8 @@ from .protocol import (ProviderError, encode_request, plain, validate_answer_obj
 from .providers import Classification, ValidatedGateway, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
-                        evidence_noul, LENS_KINDS, policy, _ordered_state)
+                        evidence_noul, LENS_KINDS, policy, _ordered_state,
+                        using_state_layout)
 
 
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
@@ -1687,6 +1688,13 @@ class Search:
                                  state, group["id"])
 
     def run(self):
+        # Every state and policy preamble of this scan uses the configured
+        # layout (ADR-5(4)); the report's configuration records it, so the
+        # question-pack hash plus the layout identify each request's bytes.
+        with using_state_layout(self.cfg.state_layout):
+            return self._run()
+
+    def _run(self):
         ready = True
         if self.source.lines:
             probe = Span(1, 1)
