@@ -258,7 +258,11 @@ def decode_response(raw: bytes, questions: Mapping[str, Any],
         raise
     except Exception:
         raise ProviderError("response_invalid_json") from None
-    if any(_secret_in(credential, [data]) for credential in credentials):
+    # Without a backslash every decoded string is a verbatim slice of raw, and
+    # an ASCII credential found there is already found in raw above, so the
+    # decoded walk is needed only when an escape is present.
+    if ((b"\\" in raw or not all(credential.isascii() for credential in credentials))
+            and any(_secret_in(credential, [data]) for credential in credentials)):
         raise ProviderError("response_sensitive")
     if type(data) is not dict:
         raise ProviderError("response_schema")

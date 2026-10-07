@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from decimal import (Context, Decimal, DecimalException, DivisionByZero, Inexact,
                      InvalidOperation, Overflow, ROUND_HALF_EVEN, localcontext)
 from fractions import Fraction
+from itertools import chain
 import json
 import math
 import re
@@ -370,15 +371,20 @@ def encode_request(state: dict, questions=None) -> bytes:
 
 
 def _secret_in(key, values):
+    # A dict's keys, then its values, in one pass (the same order as the
+    # two-call form). str leaves are tested inline; only containers recurse.
     for value in values:
-        if type(value) is str and key in value:
-            return True
-        if type(value) is bytes and key.encode("ascii") in value:
-            return True
-        if type(value) is dict:
-            if _secret_in(key, value.keys()) or _secret_in(key, value.values()):
+        kind = type(value)
+        if kind is str:
+            if key in value:
                 return True
-        if type(value) in (list, tuple) and _secret_in(key, value):
+        elif kind is bytes:
+            if key.encode("ascii") in value:
+                return True
+        elif kind is dict:
+            if _secret_in(key, chain(value, value.values())):
+                return True
+        elif (kind is list or kind is tuple) and _secret_in(key, value):
             return True
     return False
 
