@@ -608,6 +608,30 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
 #: them as calls either).
 _UNCOUNTED_REFUSALS = frozenset({"run_deadline_reserved", "cost_budget_exhausted"})
 
+#: Leaves that ``_tree_copy`` shares: no operation changes them in place.
+_IMMUTABLE_LEAVES: tuple[type, ...] = (str, int, float, bool, type(None), Decimal)
+#: The receipt fields the engine's per-question bookkeeping reads.
+_CALL_SUMMARY_FIELDS = ("request_sha256", "model_returned", "answer_order_mismatch",
+                        "logical_usage", "usage")
+
+
+def _tree_copy(value: Any) -> Any:
+    """A copy of plain dict, list and tuple trees, without ``deepcopy``.
+
+    Immutable leaves are shared. Any other type falls back to ``deepcopy``
+    for its own subtree, so nothing new is ever aliased.
+    """
+    kind = type(value)
+    if kind is dict:
+        return {key: _tree_copy(item) for key, item in value.items()}
+    if kind is list:
+        return [_tree_copy(item) for item in value]
+    if kind is tuple:
+        return tuple(_tree_copy(item) for item in value)
+    if kind in _IMMUTABLE_LEAVES:
+        return value
+    return deepcopy(value)
+
 
 class ValidatedGateway:
     """Serial evaluation with exact validation, retries and local receipts.
@@ -869,7 +893,22 @@ class ValidatedGateway:
     def last_call_stats(self) -> dict[str, Any] | None:
         if self._stats_owner != threading.get_ident():
             return None
-        return deepcopy(self._last_stats)
+        return _tree_copy(self._last_stats)
+
+    @property
+    def last_call_summary(self) -> dict[str, Any] | None:
+        """The receipt fields the engine reads, copied; None without a call.
+
+        A key appears only when the receipt has it, so ``get`` fallbacks see
+        what they see in ``last_call_stats``.
+        """
+        if self._stats_owner != threading.get_ident():
+            return None
+        stats = self._last_stats
+        if stats is None:
+            return None
+        return {name: _tree_copy(stats[name]) for name in _CALL_SUMMARY_FIELDS
+                if name in stats}
 
     @property
     def last_receipt(self) -> str | None:
@@ -999,7 +1038,8 @@ class ValidatedGateway:
         meta = _metadata(metadata)
         self.check_sensitive(state, questions, metadata)
         # Own the expected question schema independently of caller/provider mutation.
-        expected = deepcopy(questions)
+        # encode_request has validated questions as plain JSON data by now.
+        expected = _tree_copy(questions)
         key = hashlib.sha256(wire).hexdigest()
         self.logical_requests += 1
         sequence = meta.get("sequence")
@@ -1180,7 +1220,9 @@ class ValidatedGateway:
 
     def _settle(self, path: Path, receipt: dict[str, Any]) -> None:
         """Write an attempt's terminal receipt; storage failure blocks."""
-        self._last_stats = deepcopy(receipt)
+        # The settled receipt is never changed afterwards: the retry loop builds
+        # a new one, and a failure reassigns _last_stats in _fail_receipt.
+        self._last_stats = receipt
         try:
             _write_receipt(path, receipt)
         except Exception:
@@ -1254,7 +1296,10 @@ class ValidatedGateway:
             self._fail_receipt(path, receipt, "receipt_failed", persist=True)
             raise ProviderError("receipt_failed") from None
         self._note_receipt(path)
-        self._last_stats = deepcopy(receipt)
+        # A top-level copy is enough: the only nested value present now is the
+        # metadata dict, which no later step changes (every other nested value
+        # is assigned whole, never edited in place).
+        self._last_stats = dict(receipt)
         error: str | None = None
         answers: dict[str, Any] | None = None
         started = self._now()

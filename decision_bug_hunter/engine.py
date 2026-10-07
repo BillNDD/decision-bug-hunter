@@ -624,7 +624,11 @@ class Search:
                 self.issue(error, region, phase)
                 if error == "provider_moderated":
                     self.suppressed.add((region.start, region.end))
-            stats = getattr(self.gw, "last_call_stats", None)
+            if type(self.gw) is ValidatedGateway:
+                # Only the summary fields are read below, so no full receipt copy.
+                stats = self.gw.last_call_summary
+            else:
+                stats = getattr(self.gw, "last_call_stats", None)
             usage = None
             if type(stats) is dict and stats.get("request_sha256") == key:
                 if type(stats.get("model_returned")) is str:
