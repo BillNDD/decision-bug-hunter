@@ -5,9 +5,11 @@ the ``socket.create_connection(address, timeout, source_address)`` signature
 that hands out ``FakeSocket`` objects. Each socket parses the HTTP requests
 written to it and replays the next scripted step: response bytes, fake-clock
 delays, mid-body exceptions, connect and send failures, or silence. The real
-``http.client`` parser runs over the scripted bytes, either through a future
-exchange that accepts ``connect=`` or through ``ScriptedHTTPS.https_connection``,
-a drop-in for ``http.client.HTTPSConnection`` that skips TLS.
+``http.client`` parser runs over the scripted bytes, either through
+``ScriptedHTTPS.exchange`` (a real ``exchange.HttpsExchange`` whose connector,
+TLS handshake and idle-readability probe are this script) or through
+``ScriptedHTTPS.https_connection``, a drop-in for
+``http.client.HTTPSConnection`` that skips TLS.
 
 Delays only advance the ``FakeClock``; no test sleeps on the wall clock. A
 delay longer than the socket's current timeout raises ``TimeoutError`` after
@@ -21,6 +23,7 @@ from dataclasses import dataclass, field
 import http.client
 import io
 import random
+import ssl
 from typing import Any, Iterable, Sequence, Union
 
 
@@ -58,6 +61,17 @@ class FakeSleep:
     @property
     def total(self) -> float:
         return sum(self.calls)
+
+
+_TEST_CONTEXT: list[ssl.SSLContext] = []
+
+
+def shared_test_context() -> ssl.SSLContext:
+    """One verifying client context without loaded certificates; never used
+    for a real handshake, because scripted exchanges skip TLS."""
+    if not _TEST_CONTEXT:
+        _TEST_CONTEXT.append(ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT))
+    return _TEST_CONTEXT[0]
 
 
 def seeded_rng(seed: int = 0) -> random.Random:
@@ -211,6 +225,8 @@ class FakeSocket:
         self.sent = bytearray()
         self.closed = False
         self.peer_closed = False
+        #: What ``pending()`` reports; set it to model buffered TLS bytes.
+        self.pending_bytes = 0
         self._pending = bytearray()
         self._events: list[Event] = []
         self._requests_served = 0
@@ -232,7 +248,7 @@ class FakeSocket:
 
     def pending(self) -> int:
         """``ssl.SSLSocket.pending``: decrypted bytes buffered locally."""
-        return 0
+        return self.pending_bytes
 
     def readable_idle(self) -> bool:
         """What ``select([fd], [], [], 0)`` would say about an idle socket."""
@@ -369,6 +385,7 @@ class ScriptedHTTPS:
         self.raised: list[tuple[int, BaseException]] = []
         self.closed: list[int] = []
         self.contexts: list[Any] = []
+        self.server_hostnames: list[str] = []
 
     def __call__(self, address: tuple[str, int], timeout: float | None = None,
                  source_address: Any = None) -> FakeSocket:
@@ -391,6 +408,29 @@ class ScriptedHTTPS:
         sock = FakeSocket(self, len(self.sockets), address, timeout)
         self.sockets.append(sock)
         return sock
+
+    def tls_wrap(self, sock: FakeSocket, context: Any, server_hostname: str) -> FakeSocket:
+        """Stands in for the TLS handshake: records the context, returns ``sock``."""
+        self.contexts.append(context)
+        self.server_hostnames.append(server_hostname)
+        return sock
+
+    @staticmethod
+    def readable(sock: FakeSocket) -> bool:
+        """The idle-readability probe an exchange uses before reusing ``sock``."""
+        return sock.readable_idle()
+
+    def exchange(self, host: str, path: str, *, port: int = 443, **kwargs: Any) -> Any:
+        """A real ``HttpsExchange`` whose network edges are this script.
+
+        Loading the system trust store is slow on some platforms, so a shared
+        unloaded client context is supplied unless ``context`` is passed;
+        ``context=None`` exercises the exchange's own lazy construction.
+        """
+        from decision_bug_hunter.exchange import HttpsExchange
+        kwargs.setdefault("context", shared_test_context())
+        return HttpsExchange(host, path, port=port, connect=self, wrap=self.tls_wrap,
+                             readable=self.readable, clock=self.clock, **kwargs)
 
     def https_connection(self, host: str, port: int | None = None, *,
                          timeout: Any = None, context: Any = None,

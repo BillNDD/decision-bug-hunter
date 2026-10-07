@@ -46,7 +46,8 @@ version = {attr = "decision_bug_hunter.__version__"}
 select = ["E9", "F63", "F7", "F82"]
 
 [tool.mypy]
-files = ["decision_bug_hunter/providers.py", "decision_bug_hunter/decisions.py"]
+files = ["decision_bug_hunter/providers.py", "decision_bug_hunter/decisions.py",
+         "decision_bug_hunter/exchange.py"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 follow_imports = "silent"

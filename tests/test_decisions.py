@@ -1,4 +1,4 @@
-"""Offline Decisions adapter contracts: synthetic sockets, no network, no key.
+"""Offline Decisions adapter contracts: scripted sockets, no network, no key.
 
 Fixtures follow the request and response shapes documented on 2026-10-06.
 Passing them establishes local translation, framing and failure handling only,
@@ -15,7 +15,7 @@ import socket
 import ssl
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from decision_bug_hunter import __main__ as cli
 from decision_bug_hunter import decisions, providers
@@ -23,6 +23,7 @@ from decision_bug_hunter.decisions import (DecisionsProvider, translate_request,
                                            translate_response)
 from decision_bug_hunter.protocol import ProviderError, QUESTION, _json, encode_request
 from decision_bug_hunter.providers import ProviderRequest, ValidatedGateway
+from tests.fakes import FakeClock, Raise, Reply, ScriptedHTTPS
 from tests.support import FixtureProvider, clean_provider_env
 
 
@@ -53,15 +54,19 @@ def documented(answers=(PREDICATE, CHOSEN), usage=USAGE, model=decisions.MODEL, 
     return json.dumps(data).encode()
 
 
-def http_response(body, status=200, headers=None):
-    if headers is None:
-        headers = f"Content-Type: application/json\r\nContent-Length: {len(body)}"
-    wire = f"HTTP/1.1 {status} Test\r\n{headers}\r\n\r\n".encode() + body
-    sock = MagicMock()
-    sock.makefile.return_value = io.BytesIO(wire)
-    parsed = http.client.HTTPResponse(sock)
-    parsed.begin()
-    return parsed
+def reply(body, status=200, headers=None):
+    """A scripted response; ``headers`` is a raw ``Name: value`` block."""
+    if headers is not None:
+        headers = [tuple(part.strip() for part in line.split(":", 1))
+                   for line in headers.split("\r\n")]
+    # The peer closes after the reply, so a short body ends in EOF.
+    return Reply(status=status, body=body, headers=headers, close_after=True)
+
+
+def scripted(steps=()):
+    """A script for the fixed OpenAI origin and an exchange over it."""
+    script = ScriptedHTTPS(list(steps), clock=FakeClock(), host=decisions.HOST)
+    return script, script.exchange(decisions.HOST, decisions.PATH)
 
 
 def no_network():
@@ -134,22 +139,24 @@ class AdapterExchangeTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
 
     def exchange(self, body=None, *, status=200, headers=None, failure=None,
-                 state=STATE, environ=None):
-        """One gateway attempt through a synthetic HTTPS connection."""
-        connection = MagicMock()
+                 state=STATE, environ=None, later=()):
+        """One gateway attempt through a scripted HTTPS connection.
+
+        ``failure`` is raised by the first receive after the request is sent;
+        ``later`` scripts further steps for follow-up calls.
+        """
         if failure is not None:
-            connection.request.side_effect = failure
+            first = Reply(events=[Raise(failure)])
         else:
-            parsed = http_response(documented() if body is None else body, status, headers)
-            self.addCleanup(parsed.close)
-            connection.getresponse.return_value = parsed
-        provider = DecisionsProvider(KEY, environ={} if environ is None else environ)
+            first = reply(documented() if body is None else body, status, headers)
+        script, exchange = scripted([first, *later])
+        provider = DecisionsProvider(KEY, environ={} if environ is None else environ,
+                                     exchange=exchange)
         gateway = ValidatedGateway(provider, self.root / "receipts")
         self.addCleanup(gateway.close)
         # A frozen gateway clock: the call deadline is absolute from before the
         # dispatching receipt, so journal time would otherwise shrink it.
-        with patch.object(decisions.http.client, "HTTPSConnection",
-                          return_value=connection) as factory, no_network(), \
+        with no_network(), \
                 patch("decision_bug_hunter.providers.time.monotonic", return_value=100.0):
             try:
                 outcome = gateway.evaluate(state, QUESTIONS, metadata=METADATA)
@@ -158,24 +165,35 @@ class AdapterExchangeTests(unittest.TestCase):
         receipt = None
         if gateway.last_receipt:
             receipt = json.loads(Path(gateway.last_receipt).read_text(encoding="utf-8"))
-        return outcome, receipt, connection, factory, gateway
+        return outcome, receipt, script, provider, gateway
 
     def test_fixed_origin_headers_credential_and_receipt_contents(self):
-        answers, receipt, connection, factory, _ = self.exchange()
+        answers, receipt, script, provider, gateway = self.exchange(
+            later=[reply(documented())])
         self.assertEqual(answers["screen"]["noul"], Decimal("0.95"))
-        self.assertEqual(factory.call_args.args, ("api.openai.com", 443))
-        self.assertEqual(factory.call_args.kwargs["timeout"], 30.0)
-        self.assertIsInstance(factory.call_args.kwargs["context"], ssl.SSLContext)
-        call = connection.request.call_args
-        self.assertEqual(call.args, ("POST", "/v1/decisions"))
-        headers = call.kwargs["headers"]
-        self.assertEqual(headers["Authorization"], "Bearer " + KEY)
-        self.assertEqual(headers["Content-Type"], "application/json")
-        self.assertEqual(headers["Accept-Encoding"], "identity")
-        self.assertNotIn("OpenAI-Organization", headers)
-        self.assertNotIn(KEY.encode(), call.kwargs["body"])
-        self.assertEqual(json.loads(call.kwargs["body"])["model"], "gpt-6-luna")
-        connection.close.assert_called_once()
+        # The connect timeout is the whole remaining call deadline.
+        self.assertEqual(script.connects[0], (("api.openai.com", 443), 30.0))
+        self.assertEqual(script.server_hostnames, ["api.openai.com"])
+        self.assertIsInstance(script.contexts[0], ssl.SSLContext)
+        (request,) = script.requests
+        self.assertEqual((request.method, request.target), ("POST", "/v1/decisions"))
+        self.assertEqual(request.header("Host"), "api.openai.com")
+        self.assertEqual(request.header("Authorization"), "Bearer " + KEY)
+        self.assertEqual(request.header("Content-Type"), "application/json")
+        self.assertEqual(request.header("Accept-Encoding"), "identity")
+        self.assertIsNone(request.header("OpenAI-Organization"))
+        self.assertIsNone(request.header("Connection"))
+        self.assertNotIn(KEY.encode(), request.body)
+        self.assertEqual(json.loads(request.body)["model"], "gpt-6-luna")
+        # A complete 200 leaves the connection open for reuse ...
+        self.assertEqual(script.closed, [])
+        # ... and a second call (the peer closed the first connection) uses
+        # the provider's same single TLS context.
+        gateway.evaluate({**STATE, "sequence": 2}, QUESTIONS, metadata=METADATA)
+        self.assertEqual(len(script.contexts), 2)
+        self.assertIs(script.contexts[0], script.contexts[1])
+        provider.close()
+        self.assertEqual(script.closed, [0, 1])
         self.assertEqual(receipt["status"], "validated")
         self.assertEqual((receipt["provider"], receipt["model"], receipt["synthetic"]),
                          ("openai-decisions", "gpt-6-luna", False))
@@ -185,11 +203,11 @@ class AdapterExchangeTests(unittest.TestCase):
             self.assertNotIn(private, saved)
 
     def test_routing_headers_come_only_from_a_sane_environment(self):
-        _, _, connection, _, _ = self.exchange(
+        _, _, script, _, _ = self.exchange(
             environ={"OPENAI_ORG_ID": "org-sentinel", "OPENAI_PROJECT_ID": "proj-sentinel"})
-        headers = connection.request.call_args.kwargs["headers"]
-        self.assertEqual(headers["OpenAI-Organization"], "org-sentinel")
-        self.assertEqual(headers["OpenAI-Project"], "proj-sentinel")
+        (request,) = script.requests
+        self.assertEqual(request.header("OpenAI-Organization"), "org-sentinel")
+        self.assertEqual(request.header("OpenAI-Project"), "proj-sentinel")
         provider = DecisionsProvider(KEY, environ={"OPENAI_ORG_ID": "bad\r\nInjected: 1"})
         with self.assertRaises(ProviderError) as caught:
             provider.require_available()
@@ -233,7 +251,7 @@ class AdapterExchangeTests(unittest.TestCase):
                              (429, "http_rate_limited"), (500, "http_server_error"),
                              (503, "http_server_error")):
             with self.subTest(status=status):
-                outcome, receipt, connection, *_ = self.exchange(body, status=status, headers=headers)
+                outcome, receipt, *_ = self.exchange(body, status=status, headers=headers)
                 self.assertEqual(outcome.code, code)
                 self.assertIsNone(outcome.__cause__)
                 self.assertIsNone(outcome.__context__)
@@ -243,30 +261,29 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertNotIn(KEY, json.dumps(receipt))
 
     def test_unauthorized_blocks_the_gateway_without_a_second_request(self):
-        outcome, _, _, factory, gateway = self.exchange(
+        outcome, _, script, _, gateway = self.exchange(
             b"", status=401, headers="Content-Type: application/json\r\nContent-Length: 0")
         self.assertEqual(outcome.code, "http_unauthorized")
         with no_network(), self.assertRaises(ProviderError) as caught:
             gateway.evaluate({**STATE, "sequence": 2}, QUESTIONS, metadata=METADATA)
         self.assertEqual(caught.exception.code, "transport_failed")
-        self.assertEqual(factory.call_count, 1)
+        self.assertEqual((len(script.connects), len(script.requests)), (1, 1))
 
     def test_rate_limit_is_recorded_once_without_retry_or_blocking(self):
-        outcome, receipt, connection, _, gateway = self.exchange(
+        outcome, receipt, script, _, gateway = self.exchange(
             b"", status=429, headers="Retry-After: 1\r\nContent-Type: application/json\r\n"
-                                     "Content-Length: 0")
+                                     "Content-Length: 0", later=[reply(documented())])
         self.assertEqual(outcome.code, "http_rate_limited")
-        self.assertEqual(connection.request.call_count, 1)
+        self.assertEqual(len(script.requests), 1)
         self.assertEqual(receipt["error"], "http_rate_limited")
-        later = MagicMock()
-        parsed = http_response(documented())
-        self.addCleanup(parsed.close)
-        later.getresponse.return_value = parsed
-        with patch.object(decisions.http.client, "HTTPSConnection", return_value=later), no_network():
+        with no_network():
             answers = gateway.evaluate({**STATE, "sequence": 2}, QUESTIONS, metadata=METADATA)
         self.assertEqual(answers["where"]["choice"], "L1-1")
+        # The non-200 connection was dropped; the next call reconnected.
+        self.assertEqual((len(script.connects), script.closed[0]), (2, 0))
 
     def test_timeout_and_transport_failures_have_fixed_codes_and_no_context(self):
+        # Injected at the receive phase, after the request was sent.
         for failure, code in ((socket.timeout(KEY), "deadline_exceeded"),
                               (TimeoutError(KEY), "deadline_exceeded"),
                               (ssl.SSLError(KEY), "transport_failed"),
@@ -274,7 +291,8 @@ class AdapterExchangeTests(unittest.TestCase):
                               (http.client.RemoteDisconnected(KEY), "transport_failed"),
                               (OSError(KEY), "transport_failed")):
             with self.subTest(failure=type(failure).__name__):
-                outcome, receipt, *_ = self.exchange(failure=failure)
+                outcome, receipt, script, *_ = self.exchange(failure=failure)
+                self.assertEqual(len(script.requests), 1)
                 self.assertEqual(outcome.code, code)
                 self.assertIsNone(outcome.__cause__)
                 self.assertIsNone(outcome.__context__)
@@ -375,9 +393,9 @@ class AdapterExchangeTests(unittest.TestCase):
             self.assertNotIn(text, saved)
 
     def test_expired_budget_never_opens_a_connection(self):
-        provider = DecisionsProvider(KEY, environ={})
-        with patch.object(decisions.http.client, "HTTPSConnection",
-                          side_effect=AssertionError("no transport")):
+        script, exchange = scripted()
+        provider = DecisionsProvider(KEY, environ={}, exchange=exchange)
+        with no_network():
             for timeout in (0, -1.0):
                 with self.assertRaises(ProviderError) as caught:
                     provider.decide(ProviderRequest(encode_request(STATE, QUESTIONS), timeout))
@@ -404,6 +422,7 @@ class AdapterExchangeTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, "deadline_exceeded")
                 receipt = json.loads(Path(gateway.last_receipt).read_text(encoding="utf-8"))
                 self.assertIs(receipt["submission_possible"], False)
+        self.assertEqual(script.connects, [])
 
 
 class AvailabilityTests(unittest.TestCase):
@@ -413,9 +432,9 @@ class AvailabilityTests(unittest.TestCase):
                         {"OPENAI_API_KEY": "line\nbreak"}, {"OPENAI_API_KEY": "k" * 4097},
                         {"OPENAI_API_KEY": "non-ascii-é"}):
             with self.subTest(environ=environ):
-                provider = DecisionsProvider(environ=environ)
-                with no_network(), patch.object(decisions.http.client, "HTTPSConnection",
-                                                side_effect=AssertionError("no transport")):
+                script, exchange = scripted()
+                provider = DecisionsProvider(environ=environ, exchange=exchange)
+                with no_network():
                     for operation in (provider.require_available,
                                       lambda: provider.decide(request)):
                         with self.assertRaises(ProviderError) as caught:
@@ -423,9 +442,12 @@ class AvailabilityTests(unittest.TestCase):
                         self.assertEqual(caught.exception.code, "provider_unavailable")
                 provider.check_sensitive(KEY)
                 provider.close()
+                self.assertEqual((script.connects, exchange.contexts_built), ([], 0))
 
     def test_credential_argument_wins_and_sensitive_input_never_dispatches(self):
-        provider = DecisionsProvider(KEY, environ={"OPENAI_API_KEY": "ignored-environment-value"})
+        script, exchange = scripted()
+        provider = DecisionsProvider(KEY, environ={"OPENAI_API_KEY": "ignored-environment-value"},
+                                     exchange=exchange)
         provider.require_available()
         for value in (KEY, KEY.encode(), {KEY: 1}, ("safe", [KEY]), {"k": {"n": KEY}}):
             with self.assertRaises(ProviderError) as caught:
@@ -434,19 +456,17 @@ class AvailabilityTests(unittest.TestCase):
         provider.check_sensitive("safe", {"k": ["safe"]})
         with tempfile.TemporaryDirectory() as td:
             gateway = ValidatedGateway(provider, Path(td) / "receipts")
-            with patch.object(decisions.http.client, "HTTPSConnection",
-                              side_effect=AssertionError("no transport")):
+            with no_network():
                 with self.assertRaises(ProviderError) as caught:
                     gateway.evaluate({"text": KEY}, QUESTIONS, metadata=METADATA)
             self.assertEqual(caught.exception.code, "sensitive_input")
             self.assertFalse((Path(td) / "receipts").exists())
             gateway.close()
+        self.assertEqual(script.connects, [])
 
     def test_cli_without_credential_stops_before_any_source_read_or_output(self):
         out, err = io.StringIO(), io.StringIO()
         with tempfile.TemporaryDirectory() as td, clean_provider_env(), no_network(), \
-                patch.object(decisions.http.client, "HTTPSConnection",
-                             side_effect=AssertionError("no transport")), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["secret-target-name", "--scope", "standalone",
                              "--output-dir", str(Path(td) / "outputs")])
@@ -457,36 +477,33 @@ class AvailabilityTests(unittest.TestCase):
         self.assertNotIn("secret-target-name", err.getvalue())
 
 
-class FakeDecisionsService:
-    """Answers documented requests with the deterministic fixture judge."""
+class FakeDecisionsService(ScriptedHTTPS):
+    """Answers documented requests with the deterministic fixture judge.
+
+    A ``ScriptedHTTPS`` whose next reply is computed from the request just
+    received, so the real exchange, framing and keep-alive paths run.
+    """
 
     def __init__(self, fixture):
+        super().__init__([], host="api.openai.com")
         self.fixture = fixture
         self.bodies = []
         self.headers = []
-        self.responses = []
 
-    def __call__(self, host, port, timeout=None, context=None):
-        assert (host, port) == ("api.openai.com", 443), (host, port)
-        connection = MagicMock()
-
-        def request(method, path, body, headers):
-            assert (method, path) == ("POST", "/v1/decisions"), (method, path)
-            data = json.loads(body)
-            self.bodies.append(data)
-            self.headers.append(headers)
-            state = json.loads(data["input"])
-            answers = [self.documented(q["name"], self.fixture.answer(q["name"], self.local(q), state))
-                       for q in data["questions"]]
-            raw = json.dumps({"model": "gpt-6-luna", "answers": answers,
-                              "usage": {**USAGE, "input_tokens": max(1, len(body) // 4),
-                                        "total_tokens": max(1, len(body) // 4)}}).encode()
-            parsed = http_response(raw)
-            self.responses.append(parsed)
-            connection.getresponse.return_value = parsed
-
-        connection.request.side_effect = request
-        return connection
+    def _next_step(self, kind):
+        request = self.requests[-1]
+        assert (request.method, request.target) == ("POST", "/v1/decisions"), request.target
+        data = json.loads(request.body)
+        self.bodies.append(data)
+        self.headers.append(request)
+        state = json.loads(data["input"])
+        answers = [self.documented(q["name"], self.fixture.answer(q["name"], self.local(q), state))
+                   for q in data["questions"]]
+        size = max(1, len(request.body) // 4)
+        raw = json.dumps({"model": "gpt-6-luna", "answers": answers,
+                          "usage": {**USAGE, "input_tokens": size,
+                                    "total_tokens": size}}).encode()
+        return Reply(body=raw)
 
     @staticmethod
     def local(question):
@@ -515,16 +532,24 @@ class EndToEndCliTests(unittest.TestCase):
             target.write_text("import pathlib\npathlib.Path(" + repr(str(marker))
                               + ").touch()\nprint('private-line-three')\n", encoding="utf-8")
             service = FakeDecisionsService(FixtureProvider([(2, 2)]))
+
+            def make_provider(args):
+                # The real adapter, reading the patched environment; only the
+                # network edges of its exchange are scripted.
+                return DecisionsProvider(
+                    exchange=service.exchange(decisions.HOST, decisions.PATH))
+
             out, err = io.StringIO(), io.StringIO()
             with patch.dict(os.environ, {"OPENAI_API_KEY": KEY}), \
-                    patch.object(decisions.http.client, "HTTPSConnection", side_effect=service), \
+                    patch.object(cli, "make_provider", side_effect=make_provider), \
                     no_network(), redirect_stdout(out), redirect_stderr(err):
                 code = cli.main([str(target), "--scope", "standalone",
                                  "--output-dir", str(root / "runs"), "--no-whole-file",
                                  "--no-bug-lenses", "--max-action-steps", "0"])
-            for parsed in service.responses:
-                parsed.close()
             self.assertEqual(code, 1, err.getvalue())
+            # Back-to-back calls share one kept-alive connection.
+            self.assertEqual(len(service.connects), 1)
+            self.assertEqual(service.reuse_count, len(service.bodies) - 1)
             self.assertFalse(marker.exists())
             self.assertTrue(service.bodies)
             self.assertIn("SCAN: complete", out.getvalue())
@@ -538,8 +563,8 @@ class EndToEndCliTests(unittest.TestCase):
             self.assertEqual(report["usage"]["attempts_with_unknown_usage"], 0)
             self.assertGreater(report["usage"]["input_tokens"], 0)
             self.assertEqual(report["calls_attempted"], len(service.bodies))
-            for headers in service.headers:
-                self.assertEqual(headers["Authorization"], "Bearer " + KEY)
+            for request in service.headers:
+                self.assertEqual(request.header("Authorization"), "Bearer " + KEY)
             for body in service.bodies:
                 self.assertEqual(body["model"], "gpt-6-luna")
                 self.assertNotIn(KEY, json.dumps(body))

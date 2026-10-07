@@ -176,13 +176,14 @@ class ScriptedHttpsTests(unittest.TestCase):
     def test_scripted_https_serves_the_hosted_adapter_through_http_client(self):
         script = ScriptedHTTPS([Reply(body=openai_body(ANSWERS), chunk_size=7)],
                                host="api.openai.com")
-        with tempfile.TemporaryDirectory() as td, \
-                patch.object(decisions.http.client, "HTTPSConnection",
-                             script.https_connection):
-            gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}),
+        exchange = script.exchange(decisions.HOST, decisions.PATH)
+        with tempfile.TemporaryDirectory() as td:
+            gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}, exchange=exchange),
                                        Path(td) / "receipts")
-            self.addCleanup(gateway.close)
             answers = gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
+            # The complete 200 keeps the connection until the gateway closes.
+            self.assertEqual(script.closed, [])
+            gateway.close()
         self.assertEqual(answers, ANSWERS)
         self.assertTrue(script.exhausted)
         self.assertEqual(len(script.connects), 1)
@@ -267,10 +268,12 @@ class ScriptedHttpsTests(unittest.TestCase):
         for step, code in cases:
             with self.subTest(code=code), tempfile.TemporaryDirectory() as td:
                 script = ScriptedHTTPS([step])
-                with patch.object(decisions.http.client, "HTTPSConnection",
-                                  script.https_connection):
-                    gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}),
-                                               Path(td) / "receipts")
+                exchange = script.exchange(decisions.HOST, decisions.PATH)
+                with patch.object(socket, "create_connection",
+                                  side_effect=AssertionError("real connector")):
+                    gateway = ValidatedGateway(
+                        DecisionsProvider(KEY, environ={}, exchange=exchange),
+                        Path(td) / "receipts")
                     with self.assertRaises(ProviderError) as caught:
                         gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
                     gateway.close()

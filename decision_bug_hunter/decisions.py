@@ -2,8 +2,10 @@
 
 The endpoint, request and response shapes follow the public documentation of
 2026-10-06 (public beta, model ``gpt-6-luna``). The adapter uses only the
-standard library: one HTTPS request per local batch, no SDK, no retry, no
-backoff, no redirect following, no proxy, no image input and no fallback
+standard library: one HTTPS request per local batch through
+``exchange.HttpsExchange`` (one TLS context and at most one kept-alive
+connection per provider, an absolute per-call deadline), no SDK, no retry,
+no backoff, no redirect following, no proxy, no image input and no fallback
 model. The credential is read from the environment once, at construction,
 and never enters request bodies, receipts, reports or error text. HTTP error
 bodies are never read or journaled.
@@ -11,15 +13,13 @@ bodies are never read or journaled.
 from __future__ import annotations
 
 from collections.abc import Mapping
-import http.client
 import json
 import math
 import os
 import re
-import socket
-import ssl
 from typing import Any
 
+from .exchange import ExchangeError, HttpsExchange
 from .protocol import (CONTRACT_VERSION, MAX_RESPONSE_BYTES, ProviderError,
                        _constant, _decimal, _json, _pairs, _secret_in,
                        validate_questions)
@@ -39,7 +39,6 @@ PROJECT_VARIABLE = "OPENAI_PROJECT_ID"
 MAX_BODY_BYTES = 64 * 1024
 # Credentials and routing identifiers are single-line printable ASCII tokens.
 _HEADER_TOKEN = re.compile(r"[!-~]{1,4096}\Z")
-_CONTENT_TYPE = re.compile(r'application/json(?:;\s*charset=(?:utf-8|"utf-8"))?')
 _PREDICATE_FORMAT = "{instructions}\nAnswer true if: {true}\nAnswer false if: {false}"
 _STATUS_CODES = {401: "http_unauthorized", 403: "http_unauthorized",
                  429: "http_rate_limited"}
@@ -190,70 +189,24 @@ def _status_error(status: int) -> str:
     return "http_rejected"
 
 
-def _response_bytes(response: http.client.HTTPResponse) -> bytes:
-    """Strict framing: JSON only, identity encoding, bounded body, no echo."""
-    if response.status != 200:
-        raise ProviderError(_status_error(response.status))
-    headers: dict[str, str] = {}
-    critical = {"content-type", "content-length", "content-encoding",
-                "transfer-encoding"}
-    for name, value in response.getheaders():
-        name = name.lower()
-        if name in critical:
-            if name in headers or "\r" in value or "\n" in value:
-                raise ProviderError("response_framing")
-            headers[name] = value.strip().lower()
-    if not _CONTENT_TYPE.fullmatch(headers.get("content-type", "")):
-        raise ProviderError("response_type")
-    if headers.get("content-encoding", "identity") != "identity":
-        raise ProviderError("response_type")
-    length = headers.get("content-length")
-    transfer = headers.get("transfer-encoding")
-    if transfer is not None and (length is not None or transfer != "chunked"):
-        raise ProviderError("response_framing")
-    if length is not None:
-        if not re.fullmatch(r"[0-9]{1,10}", length):
-            raise ProviderError("response_framing")
-        if int(length) > MAX_RESPONSE_BYTES:
-            raise ProviderError("response_too_large")
-    chunks: list[bytes] = []
-    count = 0
-    while True:
-        chunk = response.read(min(65536, MAX_RESPONSE_BYTES + 1 - count))
-        if not chunk:
-            break
-        count += len(chunk)
-        if count > MAX_RESPONSE_BYTES:
-            raise ProviderError("response_too_large")
-        chunks.append(chunk)
-    if length is not None and count != int(length):
-        raise ProviderError("response_framing")
-    return b"".join(chunks)
-
-
-def _exchange(body: bytes, headers: Mapping[str, str], timeout: float) -> bytes:
+def _exchange(exchange: HttpsExchange, body: bytes, headers: Mapping[str, str],
+              timeout: float) -> bytes:
     """One HTTPS POST to the fixed documented origin; nothing is retried.
 
-    ``http.client`` follows no redirects and uses no proxy. The socket
-    timeout bounds each operation; the gateway rejects late answers.
+    The deadline is absolute from now: connect, TLS, send and every receive
+    share it. Error-code mapping is unchanged from the single-shot adapter.
     """
     error: str | None = None
     try:
-        connection = http.client.HTTPSConnection(
-            HOST, PORT, timeout=timeout, context=ssl.create_default_context())
-        try:
-            connection.request("POST", PATH, body=body, headers=dict(headers))
-            return _response_bytes(connection.getresponse())
-        finally:
-            connection.close()
-    except ProviderError:
-        raise
-    except TimeoutError:
-        error = "deadline_exceeded"
-    except (OSError, http.client.HTTPException, ValueError):
-        error = "transport_failed"
-    # Raised outside the handler: no exception text or context is attached.
-    raise ProviderError(error)
+        outcome = exchange.post(body, headers, exchange.deadline(timeout))
+    except ExchangeError as exc:
+        error = "deadline_exceeded" if exc.kind == "timeout" else "transport_failed"
+    if error is not None:
+        # Raised outside the handler: no exception text or context is attached.
+        raise ProviderError(error)
+    if outcome.status != 200:
+        raise ProviderError(_status_error(outcome.status))
+    return outcome.body
 
 
 def _token(value: Any) -> str | None:
@@ -276,8 +229,13 @@ class DecisionsProvider:
     identity = ProviderIdentity(PROVIDER_NAME, model=MODEL)
 
     def __init__(self, api_key: str | None = None, *,
-                 environ: Mapping[str, str] | None = None) -> None:
+                 environ: Mapping[str, str] | None = None,
+                 exchange: HttpsExchange | None = None) -> None:
         env: Mapping[str, str] = os.environ if environ is None else environ
+        # One exchange, hence one TLS context and connection, per provider.
+        # Nothing is built or opened until the first dispatch.
+        self._exchange = exchange if exchange is not None else HttpsExchange(
+            HOST, PATH, port=PORT)
         key = env.get(CREDENTIAL_VARIABLE, "") if api_key is None else api_key
         self._api_key = _token(key)
         self._routing: dict[str, str] = {}
@@ -320,10 +278,10 @@ class DecisionsProvider:
             raise ProviderError("sensitive_input")
         headers = {"Authorization": "Bearer " + self._api_key,
                    "Content-Type": "application/json", "Accept": "application/json",
-                   "Accept-Encoding": "identity", "Connection": "close",
-                   **self._routing}
-        raw = _exchange(body, headers, float(timeout))
+                   "Accept-Encoding": "identity", **self._routing}
+        raw = _exchange(self._exchange, body, headers, float(timeout))
         return translate_response(raw, questions, self._api_key)
 
     def close(self) -> None:
-        return None
+        """Close the kept-alive connection, if any; the provider stays usable."""
+        self._exchange.close()
