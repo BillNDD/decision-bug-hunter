@@ -39,6 +39,15 @@ PATTERNS: tuple[tuple[str, str], ...] = (
     ("stripe", r"(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}"),
     ("jwt", r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}"),
 )
+#: The literal head of every alternative in PATTERNS (tests check this). The
+#: expression is case-sensitive, the edge only looks behind a head, and the
+#: text is never normalised, so a match always contains one of these verbatim.
+#: A text with none of them can be skipped without running the expression.
+_PREFIXES: tuple[str, ...] = (
+    "sk-", "AKIA", "ASIA", "-----BEGIN ", "ghp_", "gho_", "ghu_", "ghs_", "ghr_",
+    "github_pat_", "xoxa-", "xoxb-", "xoxp-", "xoxr-", "AIza", "GOCSPX-",
+    "sk_live_", "sk_test_", "rk_live_", "rk_test_", "eyJ",
+)
 PATTERN_IDS: tuple[str, ...] = tuple(pattern_id for pattern_id, _ in PATTERNS)
 #: Families whose random body must mix letter cases and digits, so that a
 #: long kebab-case identifier after ``sk-`` is not taken for a key.
@@ -64,6 +73,8 @@ def scan_lines(lines: Sequence[str] | Iterable[str]) -> list[tuple[str, int]]:
     if not lines:
         return []
     text = "\n".join(lines)
+    if not any(map(text.__contains__, _PREFIXES)):
+        return []
     starts: list[int] = []
     offset = 0
     for line in lines:
