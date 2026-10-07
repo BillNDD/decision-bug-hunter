@@ -127,6 +127,17 @@ class Source:
 #: here so Config can validate without importing the question module.
 STATE_LAYOUTS = ("v1", "v2")
 DEFAULT_STATE_LAYOUT = "v1"
+#: Localization choice gates (ADR-4(5)): "legacy" is min(confidence,
+#: p[choice]) >= choice_confidence; "mass" is the per-line overlap rule.
+CHOICE_GATES = ("legacy", "mass")
+#: Localization menus (F15): every complete interval, or one option per line.
+LOCALIZATION_MENUS = ("intervals", "singletons")
+#: Revision-3 WP-15 options and their legacy values. ``Config.as_dict`` omits
+#: an option while it holds its legacy value, so default reports, search ids
+#: and scoped policy hashes stay byte-identical to the pre-WP-15 build.
+LEGACY_CHOICE_OPTIONS = {"choice_gate": "legacy", "choice_mass": Decimal("0.5"),
+                         "localization_menu": "intervals",
+                         "choice_rounding_caps": False}
 
 
 @dataclass(frozen=True)
@@ -164,6 +175,20 @@ class Config:
     #: the scan. "v1" (default) is the pre-release layout; "v2" puts the
     #: DBH-authored scalars first and adds the imitation warning.
     state_layout: str = DEFAULT_STATE_LAYOUT
+    #: Localization gate (revision-3 WP-15, default "legacy"). "mass" selects
+    #: up to localization_beam_width maximal line runs whose lower-bound
+    #: overlap mass reaches choice_mass, and only while none + unlocalized
+    #: (plus undisplayed mass) stays below one half. legacy-v1 only.
+    choice_gate: str = "legacy"
+    choice_mass: Decimal = Decimal("0.5")
+    #: Localization menu: "intervals" (every complete interval of the
+    #: target, default) or "singletons" (one option per line, k <= 22).
+    localization_menu: str = "intervals"
+    #: With a gateway rounding profile N, cap choice menus at k * h <= 0.125
+    #: (h = half a quantum at N): rank and context pages shrink, interval
+    #: menus over the cap fall back to singletons, and choice_mass_diffuse
+    #: is counted. No effect under strict mass. Default off.
+    choice_rounding_caps: bool = False
 
     def __post_init__(self):
         limits = ((self.width, 2, 4096), (self.min_width, 1, self.width),
@@ -192,6 +217,20 @@ class Config:
             if not value.is_finite() or not 0 <= value <= 1:
                 raise ValueError("invalid_threshold")
             object.__setattr__(self, name, value)
+        value = self.choice_mass
+        if type(value) not in (int, float, Decimal):
+            raise ValueError("invalid_threshold")
+        value = Decimal(str(value))
+        if not value.is_finite() or not 0 < value <= 1:
+            raise ValueError("invalid_threshold")
+        object.__setattr__(self, "choice_mass", value)
+        if type(self.choice_gate) is not str or self.choice_gate not in CHOICE_GATES:
+            raise ValueError("invalid_choice_gate")
+        if (type(self.localization_menu) is not str
+                or self.localization_menu not in LOCALIZATION_MENUS):
+            raise ValueError("invalid_localization_menu")
+        if type(self.choice_rounding_caps) is not bool:
+            raise ValueError("invalid_choice_rounding_caps_flag")
         if self.drill_threshold > self.report_threshold:
             raise ValueError("drill_threshold_exceeds_report_threshold")
         if self.search_policy not in ("legacy-v1", "scoped-v2-beta"):
@@ -209,7 +248,8 @@ class Config:
 
     def as_dict(self):
         return {k: str(v) if isinstance(v, Decimal) else v
-                for k, v in asdict(self).items()}
+                for k, v in asdict(self).items()
+                if k not in LEGACY_CHOICE_OPTIONS or v != LEGACY_CHOICE_OPTIONS[k]}
 
 
 def windows(span: Span, width: int, offsets: bool = True) -> list[Span]:

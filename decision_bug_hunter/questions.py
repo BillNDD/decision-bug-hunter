@@ -123,7 +123,19 @@ LENS_KINDS = ("lens_functional", "lens_contract", "lens_boundary",
               "lens_state", "lens_integration")
 
 
-def screening(pack, region, targets, *, bug_lenses=True, state=None):
+#: Targets per rank page without a rounding cap (pre-WP-15 behaviour).
+MAX_RANK_PAGE = 200
+
+
+def singleton_candidates(span):
+    """One single-line option per target line (localization menu F15)."""
+    if span.size > 20:
+        raise ValueError("localization_region_too_large")
+    return [Span(line, line) for line in range(span.start, span.end + 1)]
+
+
+def screening(pack, region, targets, *, bug_lenses=True, state=None,
+              max_page=MAX_RANK_PAGE):
     result = {"screen_" + span.id: noul(pack, "screen", span) for span in targets}
     if bug_lenses:
         for span in targets:
@@ -131,19 +143,22 @@ def screening(pack, region, targets, *, bug_lenses=True, state=None):
                 result[f"{kind}_{span.id}"] = noul(pack, kind, span)
     result["need_context"] = noul(pack, "need_context", region)
     # Rank pages separately. Never compare probabilities across different menus.
-    pages = _rank_pages(pack, region, targets, state)
+    pages = _rank_pages(pack, region, targets, state, max_page)
     for index, page in enumerate(pages):
         result[f"rank_{index}"] = choice(pack, "rank", region, page)
     return result
 
 
-def _rank_pages(pack, region, targets, state):
+def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE):
     """Size growing menus from exact JSON fragments, validating each final page.
 
     A menu adds entries before the two fixed sentinels. Fragment sizes include
     their commas, so UTF-8, escaping and duplicate span IDs have the same byte
-    cost as the former full-state serialization at every candidate.
+    cost as the former full-state serialization at every candidate. A page
+    holds at most *max_page* targets (200, or the rounding cap of ADR-4(3)).
     """
+    if type(max_page) is not int or not 1 <= max_page <= MAX_RANK_PAGE:
+        raise ValueError("invalid_rank_page_size")
     pages, page, entries, added, prepared = [], [], {}, 0, False
     for target in targets:
         if state is not None and not prepared:
@@ -161,7 +176,7 @@ def _rank_pages(pack, region, targets, state):
                 raise
             except (ValueError, TypeError, UnicodeError):
                 raise ProviderError("invalid_request") from None
-        fits = len(page) < 200
+        fits = len(page) < max_page
         if state is not None:
             # Keep field/schema validation even though these are generated
             # coordinates. The complete page is authoritatively encoded below.

@@ -85,6 +85,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(scan.call_args.kwargs["config"].state_layout, "v2")
 
+    def test_choice_gate_menu_and_cap_flags_reach_config(self):
+        code, _, _, scan = self.run_cli()
+        self.assertEqual(code, 0)
+        config = scan.call_args.kwargs["config"]
+        self.assertEqual((config.choice_gate, config.choice_mass, config.localization_menu,
+                          config.choice_rounding_caps), ("legacy", Decimal("0.5"), "intervals", False))
+        self.assertNotIn("choice_gate", config.as_dict())
+        code, _, _, scan = self.run_cli("--choice-gate", "mass", "--choice-mass", "0.7",
+                                        "--localization-menu", "singletons",
+                                        "--choice-rounding-places", "2", "--choice-rounding-caps")
+        self.assertEqual(code, 0)
+        config = scan.call_args.kwargs["config"]
+        self.assertEqual((config.choice_gate, config.choice_mass, config.localization_menu,
+                          config.choice_rounding_caps), ("mass", Decimal("0.7"), "singletons", True))
+        code, _, _, scan = self.run_cli("--choice-mass", "0")
+        self.assertEqual(code, 2)
+        scan.assert_not_called()
+
     def test_state_layout_flag_rejects_unknown_layout(self):
         stderr = io.StringIO()
         with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:

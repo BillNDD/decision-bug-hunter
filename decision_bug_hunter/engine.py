@@ -27,7 +27,7 @@ from .providers import Classification, ValidatedGateway, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
                         evidence_noul, LENS_KINDS, policy, _ordered_state,
-                        using_state_layout)
+                        using_state_layout, singleton_candidates, MAX_RANK_PAGE)
 
 
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
@@ -115,6 +115,99 @@ def confidence_identity_violation(answer, places):
     half = Fraction(1, 2 * 10 ** places)
     expected = (p1 - chance) / (1 - chance)
     return abs(Fraction(answer["confidence"]) - expected) > half / (1 - chance) + half
+
+
+def half_quantum(places):
+    """Half a display quantum, h = 0.5 * 10**-places, as an exact fraction."""
+    return Fraction(1, 2 * 10 ** places)
+
+
+def answer_places(answer):
+    """Decimal places displayed in one choice answer: a lower bound only."""
+    return max(_decimal_places(v) for v in (answer["confidence"],
+                                            *answer["probabilities"].values()))
+
+
+def choice_option_cap(places):
+    """Most options a choice may offer under rounding at *places*: k * h <= 1/8."""
+    return int(Fraction(1, 8) / half_quantum(places))
+
+
+def line_overlap_mass(answer, options, half):
+    """M(line) = sum of max(0, v - h) over interval options containing it.
+
+    *options* maps option ids to the Spans they name; sentinel options (none,
+    unlocalized) carry no line. The lower bound L(i) = max(0, v - h) never
+    credits a line with more mass than the displayed value guarantees.
+    """
+    mass = {}
+    for key, span in options.items():
+        lower = Fraction(answer["probabilities"].get(key, 0)) - half
+        if lower <= 0:
+            continue
+        for line in range(span.start, span.end + 1):
+            mass[line] = mass.get(line, 0) + lower
+    return mass
+
+
+def hidden_choice_mass(answer):
+    """v(none) + v(unlocalized) plus any undisplayed mass 1 - sum(v)."""
+    probabilities = answer["probabilities"]
+    total = sum((Fraction(v) for v in probabilities.values()), Fraction(0))
+    return (Fraction(probabilities.get("none", 0))
+            + Fraction(probabilities.get("unlocalized", 0))
+            + max(Fraction(0), 1 - total))
+
+
+def mass_gate_runs(answer, options, threshold, half, limit):
+    """The per-line overlap gate (ADR-4(5)); returns (runs, qualifying, hidden).
+
+    Runs are the maximal contiguous line runs with M(line) >= *threshold*,
+    ranked by peak M, then total M, then position; at most *limit* are kept.
+    Nothing is selected while hidden mass (none, unlocalized and undisplayed
+    mass) reaches one half. On a singleton menu this is v - h >= threshold.
+    """
+    hidden = hidden_choice_mass(answer)
+    if hidden >= Fraction(1, 2):
+        return [], 0, hidden
+    threshold = Fraction(threshold)
+    mass = line_overlap_mass(answer, options, half)
+    runs: list[list[int]] = []
+    current: list[int] = []
+    for line in sorted(mass):
+        if mass[line] < threshold:
+            continue
+        if current and line == current[-1] + 1:
+            current.append(line)
+        else:
+            if current:
+                runs.append(current)
+            current = [line]
+    if current:
+        runs.append(current)
+    runs.sort(key=lambda lines: (-max(mass[x] for x in lines),
+                                 -sum(mass[x] for x in lines), lines[0]))
+    return ([Span(lines[0], lines[-1]) for lines in runs[:max(0, limit)]],
+            len(runs), hidden)
+
+
+def choice_mass_diffuse(answer, places):
+    """ADR-4(3): 1 - sum(v) > k0 * h + 4h * sqrt(k+ / 3) under rounding at *places*.
+
+    k0 counts options displayed as 0 and k+ the others. Exact arithmetic:
+    with d = 1 - sum(v) - k0 * h > 0, the test is 3 * d**2 > 16 * h**2 * k+.
+    """
+    half = half_quantum(places)
+    values = [Fraction(v) for v in answer["probabilities"].values()]
+    zero = sum(v == 0 for v in values)
+    positive = len(values) - zero
+    excess = 1 - sum(values, Fraction(0)) - zero * half
+    return excess > 0 and 3 * excess * excess > 16 * half * half * positive
+
+
+def _fraction_text(value):
+    """A Fraction with a terminating decimal expansion, as decimal text."""
+    return str(Decimal(value.numerator) / Decimal(value.denominator))
 
 
 def _permanent(exc):
@@ -249,6 +342,7 @@ class Search:
         self.answer_defects, self.routing_defects = {}, 0
         self.answers_received = self.choice_answers = 0
         self.identity_checked = self.identity_violations = 0
+        self.diffuse_answers = 0
         self.suppressed = set()
         self.search_memos = {}
         self._root_packets = None
@@ -419,6 +513,13 @@ class Search:
                     qid: str(Fraction(len(raw["probabilities"]), 2 * 10 ** places))
                     for qid, raw in answers.items()
                     if raw["type"] == "choice" and places is not None}
+                if places is not None and self.option_cap() is not None:
+                    # ADR-4(3) diagnostic, recorded under opt-in caps only.
+                    diffuse = sorted(qid for qid, raw in answers.items()
+                                     if raw["type"] == "choice"
+                                     and choice_mass_diffuse(raw, places))
+                    row["choice_mass_diffuse"] = diffuse
+                    self.diffuse_answers += len(diffuse)
                 self.cache[ckey] = (answers, defects)
                 result.update(_copy_validated_answers(answers))
                 self.validated_questions += len(answers)
@@ -562,9 +663,56 @@ class Search:
                 "choice_answers": self.choice_answers, "argmax_mismatches": mismatches,
                 "confidence_identity": getattr(self.gw, "confidence_identity", None),
                 "confidence_identity_checked": self.identity_checked,
-                "confidence_identity_violations": self.identity_violations},
+                "confidence_identity_violations": self.identity_violations,
+                # Present only under opt-in rounding caps (ADR-4(3)).
+                **({"choice_mass_diffuse": self.diffuse_answers}
+                   if self.option_cap() is not None else {})},
             "banners": banners,
         }
+
+    def option_cap(self):
+        """The choice option cap of ADR-4(3), or None when no cap applies.
+
+        Caps apply only with Config.choice_rounding_caps and a gateway
+        rounding profile N; strict mass leaves every menu as before.
+        """
+        places = getattr(self.gw, "rounding_places", DEFAULT_CHOICE_ROUNDING_PLACES)
+        if not self.cfg.choice_rounding_caps or type(places) is not int:
+            return None
+        return choice_option_cap(places)
+
+    def gate_half_quantum(self, answer):
+        """h for the mass gate: the rounding profile, else the declared display
+        precision, else the places shown in *answer* (a lower bound on the
+        true precision, so h is never understated)."""
+        places = getattr(self.gw, "rounding_places", None)
+        if type(places) is not int:
+            places = getattr(self.gw, "display_places", None)
+        if type(places) is not int:
+            places = answer_places(answer)
+        return half_quantum(places)
+
+    def localization_menu(self, target):
+        """(options, menu name) for one localization question.
+
+        Under opt-in rounding caps an interval menu over the cap falls back
+        to singletons (ADR-4(3)); that menu is named "singletons-capped".
+        """
+        if self.cfg.localization_menu == "intervals":
+            intervals = contiguous_candidates(target)
+            cap = self.option_cap()
+            if cap is None or len(intervals) + 2 <= cap:
+                return intervals, "intervals"
+            return singleton_candidates(target), "singletons-capped"
+        return singleton_candidates(target), "singletons"
+
+    def mass_selection(self, where, candidates, limit):
+        """Apply the mass gate to one localization answer: (spans, event fields)."""
+        options = {s.id: s for s in candidates}
+        runs, qualifying, hidden = mass_gate_runs(
+            where, options, self.cfg.choice_mass, self.gate_half_quantum(where), limit)
+        return runs, {"gate": "mass", "mass_selected": [s.id for s in runs],
+                      "qualifying_runs": qualifying, "hidden_mass": _fraction_text(hidden)}
 
     def request_origins_for(self, state, questions):
         origins = []
@@ -604,8 +752,11 @@ class Search:
                  "targets": targets, "depths": depths, "state": state,
                  "phase": phase, "scores": {}, "priority": [], "context_needed": None}
         self.groups.append(group)
+        cap = self.option_cap()
         answers = self.ask(state, screening(self.pack, region, targets,
-                                             bug_lenses=self.cfg.bug_lenses, state=state),
+                                             bug_lenses=self.cfg.bug_lenses, state=state,
+                                             max_page=(MAX_RANK_PAGE if cap is None
+                                                       else min(MAX_RANK_PAGE, cap - 2))),
                            region, phase)
         context = [{"start_line": e["start_line"], "end_line": e["end_line"]}
                    for e in state["excerpts"]]
@@ -756,7 +907,13 @@ class Search:
         # Fit several candidate packets into a shared state. The full text of
         # each option is visible. No candidate is represented only by a label.
         bins, current, current_state = [], [], None
+        cap = self.option_cap()
         for packet in pool:
+            if cap is not None and len(current) >= cap - 2:
+                # ADR-4(3): the context picker offers its packets plus two
+                # sentinels, so one bin holds at most cap - 2 packets.
+                bins.append((current, current_state))
+                current = []
             probe = noul(self.pack, "relevance", region, packet=target_text(packet))
             state = self.fitting_state(region, self.cfg.context_lines,
                                        probe, (*current, packet))
@@ -884,7 +1041,10 @@ class Search:
         return view
 
     def localize(self, group, target):
-        candidates = contiguous_candidates(target)
+        candidates, menu = self.localization_menu(target)
+        # The mass gate replaces the legacy confidence gate; scoped-v2-beta
+        # never used that gate and keeps its positive-mass exploration.
+        mass = self.cfg.choice_gate == "mass" and not self.scoped
         examined = 0
         while examined < self.cfg.max_localizations:
             if self.expired(target, "localize"):
@@ -899,12 +1059,18 @@ class Search:
                      "view_id": group["id"], "choice": where["choice"],
                      "confidence": str(where["confidence"]),
                      "exists": str(answers["exists"]["noul"])}
+            if menu != "intervals":
+                event["menu"] = menu
             self.events.append(event)
             self.existence_checks.append({
                 "target": [target.start, target.end], "view_id": group["id"],
                 "score": str(answers["exists"]["noul"])})
-            selected = self.gated_candidates(where, candidates, min(
-                self.cfg.localization_beam_width, self.cfg.max_localizations - examined))
+            limit = min(self.cfg.localization_beam_width, self.cfg.max_localizations - examined)
+            if mass:
+                selected, fields = self.mass_selection(where, candidates, limit)
+                event.update(fields)
+            else:
+                selected = self.gated_candidates(where, candidates, limit)
             if (answers["exists"]["noul"] < self.cfg.drill_threshold and
                     not (self.scoped and (where["choice"] == "unlocalized" or target in self.support))):
                 if not (self.scoped and selected):
@@ -914,7 +1080,7 @@ class Search:
                 # beam; only independent verification may create support.
                 event.update(routing_basis="positive-mass-interval-verification",
                              planned_verification_candidates=[s.id for s in selected])
-            if (not self.scoped and min(where["confidence"],
+            if (not self.scoped and not mass and min(where["confidence"],
                     where["probabilities"][where["choice"]]) < self.cfg.choice_confidence):
                 return
             if not selected:  # Explicit none/unlocalized, not a clean verdict.
@@ -922,7 +1088,7 @@ class Search:
                     # Preserve the parent and inspect a bounded deterministic
                     # subdivision. These are recovery candidates, not Choice picks.
                     recovery = [x for x in windows(target, max(1, (target.size + 1) // 2))
-                                if x != target and x in candidates]
+                                if x != target and (menu != "intervals" or x in candidates)]
                     recovery = recovery[:self.cfg.max_localizations - examined]
                     self.events.append({"phase": "localization_recovery", "target": target.id,
                         "sentinel": where["choice"], "candidates": [x.id for x in recovery],
@@ -954,6 +1120,10 @@ class Search:
                                                for s in candidates if s not in selected)})
                 if len(planned) > len(selected):
                     self.issue("localization_limit", target, "localize")
+                return
+            if mass:
+                # One menu supplies every qualifying run (a run need not be
+                # a menu option); shrinking the menu would re-count its lines.
                 return
             for span in selected:
                 candidates.remove(span)  # Exact options only; source unchanged.

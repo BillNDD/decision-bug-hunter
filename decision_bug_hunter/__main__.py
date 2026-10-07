@@ -13,7 +13,7 @@ import tempfile
 import time
 
 from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
-                   DEFAULT_STATE_LAYOUT)
+                   DEFAULT_STATE_LAYOUT, CHOICE_GATES, LOCALIZATION_MENUS)
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
 from .providers import (ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
@@ -102,6 +102,24 @@ def parser() -> argparse.ArgumentParser:
                         help="Compatibility no-op: strict Choice mass is already the default.")
     result.add_argument("--localization-beam-width", type=int, default=3,
                         help="Maximum candidate intervals per localization round; each keeps the confidence gate.")
+    result.add_argument("--choice-gate", choices=CHOICE_GATES, default="legacy",
+                        help="Localization gate (default: %(default)s, min(confidence, p[choice]) "
+                             ">= --choice-confidence). mass selects up to --localization-beam-width "
+                             "line runs whose lower-bound overlap mass reaches --choice-mass while "
+                             "none + unlocalized stays below 0.5; legacy-v1 only (scoped-v2-beta "
+                             "does not gate localization). Rank, context and action choices keep "
+                             "the legacy gate.")
+    result.add_argument("--choice-mass", type=decimal_argument, default=Decimal("0.5"),
+                        help="Per-line overlap mass for --choice-gate mass, in (0, 1] "
+                             "(default: %(default)s).")
+    result.add_argument("--localization-menu", choices=LOCALIZATION_MENUS, default="intervals",
+                        help="Localization options (default: %(default)s, every complete "
+                             "interval of the target; singletons offers one option per line).")
+    result.add_argument("--choice-rounding-caps", action="store_true",
+                        help="With --choice-rounding-places N, cap choice menus so options x "
+                             "half-quantum <= 0.125: smaller rank and context pages, singleton "
+                             "localization menus over the cap, and a choice_mass_diffuse count. "
+                             "No effect under strict mass (default: off).")
     result.add_argument("--max-handoff-candidates", type=int, default=64,
                         help="Candidate cap per reference kind per finding; omissions are flagged.")
     result.add_argument("--no-bug-lenses", action="store_true",
@@ -361,6 +379,10 @@ def execute(args: argparse.Namespace) -> int:
         max_project_candidates=args.max_project_candidates,
         localization_beam_width=args.localization_beam_width,
         run_deadline_seconds=args.run_deadline_seconds,
+        choice_gate=args.choice_gate,
+        choice_mass=args.choice_mass,
+        localization_menu=args.localization_menu,
+        choice_rounding_caps=args.choice_rounding_caps,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.

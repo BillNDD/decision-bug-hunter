@@ -27,6 +27,25 @@
   `spend.provider_reported_usd` and sums it as "Provider-reported cost"
   (it previously read a `usage.cost_usd` field that reports do not carry,
   so the summary always showed $0.0000).
+- Opt-in localization gate, menus and rounding caps (all off by default;
+  with every default the request bytes and reports are unchanged, and the
+  report `configuration` lists these options only when they differ from
+  their defaults):
+  - `--choice-gate {legacy,mass}` and `--choice-mass` (default `legacy`,
+    0.5). `mass` selects up to `--localization-beam-width` maximal line
+    runs whose lower-bound overlap mass, the sum of max(0, v - h) over the
+    interval options containing a line, reaches `--choice-mass`, and only
+    while none + unlocalized (+ undisplayed mass) stays below 0.5. On the
+    observed 212-option menu it selects L4-5 around the planted line 5,
+    where `legacy` selects nothing. It applies to localization under
+    legacy-v1 only; rank, context and action choices keep the legacy gate.
+  - `--localization-menu {intervals,singletons}` (default `intervals`):
+    `singletons` offers one option per target line (at most 22 options).
+  - `--choice-rounding-caps` (with `--choice-rounding-places N`): choice
+    menus keep options x half-quantum <= 0.125, so rank and context pages
+    shrink (23 targets at N = 2), interval localization menus over the cap
+    fall back to singletons, and `judge_diagnostics.choice_mass_diffuse`
+    counts vectors whose missing mass exceeds the rounding allowance.
 
 ## 0.1.0b1 (2026-10-06)
 
