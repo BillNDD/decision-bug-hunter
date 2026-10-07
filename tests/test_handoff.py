@@ -88,7 +88,7 @@ class HandoffTests(unittest.TestCase):
                     Config(whole_file=False,**config),spec)
         return report,provider
 
-    def test_exact_reference_ids_are_selected_by_jev_not_invented(self):
+    def test_exact_reference_ids_are_selected_by_the_judge_not_invented(self):
         report,p=self.run_case(selected_references)
         f=report['handoff']['findings'][0]
         self.assertEqual(f['suspect'],[9,9])
@@ -280,7 +280,7 @@ class CompactCliTests(unittest.TestCase):
         if fmt: argv+=['--output-format',fmt]
         provider=FixtureProvider([(9,9)],override=override)
         out,err=io.StringIO(),io.StringIO()
-        with              patch.object(socket,'create_connection',side_effect=AssertionError('no network')), \
+        with              patch.object(socket,'getaddrinfo',side_effect=AssertionError('no network')), \
              patch.object(cli,'make_provider',return_value=SyntheticProvider(fixture=provider, secret=KEY)), \
              redirect_stdout(out),redirect_stderr(err):
             code=cli.main(argv)

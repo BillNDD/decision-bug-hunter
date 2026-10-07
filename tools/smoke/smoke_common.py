@@ -47,6 +47,7 @@ from decision_bug_hunter.exchange import ExchangeError, HttpsExchange  # noqa: E
 from decision_bug_hunter.hosted import (configured_credentials, error_object,  # noqa: E402
                                         parse_retry_after, token, transport_failure)
 from decision_bug_hunter.protocol import ProviderError, _secret_in  # noqa: E402
+from decision_bug_hunter.secret_scan import scan_lines  # noqa: E402
 from decision_bug_hunter.providers import ProviderRequest, classify  # noqa: E402
 
 SCHEMA = "dbh-smoke-v2"
@@ -84,7 +85,9 @@ _RECORD_TOKEN = re.compile(r"[A-Za-z0-9_.:<>/ -]{0,128}\Z")
 
 # -- capture and sanitizing ----------------------------------------------------
 def _leaks(value: str) -> bool:
-    return GENERATION_PREFIX in value or EDGE_CODE.search(value) is not None
+    """A generation id, an edge code, or any credential shape DBH recognises."""
+    return (GENERATION_PREFIX in value or EDGE_CODE.search(value) is not None
+            or bool(scan_lines(value.splitlines() or [value])))
 
 
 def capture_headers(pairs: Iterable[tuple[str, Any]], dropped: Iterable[str] = ()
@@ -124,6 +127,10 @@ def sanitize_body(value: Any, credentials: Iterable[str] = (), *, _key: str | No
         return WITHHELD
     if value is None or type(value) is bool:
         return value
+    if (_key is not None and (_key == "id" or _key.endswith("_id"))
+            and (type(value) in (int, float) or isinstance(value, Decimal))):
+        # Numeric ids are ids too (ADR-11(4)): a placeholder, never the value.
+        return "<id>"
     if type(value) is int:
         return value
     if type(value) is float:

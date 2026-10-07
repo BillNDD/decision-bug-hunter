@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable, Iterable, Sequence
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -36,11 +37,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import smoke_common as common  # noqa: E402
 
 from decision_bug_hunter import openrouter  # noqa: E402
+from decision_bug_hunter.hosted import configured_credentials  # noqa: E402
 
 #: Never summarized, never promoted (Decisions-only).
 EXCLUDED_IDS = frozenset({"S15"})
 FIXTURES = common.ROOT / "tests" / "fixtures" / "openrouter" / "observed"
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
+#: A promotable smoke id: also a safe file name inside the fixture folder.
+_PROMOTE_ID = re.compile(r"[A-Za-z0-9-]{1,32}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _INT_FIELDS = ("status", "repeat", "attempt", "questions", "wire_bytes")
 _FLOAT_FIELDS = ("elapsed_s", "waited_s")
@@ -170,6 +174,12 @@ def write_records(path: Path, records: Iterable[dict[str, Any]]) -> None:
             sink.write(common.dumps(record) + "\n")
 
 
+def _local_credentials() -> tuple[str, ...]:
+    """Every configured provider key, so no record can keep one (values are
+    only compared, never printed or written)."""
+    return configured_credentials(os.environ, None)
+
+
 def _meta() -> dict[str, dict[str, Any]]:
     import run_openrouter
 
@@ -177,7 +187,7 @@ def _meta() -> dict[str, dict[str, Any]]:
 
 
 def sanitize_copy(run: Path) -> Path:
-    records = read_records(run / "results.jsonl")
+    records = read_records(run / "results.jsonl", _local_credentials())
     target = run / "sanitized"
     target.mkdir(exist_ok=True)
     common.mark_output(target)
@@ -193,7 +203,7 @@ def sanitize_in_place(run: Path) -> Path:
              (run / "summary.md", raw / "summary.unsanitized.md")]
     if any(target.exists() for _source, target in moved):
         raise SystemExit("raw/ already holds unsanitized originals; refusing to overwrite them.")
-    records = read_records(run / "results.jsonl")
+    records = read_records(run / "results.jsonl", _local_credentials())
     raw.mkdir(exist_ok=True)
     for source, target in moved:
         if source.exists():
@@ -210,10 +220,13 @@ def promote(run: Path, date: str, ids: Sequence[str], *, layout: str | None = No
     if not _DATE.fullmatch(date):
         raise SystemExit("--promote takes a date as YYYY-MM-DD")
     wanted = [item.strip() for item in ids if item.strip()]
+    unsafe = [sid for sid in wanted if not _PROMOTE_ID.fullmatch(sid)]
+    if unsafe:
+        raise SystemExit("--ids takes smoke ids such as S01,S10b (letters, digits, '-').")
     refused = sorted(set(wanted) & EXCLUDED_IDS)
     if refused:
         raise SystemExit(f"Refusing to promote {', '.join(refused)} (Decisions-only).")
-    finals = {r["id"]: r for r in common.final_records(read_records(run / "results.jsonl"))
+    finals = {r["id"]: r for r in common.final_records(read_records(run / "results.jsonl", _local_credentials()))
               if r.get("repeat", 0) == 0}
     missing = [sid for sid in wanted if sid not in finals]
     if missing:

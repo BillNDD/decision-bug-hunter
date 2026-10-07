@@ -23,8 +23,17 @@ from dataclasses import dataclass, field
 import http.client
 import io
 import random
+import socket
 import ssl
 from typing import Any, Iterable, Sequence, Union
+
+
+def _plain_timeout(value: Any) -> float | None:
+    """``socket._GLOBAL_DEFAULT_TIMEOUT`` (what http.client passes without a
+    timeout) means the process default, as on a real socket."""
+    if value is getattr(socket, "_GLOBAL_DEFAULT_TIMEOUT", None):
+        return socket.getdefaulttimeout()
+    return value
 
 
 class FakeClock:
@@ -220,7 +229,7 @@ class FakeSocket:
         self.script = script
         self.index = index
         self.address = address
-        self.timeout = timeout
+        self.timeout = _plain_timeout(timeout)
         self.timeouts: list[float | None] = []
         self.sent = bytearray()
         self.closed = False
@@ -233,6 +242,7 @@ class FakeSocket:
 
     # -- socket surface used by http.client and an exchange ------------------
     def settimeout(self, value: float | None) -> None:
+        value = _plain_timeout(value)
         self.timeouts.append(value)
         self.script.settimeout_calls.append((self.index, value))
         self.timeout = value
@@ -342,6 +352,10 @@ class FakeSocket:
                 name, _, value = line.partition(":")
                 headers.append((name.strip(), value.strip()))
             lengths = [v for k, v in headers if k.lower() == "content-length"]
+            if not lengths and any(k.lower() == "transfer-encoding" for k, _ in headers):
+                # Bodies are framed by Content-Length only; a chunked request
+                # would be misread as a new request head.
+                raise AssertionError("scripted peer does not accept chunked requests")
             length = int(lengths[0]) if lengths else 0
             if len(self._pending) < end + 4 + length:
                 return
@@ -394,6 +408,7 @@ class ScriptedHTTPS:
     def connect(self, address: tuple[str, int], timeout: float | None = None,
                 source_address: Any = None) -> FakeSocket:
         address = (address[0], int(address[1]))
+        timeout = _plain_timeout(timeout)
         if self.expected_address is not None and address != self.expected_address:
             raise AssertionError(f"unexpected origin {address!r}")
         self.connects.append((address, timeout))

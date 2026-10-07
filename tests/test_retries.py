@@ -94,7 +94,7 @@ class Base(unittest.TestCase):
         self.root = Path(tmp.name)
         self.clock = FakeClock()
         self.sleep = FakeSleep(self.clock)
-        guard = patch.object(socket, "create_connection",
+        guard = patch.object(socket, "getaddrinfo",
                              side_effect=AssertionError("network forbidden"))
         guard.start()
         self.addCleanup(guard.stop)
@@ -440,6 +440,35 @@ class ReceiptAndReserveTests(Base):
         self.assertEqual(gateway.stop_reason, "blocked:interrupted")
         self.assertEqual(len(script.connects), 1)
 
+    def test_backoff_exit_and_sleep_failure_keep_their_meaning(self):
+        # Verifier minor (WP-06): a SystemExit during the backoff was replaced
+        # by a fresh KeyboardInterrupt, and a failing sleep left no final receipt.
+        exit_signal = SystemExit(3)
+
+        def leave(seconds):
+            raise exit_signal
+
+        script, gateway = self.openai([ConnectFailure(), Reply(body=documented())],
+                                      sleep=leave)
+        with self.assertRaises(SystemExit) as caught:
+            self.call(gateway)
+        self.assertIs(caught.exception, exit_signal)
+        self.assertEqual(receipts(gateway)[-1]["error"], "interrupted")
+
+        def broken(seconds):
+            raise RuntimeError("sleep failed")
+
+        script, gateway = self.openai([ConnectFailure(), Reply(body=documented())],
+                                      sleep=broken)
+        failed = self.call(gateway)
+        self.assertEqual(failed.code, "internal_error")
+        self.assertIsNone(failed.__context__)
+        last = receipts(gateway)[-1]
+        self.assertEqual((last["error"], last["submission"]), ("internal_error", "not_sent"))
+        self.assertEqual(last["logical_status"], "failed")
+        self.assertEqual(gateway.stop_reason, "blocked:internal_error")
+        self.assertEqual(len(script.connects), 1)
+
     def test_progress_line_counts_only(self):
         stream = io.StringIO()
         provider = ScriptedProvider()
@@ -504,6 +533,8 @@ class EngineStopTests(Base):
         gateway.set_run_deadline(self.clock() + 1.0)
         self.assertEqual(search.ask({"excerpts": []}, {"q": QUESTION}, Span(1, 1), "t"), {})
         self.assertEqual((search.calls, search.trace, provider.requests), (0, [], []))
+        # The progress line's calls= agrees with the engine (verifier minor).
+        self.assertEqual(gateway.logical_requests, 0)
         self.assertTrue(search.expired(Span(1, 1), "t"))
 
     def test_transient_failure_reasked_once_permanent_never(self):
@@ -518,6 +549,20 @@ class EngineStopTests(Base):
                 phases = [e["phase"] for e in search.events]
                 self.assertEqual(phases.count("failed_request_reasked"), expected - 1)
                 self.assertEqual(phases.count("failed_request_not_retried"), 3 - expected)
+
+    def test_budget_refusal_does_not_spend_the_reask(self):
+        # Verifier minor (WP-06): the re-ask was recorded before the budget
+        # checks, so a refused re-ask was traced as asked and then pinned.
+        provider = ScriptedProvider([failure("http_server_error")])
+        gateway = self.gateway(provider)
+        search = Search(Source.from_text("alpha"), gateway, Config(max_calls=1), None)
+        for _ in range(2):
+            search.ask({"excerpts": []}, {"q": QUESTION}, Span(1, 1), "t")
+        self.assertEqual(len(provider.requests), 1)
+        phases = [e["phase"] for e in search.events]
+        self.assertNotIn("failed_request_reasked", phases)
+        self.assertEqual(search.reasked, set())
+        self.assertIn("call_budget_exhausted", [i["code"] for i in search.issues])
 
     def test_custom_gateway_report_fields_are_none(self):
         source = Source.from_text("alpha\nbeta", "a.txt")

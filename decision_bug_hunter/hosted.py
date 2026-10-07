@@ -319,17 +319,28 @@ class HostedProvider:
         wire_sha256 = hashlib.sha256(body).hexdigest()
         deadline = self._exchange.deadline(timeout)
         failure: ExchangeError | None = None
+        rejected: ProviderError | None = None
         try:
             outcome = self._exchange.post(body, headers, deadline, read_errors=True,
                                           credentials=self._credentials)
         except ExchangeError as exc:
             failure = exc
+        except ProviderError as exc:
+            rejected = exc
         if failure is not None:
             # Raised outside the handler: no exception text or context is attached.
             classification = transport_failure(failure)
             raise ProviderError(classification.code, classification=classification,
                                 info={"wire_sha256": wire_sha256, "phase": failure.phase,
                                       "reused": failure.reused})
+        if rejected is not None:
+            # A 200 whose framing, type or size failed: the request may have
+            # been billed, so its identifiers are journaled like any other.
+            partial = getattr(rejected, "outcome", None)
+            ids = self.header_ids(partial) if isinstance(partial, Outcome) else {}
+            raise ProviderError(rejected.code, classification=rejected.classification,
+                                info={**(rejected.info or {}), "wire_sha256": wire_sha256,
+                                      **ids})
         details: dict[str, Any] = {"wire_sha256": wire_sha256, **self.header_ids(outcome)}
         if outcome.status != 200:
             code, fields = self.status_error(outcome.status, error_object(outcome.error_raw),
@@ -343,7 +354,17 @@ class HostedProvider:
             if retry_after is not None:
                 info["retry_after_seconds"] = retry_after
             raise ProviderError(code, classification=classification, info=info)
-        response = self.decode(outcome.body, questions, outcome)
+        undecodable: ProviderError | None = None
+        try:
+            response = self.decode(outcome.body, questions, outcome)
+        except ProviderError as exc:
+            undecodable = exc
+        if undecodable is not None:
+            # The decoder raises only when it learned nothing else (invalid
+            # JSON, a sensitive or non-object body); the attempt's
+            # identifiers still belong in its receipt.
+            raise ProviderError(undecodable.code, classification=undecodable.classification,
+                                info={**(undecodable.info or {}), **details})
         return replace(response, provenance={**details, **(response.provenance or {})})
 
     def _prepare(self, request: ProviderRequest

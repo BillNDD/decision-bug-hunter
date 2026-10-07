@@ -14,8 +14,16 @@ from bisect import bisect_right
 from collections.abc import Iterable, Sequence
 import re
 
-#: The edge in front of a token: not part of a longer identifier or token.
-_EDGE = r"(?<![A-Za-z0-9_-])"
+#: The edge in front of a token: not part of a longer identifier or token,
+#: or directly after a backslash escape (\n, \t, \", \u0022, \x22) or a
+#: percent-encoded byte (%3D, %22), whose last character would otherwise
+#: look like part of an identifier.
+#: (``\x5c`` is a literal backslash in the expression.)
+_EDGE = (r"(?:(?<![A-Za-z0-9_-])|(?<=\x5c[abfnrtv0'\x22/])|(?<=\x5cu[0-9A-Fa-f]{4})"
+         r"|(?<=\x5cx[0-9A-Fa-f]{2})|(?<=%[0-9A-Fa-f]{2}))")
+#: Families that delimit themselves and need no edge: a PEM header cannot be
+#: the tail of a longer identifier.
+_NO_EDGE = frozenset({"private_key"})
 #: Pattern ids in report order. Each id names a credential family only.
 PATTERNS: tuple[tuple[str, str], ...] = (
     ("openrouter", r"sk-or-v1-[0-9a-f]{64}"),
@@ -36,8 +44,9 @@ PATTERN_IDS: tuple[str, ...] = tuple(pattern_id for pattern_id, _ in PATTERNS)
 #: long kebab-case identifier after ``sk-`` is not taken for a key.
 _MIXED_BODY = frozenset({"openai"})
 
-_SCANNER = re.compile(_EDGE + "(?:" + "|".join(
-    f"(?P<{pattern_id}>{pattern})" for pattern_id, pattern in PATTERNS) + ")")
+_SCANNER = re.compile("|".join(
+    ("" if pattern_id in _NO_EDGE else _EDGE) + f"(?P<{pattern_id}>{pattern})"
+    for pattern_id, pattern in PATTERNS))
 
 
 def _mixed(text: str) -> bool:

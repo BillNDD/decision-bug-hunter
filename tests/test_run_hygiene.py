@@ -218,6 +218,26 @@ class CliHygieneTests(unittest.TestCase):
             self.assertTrue((run / ".gitignore").is_file())
             self.assertTrue((run / "CACHEDIR.TAG").is_file())
 
+    def test_existing_parent_that_refuses_mkdir_counts_as_preexisting(self):
+        # Windows raises PermissionError, not FileExistsError, for mkdir on an
+        # existing drive root such as D:/ (verifier minor, WP-03).
+        existing = self.root / "root-like"
+        existing.mkdir()
+        missing = self.root / "absent" / "denied"
+        real_mkdir = Path.mkdir
+
+        def refusing(path, *args, **kwargs):
+            if path in (existing, missing):
+                raise PermissionError(13, "access denied")
+            return real_mkdir(path, *args, **kwargs)
+
+        with patch.object(Path, "mkdir", refusing):
+            self.assertFalse(cli.make_output_parent(existing))
+            # A refusal for a directory that does not exist still fails.
+            with self.assertRaises(PermissionError):
+                cli.make_output_parent(missing)
+        self.assertFalse((existing / ".gitignore").exists())
+
     @unittest.skipUnless(git_available(), "git is not installed")
     def test_git_status_clean_after_cli_run(self):
         repo = self.root / "repo"

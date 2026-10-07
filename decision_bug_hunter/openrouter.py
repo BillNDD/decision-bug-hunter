@@ -280,7 +280,10 @@ def decode_response(raw: bytes, questions: Mapping[str, Any],
             error = data["error"] if type(data["error"]) is dict else None
             return ProviderResponse({}, usage, True, "provider_error_in_body", cost_usd=cost,
                                     provenance={**provenance, **error_fields(200, error)})
-        raise ProviderError("response_schema")
+        # Neither answers nor an error: a schema defect, but the usage and
+        # cost of the (billed) attempt are still known.
+        return ProviderResponse({}, usage, True, "response_schema", cost_usd=cost,
+                                provenance=provenance)
     try:
         if not model_echo_ok(data.get("model"), model, _ECHO_SUFFIXES):
             raise ProviderError("response_model")

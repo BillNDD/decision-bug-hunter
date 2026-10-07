@@ -249,7 +249,7 @@ class V04Tests(unittest.TestCase):
             refs = row["read_with"].get("refs", [])
             self.assertTrue(any(ref.get("file") == "helper.py" for ref in refs), refs)
 
-    def test_action_requirement_search_is_jev_selected_and_reused_by_handoff(self):
+    def test_action_requirement_search_is_judge_selected_and_reused_by_handoff(self):
         count = 0
         def override(qid, q, state, target):
             nonlocal count

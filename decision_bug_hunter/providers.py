@@ -490,11 +490,29 @@ def validate_max_cost(value: Any) -> Decimal | None:
     return value
 
 
+#: A counted cost has at most this many decimal places and significant
+#: digits, so sums stay exact in the 34-digit cost context and every amount
+#: fits the report's decimal-string format.
+MAX_REPORTED_COST_PLACES = 20
+MAX_REPORTED_COST_DIGITS = 28
+
+
 def reported_cost(value: Any) -> Decimal | None:
-    """A provider-reported cost that may be counted, else None (ADR-9(1))."""
-    if type(value) is Decimal and value.is_finite() and 0 <= value < MAX_REPORTED_COST_USD:
-        return value
-    return None
+    """A provider-reported cost that may be counted, else None (ADR-9(1)).
+
+    Negative zero counts as zero; an amount finer than
+    ``MAX_REPORTED_COST_PLACES`` or longer than ``MAX_REPORTED_COST_DIGITS``
+    is treated as invalid (unknown), never rounded.
+    """
+    if type(value) is not Decimal or not value.is_finite():
+        return None
+    if not 0 <= value < MAX_REPORTED_COST_USD:
+        return None
+    sign, digits, exponent = value.as_tuple()
+    if (type(exponent) is not int or exponent < -MAX_REPORTED_COST_PLACES
+            or len(digits) > MAX_REPORTED_COST_DIGITS):
+        return None
+    return value.copy_abs() if sign else value
 
 
 def list_price(tokens_in: int, tokens_out: int, price_in: Decimal,
@@ -560,6 +578,11 @@ def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
                 error = True
     if error:
         raise ProviderError("receipt_failed")
+
+
+#: Dispatch refusals that never become an attempt (the engine does not count
+#: them as calls either).
+_UNCOUNTED_REFUSALS = frozenset({"run_deadline_reserved", "cost_budget_exhausted"})
 
 
 class ValidatedGateway:
@@ -956,6 +979,7 @@ class ValidatedGateway:
         self.logical_requests += 1
         sequence = meta.get("sequence")
         self._sequence = sequence if type(sequence) is int else self.logical_requests
+        attempts_before = self.attempts
         try:
             now = self._now()
             if self._attempt_timeout(now) <= 0:
@@ -968,6 +992,12 @@ class ValidatedGateway:
                 raise ProviderError("run_deadline_reserved",
                                     classification=classify("run_deadline_reserved"))
             return self._logical(wire, expected, key, meta)
+        except ProviderError as exc:
+            if exc.code in _UNCOUNTED_REFUSALS and self.attempts == attempts_before:
+                # Refused before any receipt or byte: not a call, so the
+                # progress line's calls= agrees with the report's count.
+                self.logical_requests -= 1
+            raise
         finally:
             self._maybe_progress()
 
@@ -1045,18 +1075,24 @@ class ValidatedGateway:
             if isinstance(plan, tuple):
                 wait, next_reason, next_duplicate = plan
                 self._settle(path, receipt)
-                interrupted = False
+                pause_error: BaseException | None = None
                 try:
                     if wait > 0:
                         self._pause(wait)
                 except BaseException as exc:
-                    if isinstance(exc, Exception):
-                        raise
-                    interrupted = True
-                if interrupted:
+                    pause_error = exc
+                if pause_error is not None:
+                    # The next attempt was never sent. An interrupt (or a
+                    # SystemExit) propagates as itself; a failing injected
+                    # sleep is an internal defect that still settles the
+                    # logical request and stops the gateway.
+                    internal = isinstance(pause_error, Exception)
                     self._interrupted_backoff(meta, key, len(expected), logical_id,
-                                              attempt + 1, wait, next_reason, usage_total)
-                    raise KeyboardInterrupt
+                                              attempt + 1, wait, next_reason, usage_total,
+                                              "internal_error" if internal else "interrupted")
+                    if internal:
+                        raise ProviderError("internal_error") from None
+                    raise pause_error
                 waited, reason, duplicate = wait, next_reason, next_duplicate
                 continue
             receipt.update(logical_status="failed" if error else receipt["status"],
@@ -1128,14 +1164,15 @@ class ValidatedGateway:
 
     def _interrupted_backoff(self, meta: dict[str, Any], key: str, count: int,
                              logical_id: str, attempt: int, wait: float, reason: str,
-                             usage_total: dict[str, int] | None) -> None:
-        """An interrupt during a backoff: the next attempt was never sent."""
+                             usage_total: dict[str, int] | None,
+                             code: str = "interrupted") -> None:
+        """A backoff that did not finish: the next attempt was never sent."""
         receipt = self._base_receipt(meta, key, count, logical_id, attempt, 0.0)
         receipt.update(retry_reason=reason, waited_seconds=wait, submission="not_sent",
                        submission_possible=False, logical_status="failed",
                        logical_attempts=attempt, logical_usage=usage_total)
         path = self.receipt_dir / (uuid.uuid4().hex + ".json")
-        self._fail_receipt(path, receipt, "interrupted", persist=True)
+        self._fail_receipt(path, receipt, code, persist=True)
 
     def _fail_receipt(self, path: Path, receipt: dict[str, Any], code: str, *,
                       persist: bool) -> None:

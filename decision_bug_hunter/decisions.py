@@ -243,7 +243,8 @@ def status_code(status: int, error: Mapping[str, Any] | None = None) -> str:
 
 
 def translate_response(raw: bytes, questions: Mapping[str, Any],
-                       api_key: str | Iterable[str] = "") -> ProviderResponse:
+                       api_key: str | Iterable[str] = "", *,
+                       model: str = MODEL) -> ProviderResponse:
     """Documented response bytes to a local ``ProviderResponse``.
 
     ``api_key`` is the credential, or every configured credential, that must
@@ -275,16 +276,16 @@ def translate_response(raw: bytes, questions: Mapping[str, Any],
     returned = model_returned(data.get("model"))
     if returned is not None:
         provenance["model_returned"] = returned
+    usage = _usage(data.get("usage"))
     if "answers" not in data:
         if "error" in data:
             error = data["error"] if type(data["error"]) is dict else None
-            return ProviderResponse({}, _usage(data.get("usage")), True,
-                                    "provider_error_in_body",
+            return ProviderResponse({}, usage, True, "provider_error_in_body",
                                     provenance={**provenance, **error_fields(200, error)})
-        raise ProviderError("response_schema")
-    usage = _usage(data.get("usage"))
+        # Neither answers nor an error: a schema defect with known usage.
+        return ProviderResponse({}, usage, True, "response_schema", provenance=provenance)
     try:
-        if not model_echo_ok(data.get("model"), MODEL, _ECHO_SUFFIXES):
+        if not model_echo_ok(data.get("model"), model, _ECHO_SUFFIXES):
             raise ProviderError("response_model")
         answers, scoped, mismatch = _answers(data["answers"], questions)
     except ProviderError as exc:
@@ -343,7 +344,7 @@ class DecisionsProvider(HostedProvider):
 
     def decode(self, raw: bytes, questions: Mapping[str, Any],
                outcome: Outcome) -> ProviderResponse:
-        return translate_response(raw, questions, self._credentials)
+        return translate_response(raw, questions, self._credentials, model=self.model_spec.id)
 
     def status_error(self, status: int, error: dict[str, Any] | None,
                      outcome: Outcome) -> tuple[str, dict[str, Any]]:

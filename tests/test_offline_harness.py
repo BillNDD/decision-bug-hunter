@@ -97,7 +97,7 @@ class NetworkGuardTests(unittest.TestCase):
             self.addCleanup(gateway.close)
             with self.assertRaises(NetworkAccessForbidden):
                 gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
-        self.assertEqual(network_guard.attempts[before:], ["socket.create_connection"])
+        self.assertEqual(network_guard.attempts[before:], ["socket.getaddrinfo"])
 
 
 class EnvironmentTests(unittest.TestCase):
@@ -179,13 +179,17 @@ class ScriptedHttpsTests(unittest.TestCase):
         script = ScriptedHTTPS([Reply(body=openai_body(ANSWERS), chunk_size=7)],
                                host="api.openai.com")
         exchange = script.exchange(decisions.HOST, decisions.PATH)
-        with tempfile.TemporaryDirectory() as td:
-            gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}, exchange=exchange),
-                                       Path(td) / "receipts")
-            answers = gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
-            # The complete 200 keeps the connection until the gateway closes.
-            self.assertEqual(script.closed, [])
-            gateway.close()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        gateway = ValidatedGateway(DecisionsProvider(KEY, environ={}, exchange=exchange),
+                                   Path(tmp.name) / "receipts")
+        # Runs first (cleanups are LIFO) even if an assertion below fails;
+        # a repeated close is ignored.
+        self.addCleanup(gateway.close)
+        answers = gateway.evaluate(STATE, QUESTIONS, metadata=METADATA)
+        # The complete 200 keeps the connection until the gateway closes.
+        self.assertEqual(script.closed, [])
+        gateway.close()
         self.assertEqual(answers, ANSWERS)
         self.assertTrue(script.exhausted)
         self.assertEqual(len(script.connects), 1)
@@ -272,7 +276,7 @@ class ScriptedHttpsTests(unittest.TestCase):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as td:
                 script = ScriptedHTTPS([step])
                 exchange = script.exchange(decisions.HOST, decisions.PATH)
-                with patch.object(socket, "create_connection",
+                with patch.object(socket, "getaddrinfo",
                                   side_effect=AssertionError("real connector")):
                     # One attempt: this maps codes; retries are tested in test_retries.
                     gateway = ValidatedGateway(
@@ -341,6 +345,25 @@ class HttpClientSanityTests(unittest.TestCase):
         connection = script.https_connection("h", 443)
         self.assertIsInstance(connection, http.client.HTTPConnection)
         self.assertNotIsInstance(connection, http.client.HTTPSConnection)
+
+    def test_connection_without_timeout_waits_instead_of_type_error(self):
+        # http.client passes socket._GLOBAL_DEFAULT_TIMEOUT when no timeout is
+        # given; the fake treats it as the process default (None here).
+        clock = FakeClock(0.0)
+        script = ScriptedHTTPS([Reply(body=b'{"n":1}', delay_before=1.0)], clock=clock)
+        connection = script.https_connection("h", 443)
+        connection.request("POST", "/", body=b"{}")
+        self.assertEqual(connection.getresponse().read(), b'{"n":1}')
+        self.assertAlmostEqual(clock.now, 1.0)
+        connection.close()
+
+    def test_chunked_request_body_is_refused_not_misparsed(self):
+        script = ScriptedHTTPS([Reply(body=b'{"n":1}')])
+        connection = script.https_connection("h", 443, timeout=5.0)
+        with self.assertRaises(AssertionError):
+            connection.request("POST", "/", body=iter([b"{}"]))
+        connection.close()
+        self.assertEqual(script.requests, [])
 
 
 if __name__ == "__main__":

@@ -135,6 +135,17 @@ class CliTests(unittest.TestCase):
         path = self.artifacts()[0].with_name("ranges.txt")
         self.assertEqual(path.read_bytes(), b"")
 
+    def test_judge_banners_are_printed_on_stderr(self):
+        # Verifier minor (WP-07): banners appeared only in report.json.
+        report = self.report()
+        report["banners"] = ["judge_semantics_changed", "not-a-banner"]
+        code, out, err, _ = self.run_cli(report=report)
+        self.assertEqual((code, out), (0, ""))
+        self.assertIn("Judge warning (judge_semantics_changed); see judge_diagnostics", err)
+        self.assertNotIn("not-a-banner", err)
+        code, out, err, _ = self.run_cli()
+        self.assertNotIn("Judge warning", err)
+
     def test_incomplete_keeps_findings_but_exits_two(self):
         report = self.report(found=True, status="incomplete")
         code, out, err, _ = self.run_cli(report=report)

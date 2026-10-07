@@ -105,7 +105,9 @@ class RoundedLocalizationTests(unittest.TestCase):
                 self.assertTrue(all("choice-distribution-invalid" in f["limitations"]
                                     for f in report["findings"]))
                 self.assertEqual(report["answer_defects"]["by_code"], {"response_distribution": 1})
-                self.assertFalse(report["existence_checks"])
+                # The valid "exists" answer in the same request is still
+                # recorded; only the defective "where" is lost.
+                self.assertEqual(len(report["existence_checks"]), 1)
                 failed = [r for r in receipts if r["metadata"]["phase"] == "localize"]
                 self.assertTrue(failed)
                 self.assertTrue(all(r["status"] == "validated_partial"
@@ -126,7 +128,9 @@ class RoundedLocalizationTests(unittest.TestCase):
                 self.assertTrue(any(i["code"] == error and i["phase"] == "localize"
                                     for i in report["issues"]))
                 self.assertEqual(report["answer_defects"]["by_code"], {error: 1})
-                self.assertFalse(report["existence_checks"])
+                # The valid "exists" answer in the same request is still
+                # recorded; only the defective "where" is lost.
+                self.assertEqual(len(report["existence_checks"]), 1)
                 self.assertTrue(all("where" not in r["answers"] for r in receipts
                                     if r["metadata"]["phase"] == "localize"))
 

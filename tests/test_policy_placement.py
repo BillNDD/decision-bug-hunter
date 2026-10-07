@@ -83,7 +83,13 @@ def small(count, *, placed=True):
 
 
 def s02s():
-    """The committed S02s production split: (state, merged questions, wires)."""
+    """The committed S02s production split: (state, merged questions, wires).
+
+    The smoke suite is repository-only (pruned from the sdist), so tests that
+    compare against it skip there, by name.
+    """
+    if not (SMOKE / "S02s-1-production-split.local.json").is_file():
+        raise unittest.SkipTest("tools/smoke is not shipped in the sdist")
     wires = [(SMOKE / f"S02s-{i}-production-split.local.json").read_bytes() for i in (1, 2)]
     bodies = [json.loads(wire) for wire in wires]
     state = bodies[0]["state"]

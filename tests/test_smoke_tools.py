@@ -2,8 +2,9 @@
 
 Fully offline: the runners talk to ``tests.fakes.ScriptedHTTPS`` through a
 real ``HttpsExchange``; no socket is opened and no provider key is read.
-The tools live outside the package (tools/smoke), so these tests skip when
-that directory is not present, as in an sdist that prunes it.
+The tools live outside the package (tools/smoke), which the sdist prunes,
+so these tests skip unless the suite's manifest and README are present: a
+partial tools/smoke must not turn into FileNotFoundError errors.
 """
 from decimal import Decimal
 import importlib
@@ -22,6 +23,10 @@ from tests.support import clean_provider_env, openai_body, openrouter_body
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE = ROOT / "tools" / "smoke"
 FIXTURES = ROOT / "tests" / "fixtures" / "openrouter" / "observed" / "2026-10-06"
+#: The smoke suite is present only in a repository checkout (D12).
+SMOKE_PRESENT = ((SMOKE / "openrouter" / "manifest.json").is_file()
+                 and (SMOKE / "README.md").is_file())
+SMOKE_ABSENT = "tools/smoke is repository-only and not shipped in the sdist"
 PROMOTED = {"S01", "S02", "S08", "S10", "S10b", "S11", "S16", "S17", "S18", "S19"}
 KEY = "offline-smoke-sentinel-7c2e"
 RAY = "8c1f2e3d4a5b6c7d-GRU"
@@ -52,7 +57,7 @@ def walk(value, key=None):
             yield from walk(v, key)
 
 
-@unittest.skipUnless(SMOKE.is_dir() and FIXTURES.is_dir(), "tools/smoke or fixtures absent")
+@unittest.skipUnless(SMOKE_PRESENT, SMOKE_ABSENT)
 class ObservedFixtureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -171,7 +176,7 @@ class ObservedFixtureTests(unittest.TestCase):
                               wire)
 
 
-@unittest.skipUnless(SMOKE.is_dir(), "tools/smoke absent")
+@unittest.skipUnless(SMOKE_PRESENT, SMOKE_ABSENT)
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.runner = tool("run_openrouter")
@@ -321,7 +326,7 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("curl", readme)
 
 
-@unittest.skipUnless(SMOKE.is_dir(), "tools/smoke absent")
+@unittest.skipUnless(SMOKE_PRESENT, SMOKE_ABSENT)
 class SanitizerTests(unittest.TestCase):
     V1 = {"id": "S18", "file": "S18-zdr-probe.json", "repeat": 0, "attempt": 1,
           "request_sha256": "a" * 64, "request_bytes": 322, "status": 404, "elapsed_s": 0.31,
@@ -375,6 +380,27 @@ class SanitizerTests(unittest.TestCase):
             fixture = json.loads(written[0].read_text(encoding="utf-8"))
             self.assertEqual(fixture["builder"], {"state_layout": "v1"})
             self.assertEqual(fixture["status"], 404)
+            # Ids are file names inside the fixture folder (verifier minor).
+            for unsafe in ("../../x", "S18/..", "S 18", "x" * 33):
+                with self.subTest(unsafe=unsafe), self.assertRaises(SystemExit):
+                    self.sanitize.promote(run, "2026-10-06", [unsafe],
+                                          fixtures=run / "fixtures")
+
+    def test_key_shaped_labels_and_numeric_ids_are_withheld(self):
+        # Verifier minors (WP-11): a key-shaped string under a label key was
+        # kept, and a numeric id was kept instead of a placeholder.
+        key_shape = "sk-" + "or-v1-" + "0" * 64
+        body = {"error": {"code": 403, "metadata": {"provider_code": key_shape,
+                                                    "error_type": "moderation_flag",
+                                                    "user_id": 12345, "id": 7}}}
+        clean = self.common.sanitize_body(body)
+        metadata = clean["error"]["metadata"]
+        self.assertEqual(metadata["provider_code"], self.common.WITHHELD)
+        self.assertEqual(metadata["error_type"], "moderation_flag")
+        self.assertEqual((metadata["user_id"], metadata["id"]), ("<id>", "<id>"))
+        self.assertEqual(clean["error"]["code"], 403)
+        self.assertNotIn(key_shape, json.dumps(clean))
+        self.assertEqual(self.common.sanitize_body(clean), clean)
 
 
 if __name__ == "__main__":

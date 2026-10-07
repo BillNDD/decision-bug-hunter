@@ -90,7 +90,7 @@ class TestScopeCoherence(unittest.TestCase):
 
 
 class TestScopeProvenance(unittest.TestCase):
-    def test_scope_reaches_state_and_search_project_is_not_a_jev_choice(self):
+    def test_scope_reaches_state_and_search_project_is_not_a_judge_choice(self):
         gw = FixtureProvider(bugs=[(2, 2)])
         src = source(12)
         result = core.scan(src, gw, context_scope='owner_isolated')

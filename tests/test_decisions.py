@@ -71,7 +71,7 @@ def scripted(steps=()):
 
 
 def no_network():
-    return patch.object(socket, "create_connection",
+    return patch.object(socket, "getaddrinfo",
                         side_effect=AssertionError("network forbidden"))
 
 

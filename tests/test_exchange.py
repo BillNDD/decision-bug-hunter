@@ -19,7 +19,8 @@ from unittest.mock import patch
 from decision_bug_hunter import decisions
 from decision_bug_hunter.decisions import DecisionsProvider
 from decision_bug_hunter.exchange import (ERROR_BODY_CAP, Deadline, ExchangeError,
-                                          HttpsExchange, Outcome, make_tls_context)
+                                          HttpsExchange, Outcome, connect_addresses,
+                                          make_tls_context)
 from decision_bug_hunter.protocol import QUESTION, ProviderError
 from decision_bug_hunter.providers import ValidatedGateway
 from tests.fakes import (ConnectFailure, Delay, FakeClock, Raise, Reply, ScriptedHTTPS,
@@ -402,3 +403,96 @@ class ErrorBodyTests(ExchangeCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _AddressSocket:
+    """A TCP socket whose connect black-holes, is refused or succeeds."""
+
+    def __init__(self, behaviour, clock, log, family):
+        self.behaviour, self.clock, self.log, self.family = behaviour, clock, log, family
+        self.timeout = None
+        self.closed = False
+
+    def settimeout(self, value):
+        self.timeout = value
+
+    def connect(self, address):
+        self.log.append((address, self.timeout))
+        kind = self.behaviour[address]
+        if kind == "blackhole":
+            self.clock.advance(self.timeout)
+            raise TimeoutError("timed out")
+        if kind == "refused":
+            raise ConnectionRefusedError("refused")
+
+    def close(self):
+        self.closed = True
+
+
+class MultiAddressConnectTests(unittest.TestCase):
+    """The connect phase stays inside the absolute deadline (review finding)."""
+
+    V6 = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::1", 443, 0, 0)),
+          (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("2001:db8::2", 443, 0, 0))]
+    V4 = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.1", 443)),
+          (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.2", 443))]
+
+    def connector(self, behaviour):
+        clock, log, sockets = FakeClock(), [], []
+
+        def resolve(host, port, family, kind):
+            self.assertEqual((host, port, kind), (HOST, 443, socket.SOCK_STREAM))
+            return self.V6 + self.V4
+
+        def make_socket(family, kind, proto):
+            sock = _AddressSocket(behaviour, clock, log, family)
+            sockets.append(sock)
+            return sock
+        return clock, log, sockets, resolve, make_socket
+
+    def test_black_holed_addresses_share_one_deadline(self):
+        behaviour = {info[4]: "blackhole" for info in self.V6 + self.V4}
+        clock, log, sockets, resolve, make_socket = self.connector(behaviour)
+        exchange = HttpsExchange(HOST, PATH, clock=clock, resolve=resolve,
+                                 make_socket=make_socket,
+                                 wrap=lambda *a: self.fail("no TLS without TCP"))
+        start = clock()
+        with self.assertRaises(ExchangeError) as caught:
+            exchange.post(BODY, {}, exchange.deadline(30.0))
+        self.assertEqual((caught.exception.phase, caught.exception.kind), ("connect", "timeout"))
+        self.assertLessEqual(clock() - start, 30.0 + 1e-9)
+        self.assertEqual(len(log), 4)
+        self.assertTrue(all(sock.closed for sock in sockets))
+
+    def test_broken_ipv6_still_reaches_ipv4_with_time_left(self):
+        behaviour = {**{info[4]: "blackhole" for info in self.V6},
+                     **{info[4]: "ok" for info in self.V4}}
+        clock, log, _, resolve, make_socket = self.connector(behaviour)
+        deadline = Deadline.after(30.0, clock)
+        sock = connect_addresses(HOST, 443, deadline, resolve=resolve, make_socket=make_socket)
+        # Families alternate, so the first IPv4 address is the second tried.
+        self.assertEqual(len(log), 2)
+        self.assertEqual(log[0][0][0], "2001:db8::1")
+        self.assertEqual(log[1][0][0], "192.0.2.1")
+        self.assertEqual(sock.family, socket.AF_INET)
+        self.assertAlmostEqual(log[0][1], 30.0 / 4)
+        self.assertGreater(deadline.remaining(), 20.0)
+
+    def test_refused_addresses_pass_their_time_on(self):
+        behaviour = {self.V6[0][4]: "refused", self.V4[0][4]: "refused",
+                     self.V6[1][4]: "refused", self.V4[1][4]: "ok"}
+        clock, log, _, resolve, make_socket = self.connector(behaviour)
+        sock = connect_addresses(HOST, 443, Deadline.after(12.0, clock), resolve=resolve,
+                                 make_socket=make_socket)
+        self.assertEqual([timeout for _, timeout in log], [3.0, 4.0, 6.0, 12.0])
+        self.assertEqual(sock.family, socket.AF_INET)
+
+    def test_expired_deadline_tries_nothing_and_empty_resolution_fails(self):
+        clock, log, _, resolve, make_socket = self.connector({})
+        deadline = Deadline.after(0.0, clock)
+        with self.assertRaises(TimeoutError):
+            connect_addresses(HOST, 443, deadline, resolve=resolve, make_socket=make_socket)
+        self.assertEqual(log, [])
+        with self.assertRaises(OSError):
+            connect_addresses(HOST, 443, Deadline.after(5.0, clock),
+                              resolve=lambda *a: [], make_socket=make_socket)

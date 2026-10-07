@@ -231,6 +231,10 @@ class RefusalTests(Base):
         self.assertEqual(phases, ["judgment_reuse"])
         # Counted once: the cache hit is not a second answer.
         self.assertEqual(search.answer_defects, {"question_refused": 1})
+        # Nor a second suppressed window (verifier minor, WP-07): one
+        # refusal must not flag possible suppression on its own.
+        self.assertEqual(search.suppressed, {(1, 3)})
+        self.assertFalse(search.answer_quality()["possible_suppression"]["flagged"])
 
     def test_two_refusals_whole_batch(self):
         provider = DefectProvider(refuse=lambda qid: qid in {"a", "b"})
@@ -371,6 +375,23 @@ class DistributionTests(Base):
         self.assertEqual(self.receipt(search.gw)["scoped"],
                          {"where": "response_vector_missing"})
 
+    def test_localize_keeps_exists_when_where_is_defective(self):
+        # Verifier minor (WP-07): the valid 'exists' answer was dropped from
+        # existence_checks when 'where' had an answer-scoped defect.
+        def drop_vector(answers, scoped, questions):
+            if "where" in answers:
+                del answers["where"]
+                scoped["where"] = "response_vector_missing"
+
+        provider = DefectProvider(mutate=drop_vector)
+        search = self.search(provider)
+        group = {"state": search.state_for(Span(1, 3)), "id": "view-test"}
+        search.localize(group, Span(1, 3))
+        self.assertEqual(len(search.existence_checks), 1)
+        check = search.existence_checks[0]
+        self.assertEqual((check["target"], check["view_id"]), ([1, 3], "view-test"))
+        self.assertIn("response_vector_missing", [i["code"] for i in search.issues])
+
     def test_scoped_defects_never_trip_breaker(self):
         def flip(answers, scoped, questions):
             answers["where"]["choice"] = "none"
@@ -485,6 +506,35 @@ class DiagnosticTests(Base):
         quality = search.answer_quality()["judge_diagnostics"]
         self.assertIsNone(quality["confidence_identity"])
         self.assertEqual(quality["confidence_identity_checked"], 0)
+
+    def test_identity_check_uses_display_precision_not_rounding_places(self):
+        # Review finding: --choice-rounding-places 3 made the check use
+        # h = 0.0005, so ordinary 2-place Luna answers raised the banner.
+        six = {"type": "choice", "instructions": "Which option?",
+               "criteria": {f"o{i}": f"option {i}" for i in range(6)}}
+        shown = {"type": "choice", "choice": "o0", "confidence": Decimal("0.95"),
+                 "probabilities": {"o0": Decimal("0.96"), "o1": Decimal("0.01"),
+                                   "o2": Decimal("0.01"), "o3": Decimal("0.01"),
+                                   "o4": Decimal("0.01"), "o5": Decimal("0")}}
+        self.assertTrue(confidence_identity_violation(shown, 3))
+        self.assertFalse(confidence_identity_violation(shown, 2))
+
+        def luna(answers, scoped, questions):
+            answers["where"] = {**shown}
+
+        for places in (None, 3, 4, 8):
+            with self.subTest(places=places):
+                gateway = self.gateway(DefectProvider(mutate=luna, spec=LUNA),
+                                       rounding_places=places)
+                search = self.search(gateway)
+                for n in range(4):
+                    search.ask({"file": "a.txt", "total_lines": 3, "excerpts": [], "n": n},
+                               {"where": six}, Span(1, 3), "t")
+                quality = search.answer_quality()
+                self.assertEqual(quality["judge_diagnostics"]["confidence_identity_checked"], 4)
+                self.assertEqual(
+                    quality["judge_diagnostics"]["confidence_identity_violations"], 0)
+                self.assertEqual(quality["banners"], [])
 
     def test_report_uncalibrated_object_and_support_paths(self):
         provider = DefectProvider(bugs=[(2, 2)])

@@ -240,6 +240,12 @@ def make_output_parent(parent: Path) -> bool:
         parent.mkdir(mode=0o700)
     except FileExistsError:
         return False
+    except OSError:
+        # Windows raises PermissionError, not FileExistsError, for an
+        # existing drive root (and some shares do the same).
+        if parent.is_dir():
+            return False
+        raise
     return True
 
 
@@ -497,7 +503,8 @@ def execute(args: argparse.Namespace) -> int:
         except Exception:
             cleanup_error = "transport_failed"
         if cleanup_error:
-            print(f"Transport cleanup failed ({cleanup_error}); scan is incomplete.",
+            what = "Receipt journal" if cleanup_error == "receipt_failed" else "Transport"
+            print(f"{what} cleanup failed ({cleanup_error}); scan is incomplete.",
                   file=sys.stderr)
             if result is not None:
                 # Preserve every finding and known usage counter. Cleanup is
@@ -537,6 +544,12 @@ def execute(args: argparse.Namespace) -> int:
         print(f"Spend (USD): provider-reported {spend['provider_reported_usd']}, "
               f"estimated {spend['estimated_usd']}, unknown-usage bound "
               f"{spend['unknown_usage_upper_bound_usd']}.", file=sys.stderr)
+    banners = [banner for banner in result.get("banners") or ()
+               if banner in ("judge_inconsistent", "judge_semantics_changed")]
+    if banners:
+        # Fixed DBH codes (ADR-4): the judge behaved unlike its observed contract.
+        print(f"Judge warning ({', '.join(banners)}); see judge_diagnostics in report.json.",
+              file=sys.stderr)
     complete = result["status"] == "complete"
     count = len(result["findings"])
     status = "complete" if complete else "incomplete"

@@ -293,13 +293,21 @@ class DecodingTests(unittest.TestCase):
 
     def test_sensitive_and_malformed_bodies(self):
         for body, code in ((openrouter_body(ANSWERS, id=KEY), "response_sensitive"),
-                           (b"[]", "response_schema"), (b'{"model":"x"}', "response_schema"),
+                           (b"[]", "response_schema"),
                            (b'{"answers":', "response_invalid_json"),
                            (b'{"a":1,"a":2}', "response_invalid_json")):
             with self.subTest(code=code):
                 with self.assertRaises(ProviderError) as caught:
                     self.decode(body)
                 self.assertEqual(caught.exception.code, code)
+        # A parsed object without answers is still a schema defect, but the
+        # usage and cost it reports are kept (the attempt was billed).
+        response = self.decode(b'{"model":"x","usage":{"input_tokens":10,"output_tokens":0,'
+                               b'"cost":0.000001}}')
+        self.assertEqual(response.error, "response_schema")
+        self.assertEqual(response.usage, {"input_tokens": 10, "output_tokens": 0})
+        self.assertEqual(response.cost_usd, Decimal("0.000001"))
+        self.assertEqual(self.decode(b'{"model":"x"}').error, "response_schema")
 
 
 class FailureTests(unittest.TestCase):
@@ -386,7 +394,7 @@ class FailureTests(unittest.TestCase):
         for private in ("private", "user-private-77", "message"):
             self.assertNotIn(private, saved)
         # A body carrying the key, even masked, is withheld before parsing.
-        for leaked in (KEY, "sk-or-v1-abc***"):
+        for leaked in (KEY, "sk-" + "or-v1-abc" + "***"):
             with self.subTest(leaked=leaked[:8]):
                 outcome, receipt = Harness(self, [reply(error_body(403, leaked), 403)]
                                            ).evaluate()
@@ -425,6 +433,40 @@ class FailureTests(unittest.TestCase):
                          hashlib.sha256(local_envelope(STATE, QUESTIONS)).hexdigest())
         self.assertIsNone(receipt["request_id"])
         self.assertIs(receipt["answer_order_mismatch"], False)
+
+    def test_rejected_200_keeps_generation_id_wire_hash_usage_and_cost(self):
+        # Billed 200s that fail decoding or framing are exactly the ones to
+        # raise with the provider by generation id (review finding).
+        usage_only = (b'{"model":"openai/gpt-6-luna-decisions","usage":{"input_tokens":10,'
+                      b'"output_tokens":0,"cost":0.000001}}')
+        cases = [(usage_only, "response_schema", None),
+                 (b'{"answers": nope', "response_invalid_json", None),
+                 (b'{"answers": NaN}', "response_invalid_json", None),
+                 (b'{"answers": 0.' + b"1" * 200 + b"}", None, None),
+                 (openrouter_body(ANSWERS), "response_type", "text/plain"),
+                 (openrouter_body(ANSWERS), "response_type", "application/json; x=1")]
+        for body, code, content_type in cases:
+            with self.subTest(body=body[:24], content_type=content_type):
+                step = reply(body)
+                if content_type is not None:
+                    step = Reply(status=200, body=body, close_after=True, headers=[
+                        ("Content-Type", content_type), ("Content-Length", str(len(body))),
+                        ("x-generation-id", GENERATION)])
+                harness = Harness(self, [step])
+                outcome, receipt = harness.evaluate()
+                self.assertIsInstance(outcome, ProviderError)
+                if code is not None:
+                    self.assertEqual(outcome.code, code)
+                self.assertIsNone(outcome.__context__)
+                (request,) = harness.script.requests
+                self.assertEqual(receipt["generation_id"], GENERATION)
+                self.assertEqual(receipt["wire_sha256"], hashlib.sha256(request.body).hexdigest())
+                self.assertTrue(receipt["submission_possible"])
+                if body is usage_only:
+                    self.assertEqual(receipt["usage"], {"input_tokens": 10, "output_tokens": 0})
+                    self.assertEqual(receipt["cost_source"], "provider_reported")
+                    self.assertEqual(receipt["cost_usd"], "0.000001")
+                    self.assertEqual(receipt["model_returned"], "openai/gpt-6-luna-decisions")
 
     def test_unavailable_without_key_and_never_connects(self):
         script = ScriptedHTTPS([], clock=FakeClock(), host=openrouter.HOST)

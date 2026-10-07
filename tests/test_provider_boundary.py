@@ -85,7 +85,7 @@ class ProviderBoundaryTests(unittest.TestCase):
         output = self.root / "outputs"
         out, err = io.StringIO(), io.StringIO()
         with without_credential(), \
-                patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")), \
+                patch.object(socket, "getaddrinfo", side_effect=AssertionError("network forbidden")), \
                 patch.object(Source, "read", side_effect=AssertionError("source read forbidden")), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["secret-target-name", "--scope", "standalone", "--provider", "openai",
@@ -107,7 +107,7 @@ class ProviderBoundaryTests(unittest.TestCase):
         provider = DecisionsProvider(environ={})
         gateway = ValidatedGateway(provider, self.root / "receipts")
         with patch.dict("os.environ", {"OPENAI_API_KEY": "offline-ignored-sentinel"}), \
-                patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")):
+                patch.object(socket, "getaddrinfo", side_effect=AssertionError("network forbidden")):
             for operation in (provider.require_available,
                               lambda: provider.decide(ProviderRequest(b"{}", 1)),
                               lambda: self.evaluate(gateway)):
@@ -310,7 +310,7 @@ class ProviderBoundaryTests(unittest.TestCase):
         provider = SyntheticProvider(fixture=FixtureProvider([(2, 2)]))
         out, err = io.StringIO(), io.StringIO()
         with patch.object(cli, "make_provider", return_value=provider), \
-                patch.object(socket, "create_connection", side_effect=AssertionError("network forbidden")), \
+                patch.object(socket, "getaddrinfo", side_effect=AssertionError("network forbidden")), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main([str(source), "--scope", "standalone", "--output-dir", str(self.root / "runs"),
                              "--no-whole-file", "--no-bug-lenses", "--max-action-steps", "0"])

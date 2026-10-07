@@ -237,7 +237,7 @@ class LibraryTests(unittest.TestCase):
         self.assertNotIn("identity", vars(DecisionsProvider))
         self.assertEqual(make_provider("openrouter", api_key=KEY, environ={},
                                        routing="account-default", zdr=True).zdr, True)
-        for kwargs, code in (({"route": "jev"}, "invalid_provider"),
+        for kwargs, code in (({"route": "other-route"}, "invalid_provider"),
                              ({"route": None}, "invalid_provider"),
                              ({"route": "openai", "routing": "deny"}, "invalid_request"),
                              ({"route": "openai", "zdr": True}, "invalid_request"),
@@ -371,6 +371,13 @@ class OpenAIRouteTests(unittest.TestCase):
                 response = translate_response(openai_body(ANSWERS, model=model), QUESTIONS)
                 self.assertIsNone(response.error)
                 self.assertEqual(response.provenance["model_returned"], model)
+        # The echo is checked against the requested model, not a constant.
+        response = translate_response(openai_body(ANSWERS, model="gpt-6-luna"), QUESTIONS,
+                                      model="gpt-6-other")
+        self.assertEqual(response.error, "response_model")
+        response = translate_response(openai_body(ANSWERS, model="gpt-6-other-20261006"),
+                                      QUESTIONS, model="gpt-6-other")
+        self.assertIsNone(response.error)
 
     def test_openai_boolean_choice_fails_closed(self):
         body = json.loads(openai_body(ANSWERS))
@@ -424,10 +431,26 @@ class OpenAIRouteTests(unittest.TestCase):
             QUESTIONS)
         self.assertEqual(response.error, "provider_error_in_body")
         self.assertEqual(response.provenance["error_code"], 502)
-        # Without ``error`` a missing ``answers`` stays a schema defect.
-        with self.assertRaises(ProviderError) as caught:
-            translate_response(b'{"model":"gpt-6-luna"}', QUESTIONS)
-        self.assertEqual(caught.exception.code, "response_schema")
+        # Without ``error`` a missing ``answers`` stays a schema defect, with
+        # the reported usage kept for the receipt.
+        response = translate_response(
+            b'{"model":"gpt-6-luna","usage":{"input_tokens":4,"output_tokens":0}}', QUESTIONS)
+        self.assertEqual(response.error, "response_schema")
+        self.assertEqual(response.usage, {"input_tokens": 4, "output_tokens": 0})
+        outcome, receipt = self.evaluate(
+            b'{"model":"gpt-6-luna","usage":{"input_tokens":4,"output_tokens":0}}')
+        self.assertEqual(outcome.code, "response_schema")
+        self.assertEqual(receipt["usage"], {"input_tokens": 4, "output_tokens": 0})
+
+    def test_rejected_200_keeps_request_id_and_wire_hash(self):
+        for body in (b'{"answers": nope', b'{"model":"gpt-6-luna"}'):
+            with self.subTest(body=body):
+                outcome, receipt = self.evaluate(body, headers=[
+                    ("Content-Type", "application/json"), ("Content-Length", str(len(body))),
+                    ("x-request-id", "req_0123abc")])
+                self.assertIsInstance(outcome, ProviderError)
+                self.assertEqual(receipt["request_id"], "req_0123abc")
+                self.assertRegex(receipt["wire_sha256"], "^[0-9a-f]{64}$")
 
     def test_request_id_header_charset(self):
         for value, kept in (("req_0123abc", "req_0123abc"), ("req with space", None)):

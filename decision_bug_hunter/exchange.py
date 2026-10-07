@@ -5,7 +5,8 @@ connection and one TLS context, built on first use and reused for the life of
 the exchange. The context is explicit (``PROTOCOL_TLS_CLIENT``, system trust
 store, TLS 1.2 minimum) and never reads ``SSLKEYLOGFILE``.
 
-Every phase runs under one absolute ``Deadline``: connect and the TLS
+Every phase runs under one absolute ``Deadline``: connect (every resolved
+address gets a share of the time left, never a fresh timeout) and the TLS
 handshake, ``sendall``, and every single receive (status line, headers,
 chunk-size lines and body), so a trickling peer cannot extend a call beyond
 it. Name resolution is bounded only by the operating system's resolver.
@@ -134,6 +135,18 @@ class Outcome:
             if key == name:
                 return value
         return None
+
+
+class ResponseRejected(ProviderError):
+    """A 200 whose framing, content type or size failed (``read_success_body``).
+
+    ``outcome`` carries the status and the allow-listed headers only, so the
+    adapter can still journal the response's identifiers; its body is empty.
+    """
+
+    def __init__(self, code: str, outcome: Outcome) -> None:
+        super().__init__(code)
+        self.outcome = outcome
 
 
 class ExchangeError(Exception):
@@ -348,17 +361,26 @@ def _kept_headers(response: http.client.HTTPResponse
 class HttpsExchange:
     """POSTs to one fixed HTTPS origin and path under an absolute deadline.
 
-    ``connect`` has the ``socket.create_connection(address, timeout)``
-    signature; ``wrap(sock, context, server_hostname)`` performs the TLS
-    handshake; ``readable(sock)`` reports whether an idle socket has data or
-    EOF waiting. All three, and ``clock``, exist so tests can replace them.
+    Without ``connect`` the exchange resolves the host once and tries its
+    addresses itself, alternating address families, each with an equal share
+    of the time left (``connect_addresses``), so neither several addresses
+    nor a black-holed family can stretch the connect phase past the
+    deadline. ``connect`` replaces that with a
+    ``socket.create_connection(address, timeout)``-style callable;
+    ``resolve`` and ``make_socket`` replace ``socket.getaddrinfo`` and
+    ``socket.socket`` inside it; ``wrap(sock, context, server_hostname)``
+    performs the TLS handshake; ``readable(sock)`` reports whether an idle
+    socket has data or EOF waiting. They, and ``clock``, exist so tests can
+    replace them.
     """
 
     def __init__(self, host: str, path: str, *, port: int = 443,
                  context: ssl.SSLContext | None = None,
                  connect: Connector | None = None, wrap: TlsWrap | None = None,
                  readable: Readable | None = None, clock: Clock = time.monotonic,
-                 idle_reuse_seconds: float = 10.0) -> None:
+                 idle_reuse_seconds: float = 10.0,
+                 resolve: Callable[..., Any] | None = None,
+                 make_socket: Callable[..., Any] | None = None) -> None:
         if not re.fullmatch(r"[a-z0-9.-]{1,253}", host) or not path.startswith("/"):
             raise ValueError("invalid origin")
         self.host = host
@@ -368,6 +390,8 @@ class HttpsExchange:
         self.idle_reuse_seconds = float(idle_reuse_seconds)
         self._context = context
         self._connect = connect
+        self._resolve = resolve
+        self._make_socket = make_socket
         self._wrap = wrap if wrap is not None else _default_wrap
         self._readable = readable if readable is not None else _default_readable
         self._sock: Any = None
@@ -391,8 +415,9 @@ class HttpsExchange:
              credentials: Iterable[str] = ()) -> Outcome:
         """One POST; returns an ``Outcome`` or raises ``ExchangeError``.
 
-        200 bodies go through ``read_success_body`` (whose ``ProviderError``
-        propagates unchanged). Non-200 bodies are read, through
+        200 bodies go through ``read_success_body``; its ``ProviderError``
+        is raised as ``ResponseRejected`` with the same code and the status
+        and kept headers. Non-200 bodies are read, through
         ``read_error_body``, only when ``read_errors`` is true. Nothing is
         retried.
         """
@@ -428,7 +453,17 @@ class HttpsExchange:
                 response.begin()
                 kept, dropped = _kept_headers(response)
                 if response.status == 200:
-                    content = read_success_body(response)
+                    code: str | None = None
+                    try:
+                        content = read_success_body(response)
+                    except ProviderError as exc:
+                        code = exc.code
+                    if code is not None:
+                        now = self.clock()
+                        raise ResponseRejected(code, Outcome(
+                            200, kept, b"", None, "unread", reused, max(0.0, now - started),
+                            late=deadline.expired(), bytes_sent=bytes_sent,
+                            response_bytes=raw.count, dropped_header_names=dropped))
                     error_raw: bytes | None = None
                     state = "unread"
                     keep = (response.isclosed() and not response.will_close
@@ -442,7 +477,7 @@ class HttpsExchange:
                     error_raw, state = None, "unread"
                 now = self.clock()
                 return Outcome(response.status, kept, content, error_raw, state, reused,
-                               max(0.0, now - started), late=now >= deadline.at,
+                               max(0.0, now - started), late=deadline.expired(),
                                bytes_sent=bytes_sent, response_bytes=raw.count,
                                dropped_header_names=dropped)
             except (OSError, http.client.HTTPException, ValueError) as exc:
@@ -512,8 +547,11 @@ class HttpsExchange:
         remaining = deadline.remaining()
         if remaining <= 0:
             raise TimeoutError("deadline reached")
-        connect = self._connect if self._connect is not None else socket.create_connection
-        raw = connect((self.host, self.port), remaining)
+        if self._connect is not None:
+            raw = self._connect((self.host, self.port), remaining)
+        else:
+            raw = connect_addresses(self.host, self.port, deadline, resolve=self._resolve,
+                                    make_socket=self._make_socket)
         try:
             remaining = deadline.remaining()
             if remaining <= 0:
@@ -523,6 +561,60 @@ class HttpsExchange:
         except BaseException:
             _close_quietly(raw)
             raise
+
+
+def _interleaved(infos: list[Any]) -> list[Any]:
+    """Address-family interleaving (RFC 8305, section 4), resolver order kept."""
+    families: dict[Any, list[Any]] = {}
+    for info in infos:
+        families.setdefault(info[0], []).append(info)
+    queues = list(families.values())
+    ordered: list[Any] = []
+    while any(queues):
+        for queue in queues:
+            if queue:
+                ordered.append(queue.pop(0))
+    return ordered
+
+
+def connect_addresses(host: str, port: int, deadline: Deadline, *,
+                      resolve: Callable[..., Any] | None = None,
+                      make_socket: Callable[..., Any] | None = None) -> Any:
+    """A TCP connection to one of *host*'s addresses, within *deadline*.
+
+    ``socket.create_connection`` gives every resolved address the whole
+    timeout, so N black-holed addresses take N times the budget. Here each
+    remaining address gets an equal share of the time left, families are
+    interleaved, and nothing is tried once the deadline has passed. Name
+    resolution itself is bounded only by the operating system's resolver.
+    """
+    lookup = socket.getaddrinfo if resolve is None else resolve
+    build = socket.socket if make_socket is None else make_socket
+    infos = _interleaved(list(lookup(host, port, 0, socket.SOCK_STREAM)))
+    if not infos:
+        raise OSError("no address")
+    last: OSError | None = None
+    for index, (family, kind, proto, _name, address) in enumerate(infos):
+        remaining = deadline.remaining()
+        if remaining <= 0:
+            raise TimeoutError("deadline reached")
+        share = remaining / (len(infos) - index)
+        sock = build(family, kind, proto)
+        try:
+            sock.settimeout(share)
+            sock.connect(address)
+        except OSError as exc:
+            _close_quietly(sock)
+            last = exc
+            continue
+        except BaseException:
+            _close_quietly(sock)
+            raise
+        return sock
+    if deadline.expired():
+        raise TimeoutError("deadline reached")
+    assert last is not None
+    raise last
 
 
 def _close_quietly(sock: Any) -> None:

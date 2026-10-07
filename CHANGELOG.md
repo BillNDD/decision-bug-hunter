@@ -106,6 +106,31 @@
   they are not findings, do not count toward the exit status, and get no
   handoff judgment calls. The search itself is unchanged. The
   configuration records `require_verification` only when on.
+- Fixes from the pre-release review:
+  - A 200 that fails decoding or framing keeps its `generation_id` /
+    `request_id` and `wire_sha256` in the receipt, and a parsed body without
+    `answers` keeps its usage and reported cost (`response_schema`).
+  - Connect tries every resolved address within the one call deadline
+    (equal shares of the time left, address families interleaved) instead
+    of giving each address the whole timeout.
+  - The confidence-identity check uses the model's display precision, not
+    `--choice-rounding-places`, so ordinary 2-place answers no longer raise
+    `judge_semantics_changed`.
+  - A scan on a shared gateway reports its own attempts, retries and spend;
+    the gateway's lifetime totals appear under `gateway_totals` only when
+    they differ.
+  - The secret scan finds keys after an escape sequence (`\n`, `\t`,
+    `"`) or a percent-encoded byte (`%3D`, `%22`), and PEM private-key
+    headers anywhere.
+  - The sdist ships the observed fixtures and SECURITY.md, prunes the
+    repository-only `tools/smoke`, and `tools/check_distribution.py` runs
+    the sdist's own test suite.
+  - Smaller fixes: an existing output parent that refuses `mkdir` (a
+    Windows drive root) is reused; judge banners are printed on stderr;
+    reported costs finer than 20 places are treated as unknown; a SystemExit
+    during a retry backoff propagates as itself; re-asks and dispatch
+    refusals are no longer counted before they happen; a cached refusal no
+    longer counts as a second suppressed window.
 
 ## 0.1.0b1 (2026-10-06)
 

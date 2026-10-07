@@ -214,7 +214,11 @@ class ReportedCostTests(Base):
                 self.assertEqual(Decimal(spend["unknown_usage_upper_bound_usd"]), bound)
                 self.assertEqual(spend["attempts"]["unknown_bounded"], 1)
         # A custom provider's out-of-range or non-Decimal cost is caught too.
-        for bad in (Decimal("NaN"), Decimal("-0.01"), Decimal("10"), 0.0001):
+        # Unrepresentable precision (verifier minor, WP-08): never rounded
+        # into the sum, never a 50-place receipt string that voids the
+        # report's spend object.
+        for bad in (Decimal("NaN"), Decimal("-0.01"), Decimal("10"), 0.0001,
+                    Decimal("1E-50"), Decimal("0." + "1" * 35)):
             with self.subTest(custom=bad):
                 provider = PricedProvider(respond=lambda request, bad=bad: answered(
                     request, {"input_tokens": 10, "output_tokens": 0}, bad))
@@ -226,6 +230,19 @@ class ReportedCostTests(Base):
                 self.assertEqual(receipt["cost_source"], "none")
                 self.assertEqual(Decimal(receipt["cost_bound_usd"]), bound_for())
                 self.assertEqual(gateway.spend["provider_reported_usd"], "0")
+
+
+    def test_negative_zero_cost_counts_as_zero(self):
+        provider = PricedProvider(respond=lambda request: answered(
+            request, {"input_tokens": 10, "output_tokens": 0}, Decimal("-0.0")))
+        gateway = self.gateway(provider)
+        gateway.evaluate(STATE, ONE, metadata={"sequence": 1})
+        receipt = self.last(gateway)
+        self.assertEqual((receipt["cost_usd"], receipt["cost_source"]),
+                         ("0.0", "provider_reported"))
+        self.assertFalse(gateway.spend["provider_reported_usd"].startswith("-"))
+        self.assertEqual(providers.reported_cost(Decimal("0.00000000000000000001")),
+                         Decimal("1E-20"))
 
 
 class UnknownUsageBoundTests(Base):
@@ -524,6 +541,7 @@ class EngineSpendTests(Base):
         result = self.search(gateway).run()
         self.assertEqual(provider.requests, [])
         self.assertEqual((result["calls_attempted"], result["requests"]), (0, []))
+        self.assertEqual(gateway.logical_requests, 0)
         self.assertEqual(result["stop_reason"], "cost_budget_exhausted")
         codes = [issue["code"] for issue in result["issues"]]
         self.assertIn("cost_budget_exhausted", codes)
@@ -565,6 +583,32 @@ class EngineSpendTests(Base):
         search = Search(Source.from_text("alpha\nbeta"), FixtureProvider(), Config(), None,
                         context_scope="declared_standalone")
         self.assertIsNone(search.run()["spend"])
+
+    def test_shared_gateway_reports_per_scan_attempts_retries_and_spend(self):
+        # Review finding: a second scan on one gateway (core.scan's documented
+        # use) copied lifetime counters next to its own calls and usage.
+        provider = PricedProvider([failure("connect_failed")])
+        gateway = self.gateway(provider)
+        first = self.search(gateway).run()
+        second = self.search(gateway).run()
+        self.assertNotIn("gateway_totals", first)
+        self.assertEqual(first["retries"], 1)
+        self.assertEqual(first["attempts_transmitted"], first["calls_attempted"])
+        self.assertEqual(second["retries"], 0)
+        self.assertEqual(second["attempts_transmitted"], second["calls_attempted"])
+        per_call = Decimal("0.0001")
+        for report in (first, second):
+            spend = report["spend"]
+            self.assertEqual(Decimal(spend["provider_reported_usd"]),
+                             per_call * report["calls_attempted"])
+            self.assertEqual(spend["attempts"]["provider_reported"], report["calls_attempted"])
+            self.assertEqual(report["usage"]["input_tokens"], 1000 * report["calls_attempted"])
+        totals = second["gateway_totals"]
+        self.assertEqual(totals["attempts_transmitted"], gateway.attempts_transmitted)
+        self.assertEqual(totals["retries"], 1)
+        self.assertEqual(totals["spend"], gateway.spend)
+        self.assertEqual(Decimal(totals["spend"]["provider_reported_usd"]),
+                         per_call * (first["calls_attempted"] + second["calls_attempted"]))
 
     def test_progress_line_shows_spend_bound(self):
         stream = io.StringIO()

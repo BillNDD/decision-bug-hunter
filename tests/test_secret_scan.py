@@ -63,6 +63,31 @@ class ScannerTests(unittest.TestCase):
         ]
         self.assertEqual(scan_lines(lines), [])
 
+    def test_tokens_after_escapes_and_percent_encoding_detected(self):
+        # Review finding: the identifier edge rejected the 'n' of a literal
+        # backslash-n, or the last hex digit of %3D, in front of a token.
+        backslash = chr(92)
+        prefixes = {"newline escape": backslash + "n", "tab escape": backslash + "t",
+                    "quote escape": backslash + chr(34),
+                    "unicode escape": backslash + "u0022", "hex escape": backslash + "x22",
+                    "percent equals": "%3D", "percent quote": "%22",
+                    "lower-case percent": "%3d"}
+        for pattern_id in PATTERN_IDS:
+            for name, prefix in prefixes.items():
+                with self.subTest(pattern=pattern_id, prefix=name):
+                    line = f'value = "x{prefix}{token(pattern_id)}"'
+                    self.assertEqual(scan_lines([line]), [(pattern_id, 1)])
+        # A combined PEM bundle in one JSON string: certificate, then key.
+        bundle = (backslash + "n").join(["-----" + "BEGIN CERTIFICATE" + "-----", "MIIB",
+                                         "-----" + "END CERTIFICATE" + "-----",
+                                         token("private_key"), "MIIE"])
+        self.assertEqual(scan_lines(['{"bundle": "' + bundle + '"}']), [("private_key", 1)])
+        self.assertEqual(scan_lines(["abc" + token("private_key")]), [("private_key", 1)])
+        # A token glued to an ordinary identifier is still not a token.
+        for glued in ("abc", "x_", "tn", "x-"):
+            with self.subTest(glued=glued):
+                self.assertEqual(scan_lines([glued + token("openrouter")]), [])
+
     def test_hits_sorted_distinct_and_carry_no_text(self):
         aws, router = token("aws"), token("openrouter")
         lines = [f"{aws} {aws}", "x", f"{router} {aws}"]
@@ -202,6 +227,22 @@ class CliSecretTests(unittest.TestCase):
                            else r.payload for r in self.provider.requests])
         self.assertNotIn("SYNTHETIC0FIXT00", wire)
         self.assertNotIn("settings.py", wire)
+
+    def test_project_files_with_escaped_or_url_encoded_secrets_skipped(self):
+        backslash = chr(92)
+        project = self.root / "project"
+        (project / "config").mkdir(parents=True)
+        (project / "helper.py").write_bytes(b"def helper():\n    return 1\n")
+        bundle = (backslash + "n").join(["-----" + "BEGIN CERTIFICATE" + "-----", "MIIB",
+                                         "-----" + "END CERTIFICATE" + "-----",
+                                         token("private_key"), "MIIE"])
+        (project / "config" / "tls.json").write_text('{"bundle": "' + bundle + '"}\n',
+                                                      encoding="utf-8")
+        (project / "access.log.txt").write_text(
+            "GET /?q=%22key%22%3A%22" + token("openrouter") + "%22\n", encoding="utf-8")
+        index = ProjectIndex.read(project)
+        self.assertEqual([e.relpath for e in index.entries], ["helper.py"])
+        self.assertEqual(index.skipped_secret_content, 2)
 
 
 class ReportShapeTests(unittest.TestCase):

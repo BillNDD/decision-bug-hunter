@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
-from decimal import Decimal
+from decimal import Context, Decimal
 from fractions import Fraction
 import hashlib
 import json
@@ -255,6 +255,44 @@ def _spend(value):
     return result
 
 
+#: Exact enough for any sum of receipt amounts (each has at most 40 places).
+_SPEND_CONTEXT = Context(prec=100)
+
+
+def _count_delta(now, base):
+    """This scan's share of a gateway-lifetime counter (None when unknown)."""
+    now = _count(now)
+    if now is None or base is None:
+        return now
+    return now - base if now >= base else None
+
+
+def _spend_delta(now, base):
+    """This scan's share of a gateway's spend summary (amounts and counts).
+
+    ``max_cost_usd`` and ``price_table_date`` describe the gateway and are
+    copied unchanged; a missing baseline leaves the summary as it is.
+    """
+    if now is None or base is None:
+        return now
+    result = dict(now)
+    for name in _SPEND_AMOUNTS[:4]:
+        if now[name] is not None and base[name] is not None and Decimal(base[name]) != 0:
+            delta = _SPEND_CONTEXT.subtract(Decimal(now[name]), Decimal(base[name]))
+            result[name] = format(delta, "f") if delta >= 0 else None
+    result["attempts"] = {key: count - base["attempts"].get(key, 0)
+                          for key, count in now["attempts"].items()
+                          if count >= base["attempts"].get(key, 0)}
+    return result
+
+
+def _gateway_counters(gateway):
+    """Lifetime attempt, retry and spend counters of a gateway, validated."""
+    return {"attempts_transmitted": _count(getattr(gateway, "attempts_transmitted", None)),
+            "retries": _count(getattr(gateway, "retries", None)),
+            "spend": _spend(getattr(gateway, "spend", None))}
+
+
 SECRET_SCAN_TARGETS = ("clean", "overridden")
 
 
@@ -271,7 +309,7 @@ def _secret_scan_record(value):
 
 
 def digest(value):
-    raw =json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+    raw = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -371,6 +409,9 @@ class Search:
             self.scoped = ScopedClaims(self)
         self.usage = {"input_tokens": 0, "output_tokens": 0,
                       "attempts_with_known_usage": 0, "attempts_with_unknown_usage": 0}
+        # Gateway counters are lifetime totals; a gateway shared by several
+        # scans (core.scan) must not credit this scan with earlier attempts.
+        self.gateway_baseline = _gateway_counters(gateway)
         if self.project is not None and self.project.limited and self.source.lines:
             self.issue("project_index_limited", Span(1, len(self.source.lines)),
                        "project-index")
@@ -475,8 +516,9 @@ class Search:
                                     "origin": self.request_origins[ckey]})
                 # A defective answer is never asked again; its limitation is
                 # issued again for this caller's region.
-                self.issue_defects(defects, region, phase)
+                self.issue_defects(defects, region, phase, fresh=False)
                 continue
+            reask = False
             if ckey in self.failed_requests:
                 pin = self.failed_requests[ckey]
                 if pin["permanent"] or ckey in self.reasked:
@@ -487,9 +529,7 @@ class Search:
                     continue
                 # A transient failure recurs while the provider still runs:
                 # ask once more, then pin for the rest of the run.
-                self.reasked.add(ckey)
-                self.events.append({"phase": "failed_request_reasked", "request_sha256": key,
-                                    "origin": self.request_origins[ckey]})
+                reask = True
             error, permanent = None, False
             if self.calls >= self.cfg.max_calls:
                 error = "call_budget_exhausted"
@@ -498,6 +538,12 @@ class Search:
             if error:
                 self.issue(error, region, phase)
                 continue
+            if reask:
+                # Recorded only once the request is actually going out, so a
+                # budget refusal never spends the one re-ask.
+                self.reasked.add(ckey)
+                self.events.append({"phase": "failed_request_reasked", "request_sha256": key,
+                                    "origin": self.request_origins[ckey]})
             if wire is None:
                 wire = encode_request(overflow_state, batch)
             self.calls += 1
@@ -722,13 +768,18 @@ class Search:
                 return Span(start, end)
         return region
 
-    def issue_defects(self, defects, region, phase):
-        """One limitation per defective answer (ADR-3(5))."""
+    def issue_defects(self, defects, region, phase, fresh=True):
+        """One limitation per defective answer (ADR-3(5)).
+
+        Only a fresh response adds suppressed windows: a cached refusal
+        replayed for another caller's region is the same refusal, not a
+        second suppressed window (ADR-3(7)).
+        """
         for qid, code in defects.items():
             span = self.defect_span(qid, region)
             self.issue(code, span, phase, affects=(_ROUTING_QUESTION.fullmatch(qid) is None
                                                    and _DIAGNOSTIC_QUESTION.fullmatch(qid) is None))
-            if code == "question_refused":
+            if code == "question_refused" and fresh:
                 self.suppressed.add((span.start, span.end))
 
     def record_answers(self, batch, answers, defects, region, phase):
@@ -740,9 +791,13 @@ class Search:
                                     for qid in defects)
         self.choice_answers += sum(q["type"] == "choice" for q in batch.values())
         if getattr(self.gw, "confidence_identity", None) == "chance_normalized_p1":
-            places = getattr(self.gw, "rounding_places", None)
-            if places is None:
-                places = getattr(self.gw, "display_places", None)
+            # h is half the model's display quantum (ADR-4(4)), never the
+            # --choice-rounding-places mass tolerance. Without a declared
+            # display precision the places shown in each answer are used.
+            # (Shown places can undercount it: a 2-place 0.90 arrives as 0.9.)
+            places = getattr(self.gw, "display_places", None)
+            if type(places) is not int:
+                places = None
             for answer in answers.values():
                 if answer["type"] == "choice":
                     self.identity_checked += 1
@@ -1179,6 +1234,12 @@ class Search:
                          "where": choice(self.pack, "localize", target, candidates)}
             answers = self.ask(group["state"], questions, target, "localize")
             if set(answers) != {"exists", "where"}:
+                if "exists" in answers:
+                    # 'where' was lost to an answer-scoped defect (already an
+                    # issue); the valid existence answer is still recorded.
+                    self.existence_checks.append({
+                        "target": [target.start, target.end], "view_id": group["id"],
+                        "score": str(answers["exists"]["noul"])})
                 return
             where = answers["where"]
             event = {"phase": "localize", "target": target.id,
@@ -2057,6 +2118,13 @@ class Search:
              "support": self.support[s],
              "support_paths": sorted({row["origin"] for row in self.support[s]})}
             for s in unverified]} if self.cfg.require_verification else {})
+        totals = _gateway_counters(self.gw)
+        base = self.gateway_baseline
+        counters = {name: _count_delta(totals[name], base[name])
+                    for name in ("attempts_transmitted", "retries")}
+        counters["spend"] = _spend_delta(totals["spend"], base["spend"])
+        # A gateway shared with earlier scans also reports its lifetime totals.
+        gateway_totals = {"gateway_totals": totals} if counters != totals else {}
         # b1 report shape (WP-08): legacy 7, scoped 8; handoff 4 / 5.
         result = {"schema_version": 8 if self.scoped else 7, "tool_version": __version__, "contract": CONTRACT_VERSION,
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
@@ -2092,17 +2160,17 @@ class Search:
                     a["handoff_incomplete"] for a in annotations.values()) else "complete"),
                 "status": "complete" if complete else "incomplete",
                 "calls_attempted": self.calls, "questions_attempted": self.questions,
-                # Attempts and retries come from the gateway (ADR-2(10));
-                # a custom gateway without them reports None.
-                "attempts_transmitted": _count(getattr(self.gw, "attempts_transmitted", None)),
-                "retries": _count(getattr(self.gw, "retries", None)),
+                # Attempts, retries and spend come from the gateway (ADR-2(10),
+                # ADR-9(2)) as this scan's share; a custom gateway without
+                # them reports None.
+                "attempts_transmitted": counters["attempts_transmitted"],
+                "retries": counters["retries"],
                 "stop_reason": self.stop_reason(),
                 "stopped_at_sequence": (_count(getattr(self.gw, "stopped_at_sequence", None))
                                         if self.stop_reason() is not None else None),
                 "usage": dict(self.usage),
-                # Spend comes from the gateway's receipts (ADR-9(2)); a custom
-                # gateway without accounting reports None.
-                "spend": _spend(getattr(self.gw, "spend", None)),
+                "spend": counters["spend"],
+                **gateway_totals,
                 "questions_validated": self.validated_questions,
                 **self.answer_quality(),
                 **self.controls_report(),
