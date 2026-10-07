@@ -380,7 +380,8 @@ class ReceiptAndReserveTests(Base):
                              error="http_server_error"),
             ProviderResponse(NOUL, {"input_tokens": 5, "output_tokens": 2})])
         gateway = self.gateway(provider, retry_policy=RetryPolicy(possible=1))
-        search = Search(Source.from_text("alpha"), gateway, Config(), None)
+        # Scripted answers name only "q": no judge controls.
+        search = Search(Source.from_text("alpha"), gateway, Config(canaries="off"), None)
         answers = search.ask({"excerpts": []}, {"q": QUESTION}, Span(1, 1), "test")
         self.assertIn("q", answers)
         saved = receipts(gateway)

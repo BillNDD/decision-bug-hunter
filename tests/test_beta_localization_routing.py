@@ -108,8 +108,11 @@ class BetaLocalizationRoutingTests(unittest.TestCase):
         self.assertFalse(any("routing_basis" in e for e in report["events"]))
 
     def test_call_and_question_caps_never_label_unsubmitted_triads_verified(self):
+        # Questions per request with the two judge controls (WP-14): screen 10,
+        # claim-verify 5, localize 4, then the triad's claim-verify 5; 19 stops
+        # exactly before the triad.
         for limits, code in (({"max_calls": 3}, "call_budget_exhausted"),
-                             ({"max_questions": 13}, "question_budget_exhausted")):
+                             ({"max_questions": 19}, "question_budget_exhausted")):
             with self.subTest(limits=limits):
                 _, report = self.run_search(**limits)
                 self.assertEqual(report["findings"], [])
@@ -203,7 +206,8 @@ class BetaLocalizationRoutingTests(unittest.TestCase):
         view = {"id": "fixture", "region": target, "state": search.state_for(target)}
         search.localize(view, target)
         self.assertEqual(search.calls, 1)
-        self.assertEqual(search.validated_questions, 2)
+        # The menu and its existence check, plus the two passing controls.
+        self.assertEqual(search.validated_questions, 4)
         self.assertEqual(search.rechecks, [])
         self.assertEqual(search.support, {})
         self.assertFalse(any("routing_basis" in e for e in search.events))

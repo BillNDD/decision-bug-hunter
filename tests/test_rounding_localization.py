@@ -12,7 +12,7 @@ from unittest.mock import patch
 from decision_bug_hunter import __main__ as cli, protocol
 from decision_bug_hunter.claims import ROLES
 from decision_bug_hunter.core import Config, Source, Span, scan
-from tests.support import FixtureProvider
+from tests.support import FixtureProvider, is_control
 from tests.test_provider_boundary import SyntheticProvider
 
 
@@ -110,7 +110,8 @@ class RoundedLocalizationTests(unittest.TestCase):
                 self.assertTrue(failed)
                 self.assertTrue(all(r["status"] == "validated_partial"
                                     and r["scoped"] == {"where": "response_distribution"}
-                                    and set(r["answers"]) == {"exists"}
+                                    and {q for q in r["answers"] if not is_control(q)}
+                                    == {"exists"}
                                     and r["usage"] is not None
                                     and r["rounding_places"] is None for r in failed))
 

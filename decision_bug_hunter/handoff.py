@@ -10,6 +10,7 @@ from decimal import Decimal
 import hashlib
 import json
 
+from . import injection_markers
 from .core import Span, windows
 from .evidence import evidence_label
 from .protocol import ANSWER_SCOPED_CODES
@@ -267,6 +268,7 @@ LIMITS = {
     "reconciliation_too_large": "payload-limit",
     "relationship_payload_too_large": "relationship-payload-limit",
     "response_distribution": "choice-distribution-invalid",
+    "judge_control_failed": "judge-control-failed",
     "choice_argmax_mismatch": "choice-argmax-mismatch",
     "question_refused": "question-refused",
     "response_vector_missing": "choice-vector-missing",
@@ -371,6 +373,10 @@ def annotate_findings(search, selected):
                 relevant = lo <= target.end and target.start <= hi
             if relevant:
                 limits.add(LIMITS.get(issue["code"], "evaluation-failed"))
+        if injection_markers.overlapping(getattr(search, "injection_markers", ()),
+                                         target.start, target.end):
+            # Annotation only (ADR-6(6)): the finding itself is unchanged.
+            limits.add("injection-marker")
         for event in search.events:
             if event["phase"] == "localization_cap":
                 # The pre-existing event carries a real target ID, not model text.

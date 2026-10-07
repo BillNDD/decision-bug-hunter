@@ -99,7 +99,12 @@ PRE_WP15 = {
 
 
 def scenarios(**options):
-    """The pinned scenarios; *options* adds Config fields to every run."""
+    """The pinned scenarios; *options* adds Config fields to every run.
+
+    The pins predate the judge controls (WP-14), so the scenarios run with
+    canaries off, which must reproduce those bytes exactly.
+    """
+    options = {"canaries": "off", **options}
     scoped = {"search_policy": "scoped-v2-beta"}
     return {
         "legacy": (FixtureProvider([(5, 5)]), source(30), Config(whole_file=False, **options), {}),

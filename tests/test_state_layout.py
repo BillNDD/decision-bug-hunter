@@ -60,6 +60,9 @@ def fixture_wires():
 
 
 def scan_digest(**options):
+    # The pre-release pins predate the judge controls (WP-14): canaries off
+    # unless a test asks otherwise.
+    options = {"canaries": "off", **options}
     provider = FixtureProvider([(5, 5)])
     result = scan(source(12), provider, Config(whole_file=False, **options))
     raw = json.dumps(provider.requests, ensure_ascii=False, separators=(",", ":")).encode()

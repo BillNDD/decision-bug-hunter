@@ -13,7 +13,8 @@ import tempfile
 import time
 
 from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
-                   DEFAULT_STATE_LAYOUT, CHOICE_GATES, LOCALIZATION_MENUS)
+                   DEFAULT_STATE_LAYOUT, CHOICE_GATES, LOCALIZATION_MENUS,
+                   CANARY_MODES, DEFAULT_CANARIES)
 from .handoff import compact_report, format_handoff
 from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
 from .providers import (ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
@@ -120,6 +121,16 @@ def parser() -> argparse.ArgumentParser:
                              "half-quantum <= 0.125: smaller rank and context pages, singleton "
                              "localization menus over the cap, and a choice_mass_diffuse count. "
                              "No effect under strict mass (default: off).")
+    result.add_argument("--canaries", choices=CANARY_MODES, default=DEFAULT_CANARIES,
+                        help="Judge controls (default: %(default)s): two yes/no questions "
+                             "with known answers ride in every request; a request whose "
+                             "controls fail (must-true < 0.90 or must-false > 0.10) has all "
+                             "its answers withheld and leaves the scan incomplete "
+                             "(judge_control_failed). off sends the pre-control request bytes.")
+    result.add_argument("--polarity-twin", action="store_true",
+                        help="Diagnostic only (default: off): also ask each screened window "
+                             "the inverted question and report |P(bug) + P(correct) - 1| in "
+                             "judge_diagnostics.polarity_twin; never changes findings.")
     result.add_argument("--max-handoff-candidates", type=int, default=64,
                         help="Candidate cap per reference kind per finding; omissions are flagged.")
     result.add_argument("--no-bug-lenses", action="store_true",
@@ -383,6 +394,8 @@ def execute(args: argparse.Namespace) -> int:
         choice_mass=args.choice_mass,
         localization_menu=args.localization_menu,
         choice_rounding_caps=args.choice_rounding_caps,
+        canaries=args.canaries,
+        polarity_twin=args.polarity_twin,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.

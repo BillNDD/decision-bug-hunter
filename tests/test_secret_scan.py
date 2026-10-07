@@ -229,8 +229,12 @@ class ReportShapeTests(unittest.TestCase):
         scoped = scan(source(4), RolesProvider(bugs=[(2, 2)]), beta(run_deadline_seconds=2))
         self.assertEqual((legacy["schema_version"], legacy["handoff"]["schema_version"]), (7, 4))
         self.assertEqual((scoped["schema_version"], scoped["handoff"]["schema_version"]), (8, 5))
-        self.assertEqual(set(legacy), self.LEGACY)
-        self.assertEqual(set(scoped), self.SCOPED)
+        # Judge controls (WP-14, default on) add one record to the b1 set.
+        self.assertEqual(set(legacy), self.LEGACY | {"controls"})
+        self.assertEqual(set(scoped), self.SCOPED | {"controls"})
+        off = scan(source(4), FixtureProvider(bugs=[(2, 2)]),
+                   Config(max_action_steps=0, whole_file=False, canaries="off"))
+        self.assertEqual(set(off), self.LEGACY)
         self.assertEqual(set(legacy["handoff"]), self.HANDOFF)
         self.assertEqual(set(scoped["handoff"]), self.HANDOFF)
         self.assertIsNone(legacy["secret_scan"])

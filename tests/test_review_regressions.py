@@ -68,7 +68,8 @@ class ValidatorRepairTests(unittest.TestCase):
             def evaluate(self, *args, **kwargs):
                 return self.answer
         gateway = Gateway()
-        search = Search(source(1), gateway, config(), None)
+        # The gateway answers only "q": no judge controls.
+        search = Search(source(1), gateway, config(canaries="off"), None)
         state = search.state_for(Span(1, 1))
         first = search.ask(state, {"q": protocol.QUESTION}, Span(1, 1), "test")
         gateway.answer["q"]["noul"] = 2
@@ -82,7 +83,7 @@ class ValidatorRepairTests(unittest.TestCase):
             rounding_places = 2
             def evaluate(self, state, questions, **kwargs):
                 return {"q": choose("a0", questions["q"])}
-        search = Search(source(1), Gateway(), config(), None)
+        search = Search(source(1), Gateway(), config(canaries="off"), None)
         qs = {"q": {"type": "choice", "instructions": "Choose.",
                      "criteria": {f"a{i}": f"option {i}" for i in range(100)}}}
         search.ask({"text": "x"}, qs, Span(1, 1), "test")
@@ -226,7 +227,8 @@ class StateAndBudgetRepairTests(unittest.TestCase):
         search = Search(source(1), provider, config(), "First.\n\nSecond.\n\nThird.")
         search.requirement_action_search(Span(1, 1), {"state": search.state_for(Span(1, 1))})
         self.assertEqual(len(provider.requests), 1)
-        self.assertEqual(len(provider.requests[0]["questions"]), 3)
+        # Three passages, plus the two judge controls of the request.
+        self.assertEqual(len(provider.requests[0]["questions"]), 3 + 2)
 
     def test_action_state_contains_discovered_evidence_and_completed_operations(self):
         def override(qid, q, state, target):

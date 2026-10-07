@@ -48,6 +48,7 @@ def main():
                      "decision_bug_hunter/openrouter.py", "decision_bug_hunter/hosted.py",
                      "decision_bug_hunter/exchange.py", "decision_bug_hunter/protocol.py",
                      "decision_bug_hunter/secret_scan.py",
+                     "decision_bug_hunter/injection_markers.py",
                      "decision_bug_hunter/question_pack.json"):
             if name not in names:
                 raise RuntimeError("missing_runtime_resource")

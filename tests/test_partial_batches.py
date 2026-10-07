@@ -25,7 +25,7 @@ from decision_bug_hunter.protocol import (ANSWER_SCOPED_CODES, ERROR_CODES, QUES
 from decision_bug_hunter.providers import (ProviderIdentity, ProviderResponse, RetryPolicy,
                                            ValidatedGateway)
 from tests.fakes import FakeClock, Reply, ScriptedHTTPS
-from tests.support import FixtureProvider, openrouter_body, spans_in
+from tests.support import FixtureProvider, is_control, openrouter_body, spans_in
 
 KEY = "offline-partial-batch-sentinel-credential-7c2e"
 CHOICE = {"type": "choice", "instructions": "Which interval is strongest?",
@@ -76,7 +76,7 @@ class DefectProvider:
         for qid, q in questions.items():
             if self.refuse is not None and self.refuse(qid):
                 scoped[qid] = "question_refused"
-            elif spans_in(q["instructions"]):
+            elif is_control(qid) or spans_in(q["instructions"]):
                 answers[qid] = self.fixture.answer(qid, q, data["state"])
             else:
                 answers[qid] = (dict(NOUL) if q["type"] == "noul" else
@@ -193,7 +193,8 @@ class RefusalTests(Base):
         provider = OpenRouterProvider(KEY, environ={},
                                       exchange=script.exchange(openrouter.HOST,
                                                                openrouter.PATH))
-        search = self.search(provider)
+        # The scripted body answers exactly these 17 names: no judge controls.
+        search = self.search(provider, canaries="off")
         result = search.ask({"file": "a.txt", "total_lines": 3, "excerpts": []}, questions,
                             Span(1, 3), "test")
         self.assertEqual(len(result), 16)
@@ -315,7 +316,8 @@ class DistributionTests(Base):
         group = search.view(Span(1, 3), [Span(1, 1), Span(2, 2), Span(3, 3)],
                             {}, search.state_for(Span(1, 3)), "initial")
         (sent,) = provider.requests
-        nouls_sent = {qid for qid, q in sent["questions"].items() if q["type"] == "noul"}
+        nouls_sent = {qid for qid, q in sent["questions"].items()
+                      if q["type"] == "noul" and not is_control(qid)}
         row = search.trace[0]
         self.assertEqual(row["status"], "validated_partial")
         self.assertEqual(row["scoped"], {"rank_0": "response_distribution"})

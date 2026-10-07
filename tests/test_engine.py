@@ -19,8 +19,10 @@ class EngineTests(unittest.TestCase):
     def test_cold_root_still_examines_all_scales(self):
         result, provider = self.run_case()
         self.assertGreaterEqual(result["calls_attempted"], 2)
-        # 11 targets x (general screen + five bug lenses), plus context + Choice.
-        self.assertEqual(result["questions_attempted"], 68)
+        # 11 targets x (general screen + five bug lenses), plus context + Choice,
+        # plus the two judge controls in every request (WP-14, default on).
+        self.assertEqual(result["questions_attempted"], 68 + 2 * result["calls_attempted"])
+        self.assertEqual(result["controls"]["requests_checked"], result["calls_attempted"])
         self.assertEqual(len(result["windows"]), 11)
         self.assertEqual(result["status"], "complete")
         self.assertFalse(result["findings"])
@@ -125,9 +127,10 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(result["coverage"]["unassessed_ranges"])
 
     def test_question_budget_is_not_request_budget(self):
-        # Below every batch this 48-line scan builds (pack v2 batches are
-        # 19/19/18/12 questions), so no batch may be dispatched.
-        result,provider=self.run_case(max_questions=11)
+        # Below every batch this 48-line scan builds (with the two judge
+        # controls the batches are 25/24/24/3 questions), so no batch may be
+        # dispatched.
+        result,provider=self.run_case(max_questions=2)
         self.assertEqual(len(provider.requests),0)
         self.assertEqual(result["status"],"incomplete")
         self.assertEqual(result["questions_attempted"],0)

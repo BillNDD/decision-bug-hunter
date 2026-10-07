@@ -27,7 +27,11 @@ from .providers import Classification, ValidatedGateway, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
                         evidence_noul, LENS_KINDS, policy, _ordered_state,
-                        using_state_layout, singleton_candidates, MAX_RANK_PAGE)
+                        using_state_layout, singleton_candidates, MAX_RANK_PAGE,
+                        CONTROL_NAME, CONTROL_RESERVE_BYTES, CONTROL_SET,
+                        CONTROL_MUST_TRUE_MIN, CONTROL_MUST_FALSE_MAX,
+                        control_role, control_passed)
+from . import injection_markers
 
 
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
@@ -37,9 +41,12 @@ _DISPATCH_REFUSALS = frozenset({"run_deadline_reserved", "provider_stopped",
 #: Choice questions that only route the search (ADR-3(5)): a defect in one
 #: of them is counted but does not by itself make the run incomplete.
 _ROUTING_QUESTION = re.compile(r"(?:rank_[0-9]+|where|context_where|action)\Z")
+#: Diagnostic-only questions (polarity twin): a defect is counted, never
+#: a reason for incompleteness.
+_DIAGNOSTIC_QUESTION = re.compile(r"twin_L[0-9]+-[0-9]+\Z")
 #: Questions whose name ends in the target window they judge.
 _WINDOW_QUESTION = re.compile(
-    r"(?:screen|verify|" + "|".join(LENS_KINDS) + r")_L([0-9]+)-([0-9]+)\Z")
+    r"(?:screen|verify|twin|" + "|".join(LENS_KINDS) + r")_L([0-9]+)-([0-9]+)\Z")
 #: Banner thresholds (ADR-4(2), (4)).
 ARGMAX_BANNER_RATE = Fraction(2, 100)
 ARGMAX_BANNER_MIN_ANSWERS = 50
@@ -344,6 +351,17 @@ class Search:
         self.identity_checked = self.identity_violations = 0
         self.diffuse_answers = 0
         self.suppressed = set()
+        # Judge controls (revision-3 WP-14): requests that carried them, that
+        # failed them (answers withheld) and that had no room for them.
+        self.canaries = config.canaries == "on"
+        self.control_stats = {"requests_checked": 0, "requests_failed": 0,
+                              "requests_uncontrolled": 0}
+        # Polarity-twin residuals |P(screen) + P(twin) - 1| (diagnostic only).
+        self.twin_residuals = []
+        # Injection markers annotate findings only (ADR-6(6)).
+        self.injection_markers = injection_markers.scan_lines(source.lines)
+        self.spec_injection_markers = (injection_markers.scan_lines(self.spec_source.lines)
+                                       if self.spec_source is not None else [])
         self.search_memos = {}
         self._root_packets = None
         self.scoped = None
@@ -422,7 +440,8 @@ class Search:
             prepared, retained_bytes, overflow_state = [], 0, None
             wire_limit = min(MAX_PREPARED_WIRE_BYTES,
                              max(0, self.cfg.max_calls - self.calls) * MAX_REQUEST_BYTES)
-            for batch, failed, wire in prepared_question_batches(state, questions):
+            for batch, failed, wire in prepared_question_batches(
+                    state, questions, controls=self.canaries):
                 key = hashlib.sha256(wire).hexdigest() if wire is not None else None
                 if wire is not None:
                     if retained_bytes + len(wire) <= wire_limit:
@@ -520,14 +539,26 @@ class Search:
                                      and choice_mass_diffuse(raw, places))
                     row["choice_mass_diffuse"] = diffuse
                     self.diffuse_answers += len(diffuse)
-                self.cache[ckey] = (answers, defects)
-                result.update(_copy_validated_answers(answers))
-                self.validated_questions += len(answers)
-                row.update(status="validated_partial" if defects else "validated",
-                           answers=plain(answers))
-                if defects:
-                    row["scoped"] = dict(defects)
-                self.record_answers(batch, answers, defects, region, phase)
+                own, answers, defects, passed = self.check_controls(
+                    batch, answers, defects, row)
+                if not passed:
+                    # ADR-6(4): the judge visibly malfunctioned on this
+                    # request. Withhold every answer it gave (no findings,
+                    # no clean coverage) and never ask it again.
+                    self.record_answers(own, answers, defects, region, phase)
+                    error, permanent = "judge_control_failed", True
+                    row["error"] = error
+                    self.issue(error, region, phase)
+                else:
+                    self.cache[ckey] = (answers, defects)
+                    result.update(_copy_validated_answers(answers))
+                    # Passing controls were validated answers too.
+                    self.validated_questions += len(answers) + len(batch) - len(own)
+                    row.update(status="validated_partial" if defects else "validated",
+                               answers=plain(answers))
+                    if defects:
+                        row["scoped"] = dict(defects)
+                    self.record_answers(own, answers, defects, region, phase)
             except ProviderError as exc:
                 # Only documented failure codes are recorded here; other
                 # exceptions are real defects and must reach the CLI's
@@ -588,6 +619,59 @@ class Search:
                                     "status": "not-dispatched", "sequence": None})
         return result
 
+    def check_controls(self, batch, answers, defects, row):
+        """Split the judge controls off one fresh response (ADR-6).
+
+        Returns (own batch, own answers, own defects, passed). A control
+        that is missing, refused or outside its pre-registered threshold
+        fails the request. A request without controls passes.
+        """
+        roles = ({qid: control_role(q) for qid, q in batch.items()
+                  if CONTROL_NAME.fullmatch(qid)} if self.canaries else {})
+        if not roles:
+            if self.canaries:
+                self.control_stats["requests_uncontrolled"] += 1
+            return batch, answers, defects, True
+        checked = {}
+        for qid, role in roles.items():
+            value = answers[qid]["noul"] if qid in answers else None
+            checked[qid] = {"role": role, "noul": str(value) if value is not None else None,
+                            "passed": control_passed(role, value)}
+        row["controls"] = checked
+        self.control_stats["requests_checked"] += 1
+        passed = all(item["passed"] for item in checked.values())
+        if not passed:
+            self.control_stats["requests_failed"] += 1
+        return ({qid: q for qid, q in batch.items() if qid not in roles},
+                {qid: a for qid, a in answers.items() if qid not in roles},
+                {qid: c for qid, c in defects.items() if qid not in roles}, passed)
+
+    def twin_report(self):
+        """Pairs and residuals of the polarity-twin diagnostic."""
+        residuals = self.twin_residuals
+        return {"pairs": len(residuals),
+                "mean_residual": (str((sum(residuals) / len(residuals)).quantize(
+                                      Decimal("0.000001"))) if residuals else None),
+                "max_residual": str(max(residuals)) if residuals else None}
+
+    def controls_report(self):
+        """The report's ``controls`` record; absent when canaries are off."""
+        if not self.canaries:
+            return {}
+        return {"controls": {"set": CONTROL_SET,
+                             "must_true_min": str(CONTROL_MUST_TRUE_MIN),
+                             "must_false_max": str(CONTROL_MUST_FALSE_MAX),
+                             **self.control_stats}}
+
+    def injection_report(self):
+        """``injection_markers``, present only when the local scan found any."""
+        if not self.injection_markers and not self.spec_injection_markers:
+            return {}
+        return {"injection_markers": {
+            "file": injection_markers.report(self.injection_markers),
+            "specification": (injection_markers.report(self.spec_injection_markers)
+                              if self.spec_source is not None else None)}}
+
     def gateway_defects(self, batch):
         """The last call's answer-scoped defects, from a ValidatedGateway only."""
         if not isinstance(self.gw, ValidatedGateway):
@@ -612,7 +696,8 @@ class Search:
         """One limitation per defective answer (ADR-3(5))."""
         for qid, code in defects.items():
             span = self.defect_span(qid, region)
-            self.issue(code, span, phase, affects=_ROUTING_QUESTION.fullmatch(qid) is None)
+            self.issue(code, span, phase, affects=(_ROUTING_QUESTION.fullmatch(qid) is None
+                                                   and _DIAGNOSTIC_QUESTION.fullmatch(qid) is None))
             if code == "question_refused":
                 self.suppressed.add((span.start, span.end))
 
@@ -666,7 +751,10 @@ class Search:
                 "confidence_identity_violations": self.identity_violations,
                 # Present only under opt-in rounding caps (ADR-4(3)).
                 **({"choice_mass_diffuse": self.diffuse_answers}
-                   if self.option_cap() is not None else {})},
+                   if self.option_cap() is not None else {}),
+                # Present only with Config.polarity_twin (ADR-6(6)).
+                **({"polarity_twin": self.twin_report()}
+                   if self.cfg.polarity_twin else {})},
             "banners": banners,
         }
 
@@ -717,7 +805,8 @@ class Search:
     def request_origins_for(self, state, questions):
         origins = []
         try:
-            for batch, failed, wire in prepared_question_batches(state, questions):
+            for batch, failed, wire in prepared_question_batches(
+                    state, questions, controls=self.canaries):
                 if failed:
                     origins.append({"request_sha256": None, "question_ids": [failed],
                                     "status": "preflight-failed", "sequence": None})
@@ -756,7 +845,10 @@ class Search:
         answers = self.ask(state, screening(self.pack, region, targets,
                                              bug_lenses=self.cfg.bug_lenses, state=state,
                                              max_page=(MAX_RANK_PAGE if cap is None
-                                                       else min(MAX_RANK_PAGE, cap - 2))),
+                                                       else min(MAX_RANK_PAGE, cap - 2)),
+                                             reserve_bytes=(CONTROL_RESERVE_BYTES
+                                                            if self.canaries else 0),
+                                             polarity_twin=self.cfg.polarity_twin),
                            region, phase)
         context = [{"start_line": e["start_line"], "end_line": e["end_line"]}
                    for e in state["excerpts"]]
@@ -774,6 +866,10 @@ class Search:
                     if answer is not None:
                         judgments[kind] = answer["noul"]
             score = max(judgments.values()) if judgments else None
+            mirror = answers.get("twin_" + span.id)
+            if mirror is not None and "screen" in judgments:
+                # Diagnostic only: never a judgment, score or support.
+                self.twin_residuals.append(abs(judgments["screen"] + mirror["noul"] - 1))
             group["scores"][span] = score
             self.observations.append({
                 "view_id": group["id"], "window_id": span.id,
@@ -1956,6 +2052,8 @@ class Search:
                 "spend": _spend(getattr(self.gw, "spend", None)),
                 "questions_validated": self.validated_questions,
                 **self.answer_quality(),
+                **self.controls_report(),
+                **self.injection_report(),
                 "calibration": dict(CALIBRATION),
                 "cache_hits": self.cache_hits, "windows_planned": self.window_count,
                 "findings": findings, "coverage": coverage,

@@ -48,7 +48,8 @@ select = ["E9", "F63", "F7", "F82"]
 [tool.mypy]
 files = ["decision_bug_hunter/providers.py", "decision_bug_hunter/decisions.py",
          "decision_bug_hunter/exchange.py", "decision_bug_hunter/hosted.py",
-         "decision_bug_hunter/openrouter.py", "decision_bug_hunter/secret_scan.py"]
+         "decision_bug_hunter/openrouter.py", "decision_bug_hunter/secret_scan.py",
+         "decision_bug_hunter/injection_markers.py"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 follow_imports = "silent"

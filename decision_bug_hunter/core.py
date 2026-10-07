@@ -138,6 +138,17 @@ LOCALIZATION_MENUS = ("intervals", "singletons")
 LEGACY_CHOICE_OPTIONS = {"choice_gate": "legacy", "choice_mass": Decimal("0.5"),
                          "localization_menu": "intervals",
                          "choice_rounding_caps": False}
+#: Judge controls (canaries, revision-3 WP-14, ADR-6): two noul questions with
+#: known answers ride in every request; a failed control withholds that
+#: request's answers. S12c showed adding them moved every other answer by
+#: exactly 0 and every control answered correctly (must-true 1, must-false 0)
+#: in S12c and S13a/b/c, so they default on. "off" is the b1 wire.
+CANARY_MODES = ("on", "off")
+DEFAULT_CANARIES = "on"
+#: Options ``Config.as_dict`` omits at these (b1) values, so a run with every
+#: one of them reproduces the pre-change report configuration byte for byte.
+LEGACY_OMITTED_OPTIONS = {**LEGACY_CHOICE_OPTIONS, "canaries": "off",
+                          "polarity_twin": False}
 
 
 @dataclass(frozen=True)
@@ -189,6 +200,12 @@ class Config:
     #: menus over the cap fall back to singletons, and choice_mass_diffuse
     #: is counted. No effect under strict mass. Default off.
     choice_rounding_caps: bool = False
+    #: Judge controls per request ("on", default, or "off" for the b1 wire).
+    canaries: str = DEFAULT_CANARIES
+    #: Diagnostic only (ADR-6(6), default off): ask every screened window the
+    #: inverted question too and report |P(bug) + P(correct) - 1|. Twin
+    #: answers never change a score, a finding or the scan status.
+    polarity_twin: bool = False
 
     def __post_init__(self):
         limits = ((self.width, 2, 4096), (self.min_width, 1, self.width),
@@ -231,6 +248,10 @@ class Config:
             raise ValueError("invalid_localization_menu")
         if type(self.choice_rounding_caps) is not bool:
             raise ValueError("invalid_choice_rounding_caps_flag")
+        if type(self.canaries) is not str or self.canaries not in CANARY_MODES:
+            raise ValueError("invalid_canaries")
+        if type(self.polarity_twin) is not bool:
+            raise ValueError("invalid_polarity_twin_flag")
         if self.drill_threshold > self.report_threshold:
             raise ValueError("drill_threshold_exceeds_report_threshold")
         if self.search_policy not in ("legacy-v1", "scoped-v2-beta"):
@@ -249,7 +270,7 @@ class Config:
     def as_dict(self):
         return {k: str(v) if isinstance(v, Decimal) else v
                 for k, v in asdict(self).items()
-                if k not in LEGACY_CHOICE_OPTIONS or v != LEGACY_CHOICE_OPTIONS[k]}
+                if k not in LEGACY_OMITTED_OPTIONS or v != LEGACY_OMITTED_OPTIONS[k]}
 
 
 def windows(span: Span, width: int, offsets: bool = True) -> list[Span]:

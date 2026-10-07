@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from decision_bug_hunter.core import Source, Span
 from decision_bug_hunter import protocol
+from decision_bug_hunter import questions as _questions
 
 KEY = "offline-synthetic-key-not-a-real-credential"
 
@@ -115,6 +116,31 @@ def source(n, text=None):
                   lines, "utf-8")
 
 
+_CONTROL_WORD = re.compile(r"Does any source line contain the word '([a-z]+)'\?\Z")
+_CONTROL_LINES = re.compile(r"Does state\.total_lines equal ([0-9]+)\?\Z")
+
+
+def control_answer(question, state):
+    """A correct judge's answer to a DBH control question (WP-14).
+
+    The OpenAI route appends the predicate criteria after a line break; the
+    control itself is the first line.
+    """
+    text = question["instructions"].split("\n", 1)[0]
+    word = _CONTROL_WORD.fullmatch(text)
+    if text == _questions.CONTROL_MUST_TRUE:
+        holds = bool(state.get("context_scope"))
+    elif word:
+        holds = word.group(1) in json.dumps(state, ensure_ascii=False).casefold()
+    else:
+        holds = int(_CONTROL_LINES.fullmatch(text).group(1)) == state.get("total_lines")
+    return {"type": "noul", "noul": 0.99 if holds else 0.01}
+
+
+def is_control(qid):
+    return _questions.CONTROL_NAME.fullmatch(qid) is not None
+
+
 def ranges(result):
     return {(f["start_line"], f["end_line"]) for f in result["findings"]}
 
@@ -128,16 +154,22 @@ class FixtureProvider:
     model_id = None
     synthetic = True
     rounding_places = 2
-    def __init__(self, bugs=(), *, override=None, need_packet=None):
+    def __init__(self, bugs=(), *, override=None, need_packet=None, control_override=None):
         self.bugs = [Span(*s) if isinstance(s, tuple) else s for s in bugs]
         self.override = override
         self.need_packet = need_packet
+        # control_override(qid, question, state) -> answer or None (WP-14).
+        self.control_override = control_override
         self.requests = []
 
     def contains_bug(self, span):
         return any(span.start <= b.start and b.end <= span.end for b in self.bugs)
 
     def answer(self, qid, q, state):
+        if is_control(qid):
+            answer = (self.control_override(qid, q, state)
+                      if self.control_override else None)
+            return answer if answer is not None else control_answer(q, state)
         parsed = spans_in(q["instructions"])
         target = parsed[0]
         answer = None
