@@ -415,7 +415,10 @@ class AttemptBookkeepingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             provider = SyntheticProvider(ProviderResponse({"q": {"type": "noul", "noul": .9}},
                                                          {"input_tokens": 17, "output_tokens": 3}))
-            gateway = ValidatedGateway(provider, td)
+            # The longest call deadline: under heavy machine load the intent
+            # write and directory sync can outlast the 30 s default, and the
+            # provider is then never called (no usage to book).
+            gateway = ValidatedGateway(provider, td, deadline_seconds=300)
             self.addCleanup(gateway.close)
             def fail_terminal(path, receipt):
                 if receipt["status"] != "dispatching":
