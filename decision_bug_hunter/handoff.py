@@ -412,16 +412,24 @@ def compact_report(report):
             row["limitations"] = f["limitations"]
         rows.append(row)
     # b1 shape (WP-08): scoped report 8 -> handoff 5, legacy 7 -> 4.
-    return {"schema_version": 5 if report["schema_version"] == 8 else 4, "source": report["source"],
-            "specification": report["specification"],
-            "specification_mode": report["specification_mode"],
-            "scan_status": report["scan_status"],
-            "handoff_status": report["handoff_status"],
-            "status": report["status"],
-            # A fixed DBH code or None (ADR-8(5)); never provider text.
-            "stop_reason": report.get("stop_reason"),
-            "basis": "static-model-assessment-only",
-            "line_numbering": "one-based-inclusive", "findings": rows}
+    handoff = {"schema_version": 5 if report["schema_version"] == 8 else 4,
+               "source": report["source"],
+               "specification": report["specification"],
+               "specification_mode": report["specification_mode"],
+               "scan_status": report["scan_status"],
+               "handoff_status": report["handoff_status"],
+               "status": report["status"],
+               # A fixed DBH code or None (ADR-8(5)); never provider text.
+               "stop_reason": report.get("stop_reason"),
+               "basis": "static-model-assessment-only",
+               "line_numbering": "one-based-inclusive", "findings": rows}
+    if "unverified_suspicions" in report:
+        # Verification gating (WP-17): present only when the run asked for
+        # it; coordinates and assessment only, never scores. Not findings.
+        handoff["unverified_suspicions"] = [
+            {"suspect": [u["start_line"], u["end_line"]], "assessment": u["assessment"]}
+            for u in report["unverified_suspicions"]]
+    return handoff
 
 
 def _range(bounds):
@@ -478,4 +486,9 @@ def format_handoff(handoff):
             optional.append("limitation: " + ",".join(f["limitations"]))
         if optional:
             lines.append("   " + " | ".join(optional))
+    unverified = handoff.get("unverified_suspicions")
+    if unverified:
+        lines.append("\nUNVERIFIED (no supporting recheck; not findings): " +
+                     ", ".join(f"{_range(u['suspect'])} [{u['assessment']}]"
+                               for u in unverified))
     return "\n".join(lines) + "\n"

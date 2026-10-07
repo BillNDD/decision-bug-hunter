@@ -18,7 +18,7 @@ import time
 from . import __version__
 from .claims import select_exploration, identity
 from .core import Config, Source, Span, _coverage, windows, multiscale
-from .core import contiguous_candidates, _window_count, _window_at
+from .core import contiguous_candidates, _window_count, _window_at, VERIFICATION_SUPPORT_PATHS
 from .evidence import EvidenceRef, evidence_label, fitting_pair_state, excerpt
 from .protocol import (ProviderError, encode_request, plain, validate_answer_objects, validate_usage,
                   CONTRACT_VERSION, MAX_QUESTIONS, MAX_REQUEST_BYTES, MAX_STATE_BYTES,
@@ -1961,6 +1961,11 @@ class Search:
                                     "score": str(answers["covered"]["noul"])})
         return selected
 
+    def verification_supported(self, span):
+        """True when a second look (VERIFICATION_SUPPORT_PATHS) supports span."""
+        return any(row["origin"] in VERIFICATION_SUPPORT_PATHS
+                   for row in self.support.get(span, ()))
+
     def finalize_relationship_promotions(self):
         """Order-independent relationship promotion (promotion invariant).
 
@@ -2021,13 +2026,19 @@ class Search:
         self.reassess_context_with_evidence()
         self.finalize_relationship_promotions()
         selected = self.reconcile()
+        # Verification gating (WP-17, opt-in) runs after reconciliation, so it
+        # never changes which suspicions exist, only which are reported as
+        # findings; withheld ones get no handoff judgment calls.
+        unverified = (sorted(s for s in selected if not self.verification_supported(s))
+                      if self.cfg.require_verification else [])
+        selected = selected.difference(unverified)
         assessed = [Span(o["start_line"], o["end_line"])
                     for o in self.observations if o["status"] == "scored"]
         coverage = _coverage(assessed, len(self.source.lines))
         complete = coverage["all_lines_assessed"] and not any(
             issue["affects_completion"] for issue in self.issues)
         scan_status = "complete" if complete else "incomplete"
-        from .handoff import annotate_findings, compact_report
+        from .handoff import annotate_findings, assessment, compact_report
         annotations = annotate_findings(self, selected)
         complete = complete and not any(i["affects_completion"] for i in self.issues)
         findings = [{"window_id": s.id, "start_line": s.start, "end_line": s.end,
@@ -2037,6 +2048,15 @@ class Search:
                      "support_paths": sorted({row["origin"] for row in self.support[s]}),
                      **annotations[s]}
                     for s in sorted(selected)]
+        gating = ({"unverified_suspicions": [
+            {"window_id": s.id, "start_line": s.start, "end_line": s.end,
+             "resolution": ("directly_rechecked" if s in self.verified
+                            else "unresolved_initial_suspicion"),
+             "assessment": assessment(self, s),
+             "reason": "no_supporting_recheck",
+             "support": self.support[s],
+             "support_paths": sorted({row["origin"] for row in self.support[s]})}
+            for s in unverified]} if self.cfg.require_verification else {})
         # b1 report shape (WP-08): legacy 7, scoped 8; handoff 4 / 5.
         result = {"schema_version": 8 if self.scoped else 7, "tool_version": __version__, "contract": CONTRACT_VERSION,
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
@@ -2090,7 +2110,7 @@ class Search:
                 **self.geometry_report(),
                 "calibration": dict(CALIBRATION),
                 "cache_hits": self.cache_hits, "windows_planned": self.window_count,
-                "findings": findings, "coverage": coverage,
+                "findings": findings, **gating, "coverage": coverage,
                 "windows": self.observations, "requests": self.trace,
                 "events": self.events, "issues": self.issues,
                 "rechecks": self.rechecks, "existence_checks": self.existence_checks,

@@ -95,6 +95,17 @@
     answer across batch geometries); OpenAI direct keeps 64 questions and
     24 KiB, as does every request under `instructions`. Library callers pass
     `policy_placement` to `providers.make_provider`.
+- `--require-verification` (library: `Config(require_verification=True)`;
+  default off, whose reports are unchanged and pinned by a test). Only
+  suspicions supported by a second look are reported as findings: a
+  supporting direct recheck, a promoted relationship recheck, or under
+  scoped-v2-beta a supported scoped verification. Screen-only suspicions
+  are listed instead under `unverified_suspicions` in report.json (range,
+  window id, assessment, support and support paths) and handoff.json
+  (range and assessment), and on an `UNVERIFIED` line in findings.txt;
+  they are not findings, do not count toward the exit status, and get no
+  handoff judgment calls. The search itself is unchanged. The
+  configuration records `require_verification` only when on.
 
 ## 0.1.0b1 (2026-10-06)
 

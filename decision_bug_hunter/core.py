@@ -151,7 +151,14 @@ DEFAULT_CANARIES = "on"
 #: one of them reproduces the pre-change report configuration byte for byte.
 LEGACY_OMITTED_OPTIONS = {**LEGACY_CHOICE_OPTIONS, "canaries": "off",
                           "polarity_twin": False,
-                          "policy_placement": DEFAULT_POLICY_PLACEMENT}
+                          "policy_placement": DEFAULT_POLICY_PLACEMENT,
+                          "require_verification": False}
+#: Support paths that count as a second look under ``require_verification``
+#: (revision-3 WP-17): a supporting direct recheck, a promoted relationship
+#: recheck, or (scoped-v2-beta) a supported scoped verification of the claim.
+#: A screen alone does not.
+VERIFICATION_SUPPORT_PATHS = ("direct_recheck", "relationship_recheck",
+                              "scoped_verification")
 
 
 @dataclass(frozen=True)
@@ -215,6 +222,10 @@ class Config:
     #: a provider that declares raised caps (OpenRouter: 200 questions,
     #: 48 KiB) packs those requests to them; OpenAI direct keeps 64 / 24 KiB.
     policy_placement: str = DEFAULT_POLICY_PLACEMENT
+    #: Verification gating (revision-3 WP-17, default off): report only
+    #: suspicions whose support includes a VERIFICATION_SUPPORT_PATHS entry;
+    #: the rest are listed as ``unverified_suspicions``, not findings.
+    require_verification: bool = False
 
     def __post_init__(self):
         limits = ((self.width, 2, 4096), (self.min_width, 1, self.width),
@@ -264,6 +275,8 @@ class Config:
         if (type(self.policy_placement) is not str
                 or self.policy_placement not in POLICY_PLACEMENTS):
             raise ValueError("invalid_policy_placement")
+        if type(self.require_verification) is not bool:
+            raise ValueError("invalid_require_verification_flag")
         if self.drill_threshold > self.report_threshold:
             raise ValueError("drill_threshold_exceeds_report_threshold")
         if self.search_policy not in ("legacy-v1", "scoped-v2-beta"):

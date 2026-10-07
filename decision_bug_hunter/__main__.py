@@ -141,6 +141,11 @@ def parser() -> argparse.ArgumentParser:
                         help="Diagnostic only (default: off): also ask each screened window "
                              "the inverted question and report |P(bug) + P(correct) - 1| in "
                              "judge_diagnostics.polarity_twin; never changes findings.")
+    result.add_argument("--require-verification", action="store_true",
+                        help="Report only suspicions supported by a second look (a direct "
+                             "recheck, a relationship recheck, or a scoped verification); "
+                             "screen-only suspicions are listed as unverified_suspicions in "
+                             "report.json and handoff.json, not as findings (default: off).")
     result.add_argument("--max-handoff-candidates", type=int, default=64,
                         help="Candidate cap per reference kind per finding; omissions are flagged.")
     result.add_argument("--no-bug-lenses", action="store_true",
@@ -408,6 +413,7 @@ def execute(args: argparse.Namespace) -> int:
         canaries=args.canaries,
         polarity_twin=args.polarity_twin,
         policy_placement=args.policy_placement,
+        require_verification=args.require_verification,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.
@@ -536,8 +542,12 @@ def execute(args: argparse.Namespace) -> int:
     status = "complete" if complete else "incomplete"
     attempted = result["calls_attempted"]
     assessed = result["coverage"]["assessed_lines"]
+    withheld = ""
+    if "unverified_suspicions" in result:
+        withheld = (f" ({len(result['unverified_suspicions'])} unverified suspicion(s) "
+                    "withheld by --require-verification)")
     print(
-        f"Scan {status}; {count} suspected region(s); {attempted} call(s) "
+        f"Scan {status}; {count} suspected region(s){withheld}; {attempted} call(s) "
         f"attempted; {assessed}/{len(source.lines)} source lines assessed.",
         file=sys.stderr,
     )
