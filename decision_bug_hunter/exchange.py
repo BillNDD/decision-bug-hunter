@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+import errno
 import http.client
 import io
 import json
@@ -236,6 +237,15 @@ class _Response(http.client.HTTPResponse):
                 except (OSError, ValueError):
                     self.leftover = True
         super()._close_conn()  # type: ignore[misc]
+
+
+def _set_nodelay(sock: Any) -> None:
+    """TCP_NODELAY, set as ``http.client`` sets it: only ENOPROTOOPT is ignored."""
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except OSError as exc:
+        if exc.errno != errno.ENOPROTOOPT:
+            raise
 
 
 def _default_readable(sock: Any) -> bool:
@@ -553,6 +563,7 @@ class HttpsExchange:
             raw = connect_addresses(self.host, self.port, deadline, resolve=self._resolve,
                                     make_socket=self._make_socket)
         try:
+            _set_nodelay(raw)
             remaining = deadline.remaining()
             if remaining <= 0:
                 raise TimeoutError("deadline reached")
