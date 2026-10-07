@@ -261,6 +261,10 @@ class HostedProvider:
         key = env.get(self.route.credential_variable, "") if api_key is None else api_key
         self._api_key = token(key)
         self._credentials = configured_credentials(env, self._api_key)
+        # One slot: the last wire_size encode, (payload, max questions, body,
+        # questions), for the decide call that follows it. Only ever a hit
+        # when the payload and limits are equal, so it cannot change bytes.
+        self._encoded: tuple[bytes, int, bytes, dict[str, Any]] | None = None
 
     @property
     def request_limits(self) -> tuple[int, int]:
@@ -369,6 +373,8 @@ class HostedProvider:
 
     def _prepare(self, request: ProviderRequest
                  ) -> tuple[bytes, dict[str, Any], dict[str, str], float]:
+        # Taken before anything can refuse, so no refusal leaves a memo behind.
+        memo, self._encoded = self._encoded, None
         self.require_available()
         assert self._api_key is not None
         if type(request) is not ProviderRequest:
@@ -383,7 +389,12 @@ class HostedProvider:
         max_questions, max_bytes = self.payload_limits(request.payload)
         if len(request.payload) > max_bytes:
             raise ProviderError("request_too_large")
-        body, questions = self.encode(request.payload, max_questions)
+        if (memo is not None and memo[1] == max_questions
+                and memo[0] == request.payload):
+            # The same payload under the same limits encodes to the same bytes.
+            body, questions = memo[2], memo[3]
+        else:
+            body, questions = self.encode(request.payload, max_questions)
         if len(questions) > max_questions:
             raise ProviderError("request_too_large")
         if any(_secret_in(credential, [body]) for credential in self._credentials):
@@ -397,14 +408,18 @@ class HostedProvider:
         """Bytes of the wire body ``payload`` would be sent as, or None.
 
         Used only to bound the cost of an attempt before it is dispatched
-        (ADR-9(3)); nothing is sent and no credential is involved.
+        (ADR-9(3)); nothing is sent and no credential is involved. The encode
+        is kept in the one-slot memo for the ``decide`` call that follows.
         """
+        self._encoded = None
         if type(payload) is not bytes:
             return None
+        max_questions = self.payload_limits(payload)[0]
         try:
-            body, _questions = self.encode(payload, self.payload_limits(payload)[0])
+            body, questions = self.encode(payload, max_questions)
         except ProviderError:
             return None
+        self._encoded = (payload, max_questions, body, questions)
         return len(body)
 
     def close(self) -> None:
