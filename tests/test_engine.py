@@ -125,7 +125,9 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(result["coverage"]["unassessed_ranges"])
 
     def test_question_budget_is_not_request_budget(self):
-        result,provider=self.run_case(max_questions=12)
+        # Below every batch this 48-line scan builds (pack v2 batches are
+        # 19/19/18/12 questions), so no batch may be dispatched.
+        result,provider=self.run_case(max_questions=11)
         self.assertEqual(len(provider.requests),0)
         self.assertEqual(result["status"],"incomplete")
         self.assertEqual(result["questions_attempted"],0)

@@ -291,7 +291,7 @@
   {
    "id": "S09",
    "file": "S09-long-instruction.json",
-   "purpose": "Instruction of 13025 characters: length acceptance.",
+   "purpose": "Instruction of 13233 characters: length acceptance.",
    "repeat": 1,
    "expect": "ok"
   },

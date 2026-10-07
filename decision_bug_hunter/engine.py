@@ -26,7 +26,7 @@ from .protocol import (ProviderError, encode_request, plain, validate_answer_obj
 from .providers import Classification, ValidatedGateway, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
-                        evidence_noul, LENS_KINDS)
+                        evidence_noul, LENS_KINDS, policy, _ordered_state)
 
 
 MAX_PREPARED_WIRE_BYTES = 1024 * 1024
@@ -312,7 +312,8 @@ class Search:
         """Byte-bounded batches; dependent decisions require a later request."""
         # Every judge request carries the caller's declared scope (project-scope
         # fix); the judge sees the declaration, never an inference task.
-        state = {**state, "context_scope": self.context_scope}
+        # Every request state is laid out by the one STATE_LAYOUT helper.
+        state = _ordered_state({**state, "context_scope": self.context_scope})
         result = {}
         if self.expired(region, phase):
             if origins is not None:
@@ -590,7 +591,7 @@ class Search:
                 "state_sha256": digest(state) if state_sha256 is None else state_sha256})
 
     def view(self, region, targets, depths, state, phase):
-        state = {**state, "context_scope": self.context_scope}
+        state = _ordered_state({**state, "context_scope": self.context_scope})
         remaining = self.cfg.max_windows - self.window_count
         if len(targets) > remaining:
             self.issue("window_budget_exhausted", region, phase)
@@ -874,6 +875,7 @@ class Search:
                 self.issue(exc.code, target, "verify")
                 continue
             admitted += 1
+        state = _ordered_state(state)
         view = {**group, "id": f"SV{len(self.groups) + 1}", "state": state,
                 "region": target, "targets": [target], "scores": {}, "priority": [],
                 "phase": "claim-evidence"}
@@ -1394,6 +1396,7 @@ class Search:
                 supplied.append(ref.id)
             if not supplied:
                 continue  # No new facts; do not ask for a different opinion.
+            state = _ordered_state(state)
             state_hash = digest(state)
             identity = (region.id, state_hash)
             if identity in self.context_reassessed_states:
@@ -1499,6 +1502,7 @@ class Search:
                 state["investigation_evidence"].pop()
                 state["investigation"]["omitted_evidence_count"] += 1
                 self.issue("action_evidence_payload_limited", target, "action")
+        state = _ordered_state(state)
         group = {**base, "id": f"A{len(self.groups) + 1}", "region": target,
                  "targets": [target], "state": state, "phase": "action"}
         self.groups.append(group)
@@ -1542,14 +1546,14 @@ class Search:
                 continue_q = noul(self.pack, "continue_investigation", target)
                 action_q = action_choice(self.pack, target, options)
                 if self.scoped:
-                    continue_q = {"type": "noul", "instructions": self.pack["policy"] +
+                    continue_q = {"type": "noul", "instructions": policy(self.pack) +
                         f" For {target_text(target)}, is at least one remaining nonterminal action "
                         "in investigation.available_actions expected to materially improve the supplied "
                         "evidence? Exclude retain and finish. Already completed work and a merely "
                         "possible additional bug do not by themselves warrant another step.",
                         "criteria": {"true": "A remaining nonterminal operation can materially improve evidence.",
                                      "false": "No remaining nonterminal operation is warranted by this evidence."}}
-                    action_q["instructions"] = (self.pack["policy"] + f" For {target_text(target)}, " +
+                    action_q["instructions"] = (policy(self.pack) + f" For {target_text(target)}, " +
                         "which listed action most usefully improves the supplied evidence? Choose " +
                         "retain or finish only when no remaining nonterminal action would materially improve it.")
                 answers = self.ask(action_group["state"],

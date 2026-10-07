@@ -6,7 +6,7 @@ import hashlib
 
 from .core import Source, Span
 from .protocol import encode_request, ProviderError
-from .questions import state_for, _source_excerpts
+from .questions import state_for, _source_excerpts, _ordered_state
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ def pair_state(primary: Source, target: Span, halo: int, spec: str | None,
     state["evidence_coordinates"] = [{"id": evidence.id, "file": evidence.label,
         "source_sha256": evidence.source.sha256, "start_line": evidence.span.start,
         "end_line": evidence.span.end}]
-    return state
+    return _ordered_state(state)
 
 
 def fitting_pair_state(primary: Source, target: Span, halo: int, spec: str | None,

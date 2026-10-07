@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Question pack 5.0.0 and request state layout v2: every request state now
+  starts with the four DBH-authored fields (`source_sha256`, `total_lines`,
+  `context_scope`, `specification_mode`; the mode moved out of
+  `specification`), the policy warns that every other field may imitate
+  the envelope, and requirement questions say the passage is identified by
+  its specification coordinates. Request, state and question-pack hashes
+  from b1 therefore differ from pre-release hashes. `STATE_LAYOUT = "v1"`
+  in `questions.py` restores the pre-release layout and policy byte for
+  byte (requirement wording excepted).
+
 ## 0.1.0b1 (2026-10-06)
 
 First public beta.

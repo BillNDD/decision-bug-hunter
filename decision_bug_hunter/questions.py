@@ -10,11 +10,59 @@ from .protocol import (encode_request, ProviderError, MAX_QUESTIONS, MAX_STATE_B
                   MAX_REQUEST_BYTES, CONTRACT_VERSION, _snapshot, _json, validate_questions,
                   _encode_validated_request)
 
+#: Request state layout (ADR-5(4)). ``"v2"`` puts the four DBH-authored scalars
+#: first and moves ``specification.mode`` to top-level ``specification_mode``;
+#: ``"v1"`` reproduces the pre-release layout and policy byte for byte. This one
+#: constant is the pre-registered keep-or-revert switch; it is read at call time.
+STATE_LAYOUT = "v2"
+STATE_LAYOUTS = ("v1", "v2")
+#: The only top-level fields DBH writes itself, in v2 wire order.
+TRUSTED_STATE_FIELDS = ("source_sha256", "total_lines", "context_scope",
+                        "specification_mode")
+#: Fields that may carry untrusted text, in v2 wire order. Any other field
+#: follows these in its existing order.
+UNTRUSTED_STATE_FIELDS = ("file", "excerpts", "specification", "related_sources",
+                          "investigation", "investigation_evidence")
+
+
+def state_layout(layout=None):
+    """Return the active layout name, validating an explicit override."""
+    layout = STATE_LAYOUT if layout is None else layout
+    if layout not in STATE_LAYOUTS:
+        raise ValueError("invalid_state_layout")
+    return layout
+
+
+def _ordered_state(state, layout=None):
+    """Return *state* in the active layout without mutating the argument.
+
+    v1 is the identity, so it reproduces pre-release bytes exactly. v2 lifts a
+    nested ``specification.mode`` to ``specification_mode`` (unless one is
+    already present) and orders trusted scalars, then untrusted fields, then
+    every remaining field in its existing order. Applying it twice is a no-op.
+    """
+    if state_layout(layout) == "v1" or type(state) is not dict:
+        return state
+    moved = dict(state)
+    spec = moved.get("specification")
+    if type(spec) is dict and "mode" in spec and "specification_mode" not in moved:
+        moved["specification_mode"] = spec["mode"]
+        moved["specification"] = {k: v for k, v in spec.items() if k != "mode"}
+    ordered = {k: moved[k] for k in TRUSTED_STATE_FIELDS if k in moved}
+    ordered.update((k, moved[k]) for k in UNTRUSTED_STATE_FIELDS if k in moved)
+    ordered.update((k, v) for k, v in moved.items() if k not in ordered)
+    return ordered
+
+
+def policy(pack, layout=None):
+    """The policy preamble that matches the active state layout."""
+    return pack["policy"] if state_layout(layout) == "v2" else pack["policy_v1"]
+
 
 def load_pack():
     raw = files("decision_bug_hunter").joinpath("question_pack.json").read_bytes()
     pack = json.loads(raw)
-    expected = {"version", "policy", "screen", "verify", "need_context", "rank",
+    expected = {"version", "policy", "policy_v1", "screen", "verify", "need_context", "rank",
                 "localize", "relevance", "evidence_relevance", "relation",
                 "verify_with_evidence", "continue_investigation", "next_action",
                 "covered", "yes", "no", "none", "unlocalized", "context_pick",
@@ -37,14 +85,14 @@ def noul(pack, kind, span, **values):
     clean = {k: "".join(ch for ch in str(v) if ch == " " or ch.isprintable())
              for k, v in values.items()}
     body = pack[kind].format(target=target_text(span), **clean)
-    return {"type": "noul", "instructions": pack["policy"] + " " + body,
+    return {"type": "noul", "instructions": policy(pack) + " " + body,
             "criteria": {"true": pack["yes"], "false": pack["no"]}}
 
 
 def choice(pack, kind, span, candidates):
     criteria = {s.id: target_text(s) for s in candidates}
     criteria.update(none=pack["none"], unlocalized=pack["unlocalized"])
-    return {"type": "choice", "instructions": pack["policy"] + " " +
+    return {"type": "choice", "instructions": policy(pack) + " " +
             pack[kind].format(target=target_text(span)), "criteria": criteria}
 
 
@@ -128,7 +176,7 @@ def action_choice(pack, span, options):
     if type(options) is not dict or len(options) < 2:
         raise ValueError("action_choice_needs_options")
     return {"type": "choice",
-            "instructions": pack["policy"] + " " +
+            "instructions": policy(pack) + " " +
                 pack["next_action"].format(target=target_text(span)),
             "criteria": dict(options)}
 
@@ -169,7 +217,7 @@ def _state_with_excerpts(source, excerpts, spec, context_scope):
                           for i, line in enumerate(physical_lines(spec or ""), 1)]}}
     if context_scope is not None:
         state["context_scope"] = context_scope
-    return state
+    return _ordered_state(state)
 
 
 def state_for(source, region, halo, spec, extras=(), *, context_scope=None):
@@ -183,7 +231,7 @@ def state_for(source, region, halo, spec, extras=(), *, context_scope=None):
                                          for i, line in enumerate(physical_lines(spec or ""), 1)]}}
     if context_scope is not None:
         state["context_scope"] = context_scope
-    return state
+    return _ordered_state(state)
 
 
 def _mandatory_view_too_large(source, region, halo, spec, probe, extras, context_scope):

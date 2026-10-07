@@ -118,7 +118,7 @@ def numbered_text(state: dict) -> str:
     spec = state["specification"]
     rows = [f"file: {state['file']}  sha256: {state['source_sha256']}  total_lines: {state['total_lines']}",
             f"context_scope: {state.get('context_scope')}",
-            f"specification.mode: {spec['mode']}"]
+            f"specification_mode: {state['specification_mode']}"]
     rows += [f"  R{line['line']}| {line['text']}" for line in spec["lines"]]
     for excerpt in state["excerpts"]:
         rows.append(f"source excerpt, lines {excerpt['start_line']}-{excerpt['end_line']}:")
@@ -144,7 +144,7 @@ def yes_no(instructions: str) -> dict:
 
 def build() -> list[dict]:
     pack, _ = qmod.load_pack()
-    policy = pack["policy"]
+    policy = qmod.policy(pack)
     entries: list[dict] = []
 
     def add(sid, name, request, purpose, **meta):
