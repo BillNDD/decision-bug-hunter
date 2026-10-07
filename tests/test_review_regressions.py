@@ -273,8 +273,18 @@ class StateAndBudgetRepairTests(unittest.TestCase):
                     "probabilities": {key: .5 if key in ("L1-1", "L2-2") else 0 for key in q["criteria"]}}
         for cutoff, expected in ((.5, {(1, 1), (2, 2)}), (.6, {(1, 2)})):
             provider = FixtureProvider([(1, 1), (2, 2)], override=override)
-            report = scan(source(2), provider, config(min_width=2, max_localizations=2, choice_confidence=cutoff))
+            report = scan(source(2), provider, config(min_width=2, max_localizations=2,
+                                                      choice_confidence=cutoff,
+                                                      choice_gate="legacy"))
             self.assertEqual(ranges(report), expected)
+            self.assertEqual(sum("where" in r["questions"] for r in provider.requests), 1)
+        # The default mass gate ignores the confidence cutoff and selects the
+        # maximal line run whose per-line mass reaches 0.5: lines 1-2.
+        for cutoff in (.5, .6):
+            provider = FixtureProvider([(1, 1), (2, 2)], override=override)
+            report = scan(source(2), provider, config(min_width=2, max_localizations=2,
+                                                      choice_confidence=cutoff))
+            self.assertEqual(ranges(report), {(1, 2)})
             self.assertEqual(sum("where" in r["questions"] for r in provider.requests), 1)
 
     def test_rank_pages_fit_bytes_and_keep_every_candidate(self):

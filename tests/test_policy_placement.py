@@ -7,6 +7,7 @@ question that carried it; only such requests may use a route's raised caps
 (OpenRouter: 200 questions and 48 KiB, after S12b moved no answer across
 batch geometries). OpenAI direct keeps 64 questions and 24 KiB.
 """
+from dataclasses import replace
 from decimal import Decimal
 import json
 from pathlib import Path
@@ -42,8 +43,9 @@ WIDE = RequestEnvelope(POLICY_V1, STATE_PLACEMENT_MAX_QUESTIONS,
                        STATE_PLACEMENT_MAX_REQUEST_BYTES)
 NARROW = RequestEnvelope(POLICY_V1)
 
-# (wire sha256, report sha256) of the pinned scenarios with every default,
-# canaries on included, produced by the build before WP-13 (HEAD 599a1c6).
+# (wire sha256, report sha256) of the pinned scenarios with every default
+# except the gate (scenarios() passes choice_gate "legacy"), canaries on
+# included, produced by the build before WP-13 (HEAD 599a1c6).
 PRE_WP13 = {
     "legacy": ("6f4823a49d87418d66a4144036d5e714a5058b9f24e4c1187e7c2ddf2cbe319d",
                "7865a120b2428ebbee0805b752a27197fb2052afb7d965e4767ad0a40a4470d2"),
@@ -59,6 +61,26 @@ PRE_WP13 = {
                        "352da8d2c71ec58732cb54e0b4256d7328e6c749d288db79487c837dd7bb37cc"),
     "context": ("ba687d017d67e34297246887e059f9e87dc28daf2b8c3ee33fc693897b09776c",
                 "07e34c6cdfdc5baf0c8619c9f69b147f0e959f7d946db51c465fe0dea797aed5"),
+}
+
+# (wire sha256, report sha256) of the same scenarios with the shipped
+# defaults after the mass gate became the default: choice_gate "mass",
+# canaries on, placement instructions.
+SHIPPED_DEFAULT = {
+    "legacy": ("a68a47dcb4432f4dc3ad92b24ac1534243af3d1d82487da4f2b08286b5cc9bb5",
+               "bfd88681ae84c31706492172349f916407e40a641464a5c6383c7946e6ead230"),
+    "scoped": ("ed8fdcb46a3cdf7e8cf3a4c50749a7095eb2f5cc55fbd5aa017e234d7223b9b1",
+               "d0656a365052f8623e741c6de208f6e18b39f089cd9a0dea8acdb0f12ffd2a35"),
+    "legacy_spec": ("5f380ac314e02c0b272563af846704cff5d306966d0c7d7746848d0794104a0d",
+                    "73f274cba15b7d3d10935470c6abc79b7107a481474186f7dd887be63010b6e5"),
+    "strict": ("a68a47dcb4432f4dc3ad92b24ac1534243af3d1d82487da4f2b08286b5cc9bb5",
+               "4be013649a15184ea75460b4a2a39723c2a5d065f42750aa94d5410912fd6749"),
+    "diffuse": ("197b2fae88a506c37cc7439e35e9231f87b44c5e784aa92f2b0d68428326f05d",
+                "a8c56f48ab500b07388b16a71adc3b58e89d9a2b345166bf14e61113e0e747a8"),
+    "diffuse_scoped": ("f0ec532b9d151f526c3030821e2caebe81d7788d1282f53de426bba80df58824",
+                       "802c6edd0c475c48b83fccc02755b29d4f5ba4c41275d56ac658ced170eb5428"),
+    "context": ("8ffc4e7742abcfe792d2200a899a697b0a243d77c8f04883aa98296065d195f8",
+                "1db0e78c79821c0a0dc41774c6b52eee705c33b251bd0c7de3d15fdb13d9b7cb"),
 }
 
 
@@ -112,7 +134,8 @@ class Wide(FixtureProvider):
 
 class DefaultWireTests(unittest.TestCase):
     def test_default_wire_byte_identical_to_b1(self):
-        # Every default, canaries on: the bytes and reports of 599a1c6.
+        # Every default except the gate (scenarios() passes choice_gate
+        # "legacy"), canaries on: the bytes and reports of 599a1c6.
         for name, (provider, src, cfg, kwargs) in scenarios(canaries="on").items():
             with self.subTest(name):
                 self.assertEqual(cfg.policy_placement, "instructions")
@@ -126,6 +149,21 @@ class DefaultWireTests(unittest.TestCase):
         provider, src, cfg, kwargs = scenarios(canaries="on")["legacy"]
         wide = Wide(provider.bugs)
         self.assertEqual(digests(wide, src, cfg, **kwargs), PRE_WP13["legacy"])
+
+    def test_shipped_default_wire_and_reports_pinned(self):
+        # The shipped defaults (choice_gate "mass", canaries on): every
+        # scenario with the gate left at its default. scoped-v2-beta never
+        # gates localization, so its wires equal the legacy-gate pins; only
+        # its report (configuration and policy_sha256) changes.
+        for name, (provider, src, cfg, kwargs) in scenarios(canaries="on").items():
+            cfg = replace(cfg, choice_gate=Config().choice_gate)
+            with self.subTest(name):
+                self.assertEqual(cfg.choice_gate, "mass")
+                self.assertEqual(digests(provider, src, cfg, **kwargs), SHIPPED_DEFAULT[name])
+        for name in ("scoped", "diffuse_scoped"):
+            with self.subTest(f"{name} wire"):
+                self.assertEqual(SHIPPED_DEFAULT[name][0], PRE_WP13[name][0])
+                self.assertNotEqual(SHIPPED_DEFAULT[name][1], PRE_WP13[name][1])
 
     def test_default_packer_reproduces_committed_s02s_bytes(self):
         state, questions, wires = s02s()

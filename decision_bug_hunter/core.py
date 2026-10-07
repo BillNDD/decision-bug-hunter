@@ -131,12 +131,19 @@ STATE_LAYOUTS = ("v1", "v2")
 DEFAULT_STATE_LAYOUT = "v1"
 #: Localization choice gates (ADR-4(5)): "legacy" is min(confidence,
 #: p[choice]) >= choice_confidence; "mass" is the per-line overlap rule.
+#: "mass" is the default: on the 34-case development suite it localized the
+#: separated-defects case under legacy-v1 (31/34 -> 32/34) with every
+#: corrected control still clear and the same cost. It gates legacy-v1
+#: localization only; "legacy" stays selectable.
 CHOICE_GATES = ("legacy", "mass")
+DEFAULT_CHOICE_GATE = "mass"
 #: Localization menus (F15): every complete interval, or one option per line.
 LOCALIZATION_MENUS = ("intervals", "singletons")
 #: Revision-3 WP-15 options and their legacy values. ``Config.as_dict`` omits
-#: an option while it holds its legacy value, so default reports, search ids
-#: and scoped policy hashes stay byte-identical to the pre-WP-15 build.
+#: an option while it holds its legacy value, so a run with every legacy value
+#: (``choice_gate="legacy"`` included) keeps reports, search ids and scoped
+#: policy hashes byte-identical to the pre-WP-15 build. The default gate is
+#: "mass", so default reports record ``choice_gate: "mass"``.
 LEGACY_CHOICE_OPTIONS = {"choice_gate": "legacy", "choice_mass": Decimal("0.5"),
                          "localization_menu": "intervals",
                          "choice_rounding_caps": False}
@@ -196,11 +203,13 @@ class Config:
     #: the scan. "v1" (default) is the pre-release layout; "v2" puts the
     #: DBH-authored scalars first and adds the imitation warning.
     state_layout: str = DEFAULT_STATE_LAYOUT
-    #: Localization gate (revision-3 WP-15, default "legacy"). "mass" selects
+    #: Localization gate (revision-3 WP-15, default "mass"). "mass" selects
     #: up to localization_beam_width maximal line runs whose lower-bound
     #: overlap mass reaches choice_mass, and only while none + unlocalized
-    #: (plus undisplayed mass) stays below one half. legacy-v1 only.
-    choice_gate: str = "legacy"
+    #: (plus undisplayed mass) stays below one half. "legacy" is
+    #: min(confidence, p[choice]) >= choice_confidence. legacy-v1 only;
+    #: scoped-v2-beta does not gate localization.
+    choice_gate: str = DEFAULT_CHOICE_GATE
     choice_mass: Decimal = Decimal("0.5")
     #: Localization menu: "intervals" (every complete interval of the
     #: target, default) or "singletons" (one option per line, k <= 22).

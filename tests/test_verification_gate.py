@@ -175,8 +175,9 @@ class GatingTests(unittest.TestCase):
         self.assertIn("require_verification", result["configuration"])
 
     def test_default_reports_byte_identical_to_pre_wp17(self):
-        # Every default (canaries on), the flag named explicitly off: the
-        # wire and report digests of 7c6896c / 599a1c6.
+        # Every default except the gate (scenarios() passes choice_gate
+        # "legacy"), canaries on, the flag named explicitly off: the wire
+        # and report digests of 7c6896c / 599a1c6.
         for name, (provider, src, cfg, kwargs) in scenarios(
                 canaries="on", require_verification=False).items():
             with self.subTest(name):

@@ -50,8 +50,14 @@ class EngineTests(unittest.TestCase):
             "Bug suspected between lines 17 and 18.\nBug suspected between lines 64 and 65.\n")
 
     def test_multiple_bugs_inside_one_terminal_region(self):
-        result, _ = self.run_case(12,[(2,2),(9,9)])
+        # The legacy gate re-asks with a shrunken menu after each pick.
+        result, _ = self.run_case(12,[(2,2),(9,9)], choice_gate="legacy")
         self.assertEqual(ranges(result), {(2,2),(9,9)})
+        # The default mass gate asks one menu per target. This fixture judge
+        # puts all of the menu's mass on the first defect, so the second one
+        # stays reported as its parent region instead of being localized.
+        result, _ = self.run_case(12,[(2,2),(9,9)])
+        self.assertEqual(ranges(result), {(2,2),(1,12)})
 
     def test_boundary_crossing_is_visible_through_offset(self):
         result, _ = self.run_case(96,[(48,49)])

@@ -60,9 +60,10 @@ def fixture_wires():
 
 
 def scan_digest(**options):
-    # The pre-release pins predate the judge controls (WP-14): canaries off
-    # unless a test asks otherwise.
-    options = {"canaries": "off", **options}
+    # The pre-release pins predate the judge controls (WP-14) and the mass
+    # gate default: canaries off and the legacy gate unless a test asks
+    # otherwise.
+    options = {"canaries": "off", "choice_gate": "legacy", **options}
     provider = FixtureProvider([(5, 5)])
     result = scan(source(12), provider, Config(whole_file=False, **options))
     raw = json.dumps(provider.requests, ensure_ascii=False, separators=(",", ":")).encode()
@@ -227,7 +228,8 @@ class StateLayoutTests(unittest.TestCase):
             self.assertEqual(list(request["state"])[:4], list(TRUSTED_STATE_FIELDS))
 
     def test_default_engine_requests_use_v1(self):
-        for options in ({}, {"search_policy": "scoped-v2-beta"}):
+        for options in ({}, {"search_policy": "scoped-v2-beta"},
+                        {"choice_gate": "mass"}):
             _, provider, _ = scan_digest(**options)
             self.assertTrue(provider.requests)
             for request in provider.requests:

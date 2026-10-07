@@ -144,11 +144,14 @@ needed (see `NEED_USER_INPUT`).
 
 ## Flags and defaults
 
-Defaults are the shipped configuration. The tier-2 options (`--choice-gate`,
-`--localization-menu`, `--choice-rounding-caps`, `--policy-placement`,
-`--require-verification`, `--polarity-twin`, `--state-layout v2`) are
-opt-in, and most were measured live only on a small development suite; see
-[Evidence and limits](#evidence-and-limits) before turning one on.
+Defaults are the shipped configuration. The localization gate defaults to
+`--choice-gate mass`, chosen after a live comparison on the development
+suite; `--choice-gate legacy` restores the earlier gate. The other tier-2
+options (`--localization-menu`, `--choice-rounding-caps`,
+`--policy-placement`, `--require-verification`, `--polarity-twin`,
+`--state-layout v2`) are opt-in, and most were measured live only on a
+small development suite; see [Evidence and limits](#evidence-and-limits)
+before turning one on.
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -164,7 +167,7 @@ opt-in, and most were measured live only on a small development suite; see
 | `--state-layout` | `v1` | `v2` puts the DBH-written state fields first and adds an imitation warning to the policy text. |
 | `--policy-placement` | `instructions` | `state` sends the policy text once as the first state key instead of in every question. |
 | `--canaries` | `on` | Two judge-control questions with known answers in every request; `off` removes them. |
-| `--choice-gate` | `legacy` | Localization gate. `legacy`: min(confidence, p[choice]) >= `--choice-confidence`. `mass`: per-line overlap mass (legacy-v1 only). |
+| `--choice-gate` | `mass` | Localization gate (legacy-v1 only; scoped-v2-beta does not gate localization). `mass`: up to `--localization-beam-width` line runs whose per-line overlap mass reaches `--choice-mass` while none + unlocalized stays below 0.5. `legacy`: min(confidence, p[choice]) >= `--choice-confidence`. |
 | `--choice-mass` | `0.5` | Per-line overlap mass needed under `--choice-gate mass`, in (0, 1]. |
 | `--localization-menu` | `intervals` | `singletons` offers one option per line instead of every interval. |
 | `--choice-rounding-places` | unset (strict mass) | Accept choice vectors whose mass is consistent with rounding at N places (2 to 8). |
@@ -183,8 +186,8 @@ opt-in, and most were measured live only on a small development suite; see
 | `--refute-threshold` | `0.80` | Explicit-refutation threshold (scoped-v2-beta only). |
 | `--relation-threshold` | `0.70` | Support needed from a relationship recheck. |
 | `--context-threshold` | `0.60` | Score that marks a context request or evidence packet as needed. |
-| `--choice-confidence` | `0.50` | Confidence gate for choice answers. |
-| `--localization-beam-width` | `3` | Candidate intervals kept per localization round. |
+| `--choice-confidence` | `0.50` | Confidence gate for rank, context and action choices, and for localization under `--choice-gate legacy`. |
+| `--localization-beam-width` | `3` | Candidate intervals (line runs under `--choice-gate mass`) kept per localization round. |
 | `--max-localizations` | `4` | Localization candidates examined per target. |
 | `--max-context-packets` | `8` | Context packets considered per region. |
 | `--max-action-steps` | `4` | Bounded investigation steps per target. |

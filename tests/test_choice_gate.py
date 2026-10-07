@@ -1,7 +1,10 @@
 """Revision-3 WP-15: choice gate, localization menus and rounding caps.
 
-Every option defaults to its legacy value; the first test pins that the
-defaults reproduce the pre-WP-15 request bytes and reports exactly.
+The localization gate defaults to "mass" (the maintainer's decision after
+the live development-suite comparison); every other option defaults to its
+legacy value. The pinned scenarios pass choice_gate="legacy" explicitly, so
+the legacy values still reproduce the pre-WP-15 request bytes and reports
+exactly.
 """
 from decimal import Decimal
 from fractions import Fraction
@@ -12,8 +15,8 @@ import unittest
 from unittest.mock import patch
 
 from decision_bug_hunter import __main__ as cli
-from decision_bug_hunter.core import (Config, LEGACY_CHOICE_OPTIONS, Span,
-                                      contiguous_candidates)
+from decision_bug_hunter.core import (CHOICE_GATES, DEFAULT_CHOICE_GATE, Config,
+                                      LEGACY_CHOICE_OPTIONS, Span, contiguous_candidates)
 from decision_bug_hunter.engine import (Search, choice_mass_diffuse, choice_option_cap,
                                         half_quantum, hidden_choice_mass, line_overlap_mass,
                                         mass_gate_runs)
@@ -101,10 +104,11 @@ PRE_WP15 = {
 def scenarios(**options):
     """The pinned scenarios; *options* adds Config fields to every run.
 
-    The pins predate the judge controls (WP-14), so the scenarios run with
-    canaries off, which must reproduce those bytes exactly.
+    The pins predate the judge controls (WP-14) and the mass-gate default,
+    so the scenarios run with canaries off and choice_gate "legacy", which
+    must reproduce those bytes exactly.
     """
-    options = {"canaries": "off", **options}
+    options = {"canaries": "off", "choice_gate": "legacy", **options}
     scoped = {"search_policy": "scoped-v2-beta"}
     return {
         "legacy": (FixtureProvider([(5, 5)]), source(30), Config(whole_file=False, **options), {}),
@@ -134,25 +138,55 @@ class Gateway:
 
 
 class DefaultsTests(unittest.TestCase):
-    def test_defaults_reproduce_pre_wp15_requests_and_reports_byte_for_byte(self):
+    def test_legacy_gate_reproduces_pre_wp15_requests_and_reports_byte_for_byte(self):
         for name, (provider, src, cfg, kwargs) in scenarios().items():
             with self.subTest(name):
                 self.assertEqual(digests(provider, src, cfg, **kwargs), PRE_WP15[name])
 
-    def test_explicit_legacy_values_are_the_defaults(self):
+    def test_explicit_legacy_values_reproduce_the_pins(self):
         explicit = dict(LEGACY_CHOICE_OPTIONS, choice_mass=Decimal("0.50"))
         for name, (provider, src, cfg, kwargs) in scenarios(**explicit).items():
             with self.subTest(name):
                 self.assertEqual(digests(provider, src, cfg, **kwargs), PRE_WP15[name])
-        self.assertEqual(Config(), Config(**LEGACY_CHOICE_OPTIONS))
+        # Only the gate default moved; the other WP-15 options keep their
+        # legacy values.
+        self.assertEqual(Config(), Config(**dict(LEGACY_CHOICE_OPTIONS, choice_gate="mass")))
+
+    def test_default_gate_is_mass(self):
+        self.assertEqual(DEFAULT_CHOICE_GATE, "mass")
+        self.assertIn("legacy", CHOICE_GATES)
+        self.assertEqual(Config().choice_gate, "mass")
+        self.assertEqual(Config().choice_mass, Decimal("0.5"))
+        self.assertEqual(LEGACY_CHOICE_OPTIONS["choice_gate"], "legacy")
+        # The report configuration records the gate; choice_mass at 0.5 and
+        # the other options at their legacy values stay omitted.
+        recorded = Config().as_dict()
+        self.assertEqual(recorded["choice_gate"], "mass")
+        self.assertFalse({"choice_mass", "localization_menu", "choice_rounding_caps"}
+                         & set(recorded))
+        self.assertNotIn("choice_gate", Config(choice_gate="legacy").as_dict())
+
+    def test_default_scan_uses_the_mass_gate_and_records_it(self):
+        legacy = scan(source(24), Diffuse([(5, 5)]),
+                      Config(whole_file=False, choice_gate="legacy"))
+        default = scan(source(24), Diffuse([(5, 5)]), Config(whole_file=False))
+        mass = scan(source(24), Diffuse([(5, 5)]), Config(whole_file=False, choice_gate="mass"))
+        self.assertEqual(default["configuration"]["choice_gate"], "mass")
+        self.assertNotIn("choice_gate", legacy["configuration"])
+        self.assertEqual(canon(default), canon(mass))
+        self.assertNotEqual(canon(default), canon(legacy))
+        events = [e for e in default["events"] if e["phase"] == "localize"]
+        self.assertTrue(events)
+        self.assertEqual(events[0]["gate"], "mass")
 
     def test_caps_without_rounding_profile_change_nothing(self):
         provider, src, cfg, _ = scenarios(choice_rounding_caps=True)["strict"]
         wire, _ = digests(provider, src, cfg)
         self.assertEqual(wire, PRE_WP15["strict"][0])
 
-    def test_default_configuration_omits_wp15_keys_and_records_others(self):
-        self.assertFalse(set(LEGACY_CHOICE_OPTIONS) & set(Config().as_dict()))
+    def test_legacy_configuration_omits_wp15_keys_and_records_others(self):
+        self.assertFalse(set(LEGACY_CHOICE_OPTIONS)
+                         & set(Config(choice_gate="legacy").as_dict()))
         recorded = Config(choice_gate="mass", choice_mass=Decimal("0.6"),
                           localization_menu="singletons", choice_rounding_caps=True).as_dict()
         self.assertEqual({k: recorded[k] for k in LEGACY_CHOICE_OPTIONS},
@@ -168,10 +202,14 @@ class DefaultsTests(unittest.TestCase):
                 Config(**bad)
         self.assertEqual(Config(choice_mass=1).choice_mass, Decimal(1))
 
-    def test_cli_flags_parse_with_legacy_defaults(self):
+    def test_cli_flags_parse_with_mass_gate_default(self):
         args = cli.parser().parse_args(["x.py"])
         self.assertEqual((args.choice_gate, args.choice_mass, args.localization_menu,
-                          args.choice_rounding_caps), ("legacy", Decimal("0.5"), "intervals", False))
+                          args.choice_rounding_caps), ("mass", Decimal("0.5"), "intervals", False))
+        self.assertEqual(args.choice_gate, Config().choice_gate)
+        self.assertEqual(args.choice_mass, Config().choice_mass)
+        args = cli.parser().parse_args(["x.py", "--choice-gate", "legacy"])
+        self.assertEqual(args.choice_gate, "legacy")
         args = cli.parser().parse_args(["x.py", "--choice-gate", "mass", "--choice-mass", "0.6",
                                         "--localization-menu", "singletons",
                                         "--choice-rounding-caps"])
@@ -288,7 +326,8 @@ class MassGateTests(unittest.TestCase):
         self.assertEqual(search_for(Gateway()).gate_half_quantum(answer), half_quantum(3))
 
     def test_engine_mass_gate_localizes_diffuse_menu(self):
-        legacy = scan(source(24), Diffuse([(5, 5)]), Config(whole_file=False))
+        legacy = scan(source(24), Diffuse([(5, 5)]),
+                      Config(whole_file=False, choice_gate="legacy"))
         provider = Diffuse([(5, 5)])
         mass = scan(source(24), provider, Config(whole_file=False, choice_gate="mass"))
         legacy_events = [e for e in legacy["events"] if e["phase"] == "localize"]
@@ -308,12 +347,22 @@ class MassGateTests(unittest.TestCase):
 
     def test_mass_gate_ignored_under_scoped_policy(self):
         base = Diffuse([(5, 5)])
-        scan(source(24), base, Config(whole_file=False, search_policy="scoped-v2-beta"))
+        legacy = scan(source(24), base, Config(whole_file=False, search_policy="scoped-v2-beta",
+                                               choice_gate="legacy"))
         gated = Diffuse([(5, 5)])
         result = scan(source(24), gated, Config(whole_file=False, search_policy="scoped-v2-beta",
                                                choice_gate="mass"))
         self.assertEqual(gated.requests, base.requests)
         self.assertFalse(any("gate" in e for e in result["events"]))
+        # The default gate is mass: scoped requests and findings equal the
+        # legacy gate's; only the recorded configuration differs.
+        default = Diffuse([(5, 5)])
+        defaulted = scan(source(24), default,
+                         Config(whole_file=False, search_policy="scoped-v2-beta"))
+        self.assertEqual(default.requests, base.requests)
+        self.assertEqual(defaulted["findings"], legacy["findings"])
+        self.assertEqual(defaulted["configuration"]["choice_gate"], "mass")
+        self.assertNotIn("choice_gate", legacy["configuration"])
 
 
 class MenuTests(unittest.TestCase):

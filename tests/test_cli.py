@@ -90,7 +90,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         config = scan.call_args.kwargs["config"]
         self.assertEqual((config.choice_gate, config.choice_mass, config.localization_menu,
-                          config.choice_rounding_caps), ("legacy", Decimal("0.5"), "intervals", False))
+                          config.choice_rounding_caps), ("mass", Decimal("0.5"), "intervals", False))
+        # The default mass gate is recorded in the report configuration.
+        self.assertEqual(config.as_dict()["choice_gate"], "mass")
+        code, _, _, scan = self.run_cli("--choice-gate", "legacy")
+        self.assertEqual(code, 0)
+        config = scan.call_args.kwargs["config"]
+        self.assertEqual(config.choice_gate, "legacy")
         self.assertNotIn("choice_gate", config.as_dict())
         code, _, _, scan = self.run_cli("--choice-gate", "mass", "--choice-mass", "0.7",
                                         "--localization-menu", "singletons",

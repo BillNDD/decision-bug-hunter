@@ -13,7 +13,8 @@ import tempfile
 import time
 
 from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
-                   DEFAULT_STATE_LAYOUT, CHOICE_GATES, LOCALIZATION_MENUS,
+                   DEFAULT_STATE_LAYOUT, CHOICE_GATES, DEFAULT_CHOICE_GATE,
+                   LOCALIZATION_MENUS,
                    CANARY_MODES, DEFAULT_CANARIES)
 from .handoff import compact_report, format_handoff
 from .protocol import (ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES, POLICY_PLACEMENTS,
@@ -103,7 +104,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--context-threshold", type=decimal_argument,
                         default=Decimal("0.60"))
     result.add_argument("--choice-confidence", type=decimal_argument,
-                        default=Decimal("0.50"))
+                        default=Decimal("0.50"),
+                        help="Confidence gate for rank, context and action choices, and for "
+                             "localization under --choice-gate legacy (default: %(default)s).")
     profiles = result.add_mutually_exclusive_group()
     profiles.add_argument("--choice-rounding-places", type=int, choices=range(2, 9),
                         default=DEFAULT_CHOICE_ROUNDING_PLACES,
@@ -112,14 +115,15 @@ def parser() -> argparse.ArgumentParser:
     profiles.add_argument("--strict-choice-mass", action="store_true",
                         help="Compatibility no-op: strict Choice mass is already the default.")
     result.add_argument("--localization-beam-width", type=int, default=3,
-                        help="Maximum candidate intervals per localization round; each keeps the confidence gate.")
-    result.add_argument("--choice-gate", choices=CHOICE_GATES, default="legacy",
-                        help="Localization gate (default: %(default)s, min(confidence, p[choice]) "
-                             ">= --choice-confidence). mass selects up to --localization-beam-width "
-                             "line runs whose lower-bound overlap mass reaches --choice-mass while "
-                             "none + unlocalized stays below 0.5; legacy-v1 only (scoped-v2-beta "
-                             "does not gate localization). Rank, context and action choices keep "
-                             "the legacy gate.")
+                        help="Maximum candidate intervals (line runs under --choice-gate mass) "
+                             "per localization round; each must pass the localization gate.")
+    result.add_argument("--choice-gate", choices=CHOICE_GATES, default=DEFAULT_CHOICE_GATE,
+                        help="Localization gate (default: %(default)s). mass selects up to "
+                             "--localization-beam-width line runs whose lower-bound overlap mass "
+                             "reaches --choice-mass while none + unlocalized stays below 0.5; "
+                             "legacy is min(confidence, p[choice]) >= --choice-confidence. "
+                             "legacy-v1 only (scoped-v2-beta does not gate localization). Rank, "
+                             "context and action choices keep the legacy gate.")
     result.add_argument("--choice-mass", type=decimal_argument, default=Decimal("0.5"),
                         help="Per-line overlap mass for --choice-gate mass, in (0, 1] "
                              "(default: %(default)s).")
