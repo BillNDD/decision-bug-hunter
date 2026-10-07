@@ -80,6 +80,21 @@
   as written and reports the residual |P(bug) + P(correct) - 1| under
   `judge_diagnostics.polarity_twin`. Twin answers never change a score, a
   finding or the scan status.
+- `--policy-placement {instructions,state}` (library:
+  `Config(policy_placement=...)`; default `instructions`, whose request
+  bytes and reports are unchanged and pinned by a test). `state` sends the
+  policy preamble once, as the first state key `policy`, and strips it from
+  every question that carried it; requests without such a question are
+  unchanged. The evidence state cap stays 16 KiB (the `policy` entry is
+  allowed on top). Answers shift under `state` (S05: mean |delta| 0.20), so
+  its runs compare only with runs that used it; the report configuration
+  records `policy_placement` and a `request_geometry` record when it is
+  `state`.
+  - Per-model caps: under `state`, OpenRouter requests whose state carries
+    the policy may hold up to 200 questions and 48 KiB (S12b moved no
+    answer across batch geometries); OpenAI direct keeps 64 questions and
+    24 KiB, as does every request under `instructions`. Library callers pass
+    `policy_placement` to `providers.make_provider`.
 
 ## 0.1.0b1 (2026-10-06)
 

@@ -10,9 +10,9 @@ import re
 from importlib.resources import files
 
 from .core import Source, Span, physical_lines, STATE_LAYOUTS, DEFAULT_STATE_LAYOUT
-from .protocol import (encode_request, ProviderError, MAX_QUESTIONS, MAX_STATE_BYTES,
-                  MAX_REQUEST_BYTES, CONTRACT_VERSION, _snapshot, _json, validate_questions,
-                  _encode_validated_request)
+from .protocol import (encode_request, ProviderError, MAX_STATE_BYTES,
+                  CONTRACT_VERSION, _snapshot, _json, validate_questions,
+                  _encode_validated_request, place_policy, request_envelope)
 
 #: Default request state layout (ADR-5(4)). ``"v1"`` is the pre-release layout
 #: and policy (byte for byte, requirement wording excepted); ``"v2"`` puts the
@@ -176,6 +176,8 @@ def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE, reserve_by
     cost as the former full-state serialization at every candidate. A page
     holds at most *max_page* targets (200, or the rounding cap of ADR-4(3)).
     *reserve_bytes* is left free in every request (the judge controls).
+    Sizes are those of the request as sent: under "state" policy placement
+    the preamble sits once in state and the request gets the placed caps.
     """
     if type(max_page) is not int or not 1 <= max_page <= MAX_RANK_PAGE:
         raise ValueError("invalid_rank_page_size")
@@ -188,9 +190,12 @@ def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE, reserve_by
                     raise ProviderError("invalid_request")
                 template = choice(pack, "rank", region, [])
                 validate_questions({"rank": template})
-                state_fits = len(_json(state)) <= MAX_STATE_BYTES
-                base = len(_json({"contract": CONTRACT_VERSION, "state": state,
-                                  "questions": {"rank": template}}))
+                placed_state, placed_questions, placed = place_policy(state,
+                                                                      {"rank": template})
+                _count, request_limit, state_limit = request_envelope().limits(placed)
+                state_fits = len(_json(placed_state)) <= state_limit
+                base = len(_json({"contract": CONTRACT_VERSION, "state": placed_state,
+                                  "questions": placed_questions}))
                 prepared = True
             except ProviderError:
                 raise
@@ -208,7 +213,7 @@ def _rank_pages(pack, region, targets, state, max_page=MAX_RANK_PAGE, reserve_by
                 raise ProviderError("invalid_request") from None
             predicted = added + entry - entries.get(target.id, 0)
             fits = (fits and state_fits
-                    and base + predicted + reserve_bytes <= MAX_REQUEST_BYTES)
+                    and base + predicted + reserve_bytes <= request_limit)
         if page and not fits:
             pages.append(page)
             page, entries, added = [], {}, 0
@@ -506,6 +511,10 @@ With *controls*, every batch leaves room for the two judge controls (two
 questions and ``CONTROL_RESERVE_BYTES``) and carries them at hash-derived
 positions. A singleton that fits only without them is sent without them; its
 batch then holds no ``ctl_`` name.
+
+Under "state" policy placement (``protocol.using_request_envelope``) the
+state and questions are placed once, before packing: batches hold the
+questions as sent, and a placed request packs to the envelope's caps.
 """
     if not questions:
         return
@@ -513,8 +522,10 @@ batch then holds no ``ctl_`` name.
         state, questions = _snapshot(state), _snapshot(questions)
         if type(state) is not dict or type(questions) is not dict:
             raise ProviderError("invalid_request")
+        state, questions, placed = place_policy(state, questions)
+        max_questions, request_limit, state_limit = request_envelope().limits(placed)
         state_wire = _json(state)
-        state_fits = len(state_wire) <= MAX_STATE_BYTES
+        state_fits = len(state_wire) <= state_limit
         base = len(_encode_validated_request(state_wire, b"{}")) if state_fits else 0
         checks = _Controls(state, state_wire) if controls else None
         if checks is not None and not checks.available:
@@ -522,7 +533,7 @@ batch then holds no ``ctl_`` name.
         if checks is not None and any(CONTROL_NAME.fullmatch(qid) for qid in questions):
             raise ProviderError("invalid_request")
         reserve = CONTROL_RESERVE_BYTES if checks is not None else 0
-        limit = MAX_QUESTIONS - (CONTROL_COUNT if checks is not None else 0)
+        limit = max_questions - (CONTROL_COUNT if checks is not None else 0)
 
         def finish(batch, fragments, size):
             wire = _encode_validated_request(state_wire, b"{" + b",".join(fragments) + b"}")
@@ -540,10 +551,10 @@ batch then holds no ``ctl_`` name.
             fragment = _json({qid: question})[1:-1]
             entry_size = len(fragment)
             predicted = size + entry_size + bool(batch)
-            if batch and (len(batch) == limit or predicted + reserve > MAX_REQUEST_BYTES):
+            if batch and (len(batch) == limit or predicted + reserve > request_limit):
                 yield finish(batch, fragments, size)
                 batch, fragments, size = {}, [], base
-            if not state_fits or base + entry_size > MAX_REQUEST_BYTES:
+            if not state_fits or base + entry_size > request_limit:
                 yield {}, qid, None
                 continue
             size += entry_size + bool(batch)

@@ -30,7 +30,8 @@ from typing import Any
 from .exchange import HttpsExchange, Outcome
 from .hosted import (HostedProvider, ModelSpec, RouteSpec, identifier, model_echo_ok,
                      model_returned, token)
-from .protocol import (CONTRACT_VERSION, MAX_REFUSALS_PER_REQUEST, MAX_RESPONSE_BYTES,
+from .protocol import (CONTRACT_VERSION, DEFAULT_POLICY_PLACEMENT, MAX_QUESTIONS,
+                       MAX_REFUSALS_PER_REQUEST, MAX_RESPONSE_BYTES,
                        ProviderError,
                        _constant, _decimal, _json, _pairs, _secret_in,
                        validate_questions)
@@ -82,7 +83,8 @@ def _question(name: str, question: Mapping[str, Any]) -> dict[str, Any]:
                         for value, description in criteria.items()]}
 
 
-def _translate(payload: bytes, model: str = MODEL) -> tuple[bytes, dict[str, Any]]:
+def _translate(payload: bytes, model: str = MODEL,
+               max_questions: int = MAX_QUESTIONS) -> tuple[bytes, dict[str, Any]]:
     if type(payload) is not bytes:
         raise ProviderError("invalid_request")
     try:
@@ -93,7 +95,7 @@ def _translate(payload: bytes, model: str = MODEL) -> tuple[bytes, dict[str, Any
             or data["contract"] != CONTRACT_VERSION or type(data["state"]) is not dict):
         raise ProviderError("invalid_request")
     questions: dict[str, Any] = data["questions"]
-    validate_questions(questions)
+    validate_questions(questions, max_questions)
     try:
         # The shared evidence is the exact state fragment of the local
         # envelope, so one request hash describes both representations.
@@ -307,8 +309,11 @@ class DecisionsProvider(HostedProvider):
     def __init__(self, api_key: str | None = None, *,
                  environ: Mapping[str, str] | None = None,
                  exchange: HttpsExchange | None = None,
-                 model: str | None = None) -> None:
-        super().__init__(api_key, environ=environ, exchange=exchange, model=model)
+                 model: str | None = None,
+                 policy_placement: str = DEFAULT_POLICY_PLACEMENT) -> None:
+        # OpenAI direct keeps 64 questions and 24 KiB under either placement.
+        super().__init__(api_key, environ=environ, exchange=exchange, model=model,
+                         policy_placement=policy_placement)
         env: Mapping[str, str] = os.environ if environ is None else environ
         self._routing: dict[str, str] = {}
         self._routing_invalid = False
@@ -329,8 +334,9 @@ class DecisionsProvider(HostedProvider):
         if self._routing_invalid:
             raise ProviderError("routing_invalid")
 
-    def encode(self, payload: bytes) -> tuple[bytes, dict[str, Any]]:
-        return _translate(payload, self.model_spec.id)
+    def encode(self, payload: bytes,
+               max_questions: int = MAX_QUESTIONS) -> tuple[bytes, dict[str, Any]]:
+        return _translate(payload, self.model_spec.id, max_questions)
 
     def extra_headers(self) -> dict[str, str]:
         return dict(self._routing)

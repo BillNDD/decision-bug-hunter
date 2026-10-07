@@ -12,6 +12,8 @@ from functools import lru_cache
 from operator import attrgetter
 from pathlib import Path
 
+from .protocol import DEFAULT_POLICY_PLACEMENT, POLICY_PLACEMENTS
+
 
 def physical_lines(text):
     """Only CR, LF and CRLF delimit original physical lines."""
@@ -148,7 +150,8 @@ DEFAULT_CANARIES = "on"
 #: Options ``Config.as_dict`` omits at these (b1) values, so a run with every
 #: one of them reproduces the pre-change report configuration byte for byte.
 LEGACY_OMITTED_OPTIONS = {**LEGACY_CHOICE_OPTIONS, "canaries": "off",
-                          "polarity_twin": False}
+                          "polarity_twin": False,
+                          "policy_placement": DEFAULT_POLICY_PLACEMENT}
 
 
 @dataclass(frozen=True)
@@ -206,6 +209,12 @@ class Config:
     #: inverted question too and report |P(bug) + P(correct) - 1|. Twin
     #: answers never change a score, a finding or the scan status.
     polarity_twin: bool = False
+    #: Where the policy preamble goes (revision-3 WP-13, ADR-5(1)):
+    #: "instructions" (default, the b1 wire) prefixes every policy-carrying
+    #: question; "state" sends it once as the first state key. Under "state"
+    #: a provider that declares raised caps (OpenRouter: 200 questions,
+    #: 48 KiB) packs those requests to them; OpenAI direct keeps 64 / 24 KiB.
+    policy_placement: str = DEFAULT_POLICY_PLACEMENT
 
     def __post_init__(self):
         limits = ((self.width, 2, 4096), (self.min_width, 1, self.width),
@@ -252,6 +261,9 @@ class Config:
             raise ValueError("invalid_canaries")
         if type(self.polarity_twin) is not bool:
             raise ValueError("invalid_polarity_twin_flag")
+        if (type(self.policy_placement) is not str
+                or self.policy_placement not in POLICY_PLACEMENTS):
+            raise ValueError("invalid_policy_placement")
         if self.drill_threshold > self.report_threshold:
             raise ValueError("drill_threshold_exceeds_report_threshold")
         if self.search_policy not in ("legacy-v1", "scoped-v2-beta"):

@@ -27,7 +27,9 @@ import re
 from typing import Any, ClassVar
 
 from .exchange import ExchangeError, HttpsExchange, Outcome
-from .protocol import ProviderError, _pairs, _secret_in
+from .protocol import (DEFAULT_POLICY_PLACEMENT, MAX_QUESTIONS, POLICY_PLACEMENTS,
+                       POLICY_STATE_KEY, ProviderError, _REQUEST_PREFIX, _json, _pairs,
+                       _secret_in)
 from .providers import (Classification, ProviderIdentity, ProviderRequest,
                         ProviderResponse, classify)
 
@@ -47,6 +49,10 @@ _RETRY_SECONDS = re.compile(r"[0-9]{1,5}\Z")
 MAX_RETRY_AFTER_SECONDS = 60.0
 #: The date the list prices in the route model specs were read (ADR-9(2)).
 PRICE_TABLE_DATE = "2026-10-06"
+#: A local envelope whose state starts with the policy entry: a request sent
+#: under "state" policy placement (ADR-5(1)), the only kind that may use a
+#: model's raised caps.
+_PLACED_PAYLOAD = _REQUEST_PREFIX + b"{" + _json(POLICY_STATE_KEY) + b":"
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,9 @@ class ModelSpec:
     Prices are USD per million tokens from the public model page on
     ``price_table_date``. ``price_out_upper_per_mtok`` prices the output
     allowance of an attempt whose usage is unknown (ADR-9(3)).
+    ``max_questions`` and ``max_envelope_bytes`` bound every request; a
+    request whose policy sits in state may instead use the
+    ``state_placement_*`` caps when both are set (ADR-5(5)).
     """
 
     id: str
@@ -67,6 +76,15 @@ class ModelSpec:
     confidence_identity: str | None = None
     expected_upstream: str | None = None
     price_table_date: str = PRICE_TABLE_DATE
+    state_placement_max_questions: int | None = None
+    state_placement_max_envelope_bytes: int | None = None
+
+    def limits(self, placement: str = DEFAULT_POLICY_PLACEMENT) -> tuple[int, int]:
+        """(max questions, max local envelope bytes) under *placement*."""
+        if (placement == "state" and self.state_placement_max_questions is not None
+                and self.state_placement_max_envelope_bytes is not None):
+            return self.state_placement_max_questions, self.state_placement_max_envelope_bytes
+        return self.max_questions, self.max_envelope_bytes
 
 
 @dataclass(frozen=True)
@@ -228,8 +246,12 @@ class HostedProvider:
     def __init__(self, api_key: str | None = None, *,
                  environ: Mapping[str, str] | None = None,
                  exchange: HttpsExchange | None = None,
-                 model: str | None = None) -> None:
+                 model: str | None = None,
+                 policy_placement: str = DEFAULT_POLICY_PLACEMENT) -> None:
         env: Mapping[str, str] = os.environ if environ is None else environ
+        if type(policy_placement) is not str or policy_placement not in POLICY_PLACEMENTS:
+            raise ProviderError("invalid_request")
+        self.policy_placement = policy_placement
         self.model_spec = self.route.model(model)
         self.identity = ProviderIdentity(self.route.name, model=self.model_spec.id)
         # One exchange, hence one TLS context and connection, per provider.
@@ -240,8 +262,22 @@ class HostedProvider:
         self._api_key = token(key)
         self._credentials = configured_credentials(env, self._api_key)
 
+    @property
+    def request_limits(self) -> tuple[int, int]:
+        """(max questions, max envelope bytes) for a request whose policy
+        sits in state; the model's ordinary caps unless this provider was
+        built with ``policy_placement="state"`` (ADR-5(5))."""
+        return self.model_spec.limits(self.policy_placement)
+
+    def payload_limits(self, payload: bytes) -> tuple[int, int]:
+        """The caps that apply to one local envelope."""
+        if type(payload) is bytes and payload.startswith(_PLACED_PAYLOAD):
+            return self.request_limits
+        return self.model_spec.limits()
+
     # -- subclass hooks ----------------------------------------------------
-    def encode(self, payload: bytes) -> tuple[bytes, dict[str, Any]]:
+    def encode(self, payload: bytes,
+               max_questions: int = MAX_QUESTIONS) -> tuple[bytes, dict[str, Any]]:
         """Local envelope bytes -> (wire body, expected questions)."""
         raise NotImplementedError
 
@@ -323,10 +359,11 @@ class HostedProvider:
             raise ProviderError("deadline_exceeded")
         if type(request.payload) is not bytes:
             raise ProviderError("invalid_request")
-        if len(request.payload) > self.model_spec.max_envelope_bytes:
+        max_questions, max_bytes = self.payload_limits(request.payload)
+        if len(request.payload) > max_bytes:
             raise ProviderError("request_too_large")
-        body, questions = self.encode(request.payload)
-        if len(questions) > self.model_spec.max_questions:
+        body, questions = self.encode(request.payload, max_questions)
+        if len(questions) > max_questions:
             raise ProviderError("request_too_large")
         if any(_secret_in(credential, [body]) for credential in self._credentials):
             raise ProviderError("sensitive_input")
@@ -344,7 +381,7 @@ class HostedProvider:
         if type(payload) is not bytes:
             return None
         try:
-            body, _questions = self.encode(payload)
+            body, _questions = self.encode(payload, self.payload_limits(payload)[0])
         except ProviderError:
             return None
         return len(body)

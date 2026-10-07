@@ -16,7 +16,8 @@ from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
                    DEFAULT_STATE_LAYOUT, CHOICE_GATES, LOCALIZATION_MENUS,
                    CANARY_MODES, DEFAULT_CANARIES)
 from .handoff import compact_report, format_handoff
-from .protocol import ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES
+from .protocol import (ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES, POLICY_PLACEMENTS,
+                       DEFAULT_POLICY_PLACEMENT)
 from .providers import (ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
                         validate_max_cost)
 from . import providers
@@ -85,6 +86,15 @@ def parser() -> argparse.ArgumentParser:
                              "(default: %(default)s, the pre-release layout; v2 puts the "
                              "DBH-written fields first and warns about envelope imitation). "
                              "Recorded in the report configuration.")
+    result.add_argument("--policy-placement", choices=POLICY_PLACEMENTS,
+                        default=DEFAULT_POLICY_PLACEMENT,
+                        help="Where the policy preamble goes (default: %(default)s, prefixed "
+                             "to every question, the b1 request bytes). state sends it once as "
+                             "the first state key; on OpenRouter those requests may then hold "
+                             "up to 200 questions and 48 KiB (OpenAI direct keeps 64 and "
+                             "24 KiB). Answers shift under state placement, so compare it only "
+                             "with runs that used it; recorded in the report configuration and "
+                             "request_geometry.")
     result.add_argument("--max-calls", type=int, default=1000)
     result.add_argument("--max-questions", type=int, default=20000)
     result.add_argument("--max-windows", type=int, default=50000)
@@ -312,7 +322,8 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
     return providers.make_provider(
         "openrouter", model=model,
         routing=getattr(args, "openrouter_routing", DEFAULT_ROUTING),
-        zdr=bool(getattr(args, "openrouter_zdr", False)))
+        zdr=bool(getattr(args, "openrouter_zdr", False)),
+        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT))
 
 
 def check_secrets(source: Source, spec: Source | None, allow: bool) -> str:
@@ -396,6 +407,7 @@ def execute(args: argparse.Namespace) -> int:
         choice_rounding_caps=args.choice_rounding_caps,
         canaries=args.canaries,
         polarity_twin=args.polarity_twin,
+        policy_placement=args.policy_placement,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.

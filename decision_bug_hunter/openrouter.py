@@ -37,7 +37,9 @@ from typing import Any
 from .exchange import HttpsExchange, Outcome
 from .hosted import (HostedProvider, ModelSpec, RouteSpec, identifier, model_echo_ok,
                      model_returned, upstream_name)
-from .protocol import (CONTRACT_VERSION, MAX_REFUSALS_PER_REQUEST, MAX_RESPONSE_BYTES,
+from .protocol import (CONTRACT_VERSION, DEFAULT_POLICY_PLACEMENT, MAX_QUESTIONS,
+                       MAX_REFUSALS_PER_REQUEST, MAX_RESPONSE_BYTES,
+                       STATE_PLACEMENT_MAX_QUESTIONS, STATE_PLACEMENT_MAX_REQUEST_BYTES,
                        ProviderError, _REQUEST_PREFIX,
                        _constant, _decimal, _json, _pairs, _secret_in, validate_questions)
 from .providers import ProviderResponse
@@ -67,7 +69,12 @@ ROUTE = RouteSpec(
     models=(ModelSpec(MODEL, price_in_per_mtok=Decimal("0.10"),
                       price_out_upper_per_mtok=Decimal("0"),
                       confidence_identity="chance_normalized_p1",
-                      expected_upstream=EXPECTED_UPSTREAM),),
+                      expected_upstream=EXPECTED_UPSTREAM,
+                      # S12b: the route accepts 200 questions and batch
+                      # geometry moved no answer; raised for policy-in-state
+                      # requests only (ADR-5(5)).
+                      state_placement_max_questions=STATE_PLACEMENT_MAX_QUESTIONS,
+                      state_placement_max_envelope_bytes=STATE_PLACEMENT_MAX_REQUEST_BYTES),),
     default_model=MODEL, port=PORT)
 
 
@@ -87,7 +94,8 @@ def routing_fragment(routing: str = DEFAULT_ROUTING, zdr: bool = False) -> bytes
 
 
 def encode_request(payload: bytes, model: str = MODEL, routing: str = DEFAULT_ROUTING,
-                   zdr: bool = False) -> tuple[bytes, dict[str, Any]]:
+                   zdr: bool = False, max_questions: int = MAX_QUESTIONS
+                   ) -> tuple[bytes, dict[str, Any]]:
     """Splice the local envelope into the OpenRouter body; nothing is re-encoded."""
     if (type(payload) is not bytes or not payload.startswith(_REQUEST_PREFIX)
             or not payload.endswith(b"}")):
@@ -100,7 +108,7 @@ def encode_request(payload: bytes, model: str = MODEL, routing: str = DEFAULT_RO
             or data["contract"] != CONTRACT_VERSION or type(data["state"]) is not dict):
         raise ProviderError("invalid_request")
     questions: dict[str, Any] = data["questions"]
-    validate_questions(questions)
+    validate_questions(questions, max_questions)
     wire = b"".join((b'{"model":', _json(model), b',"state":',
                      payload[len(_REQUEST_PREFIX):-1], routing_fragment(routing, zdr), b"}"))
     if len(wire) > MAX_BODY_BYTES:
@@ -296,15 +304,19 @@ class OpenRouterProvider(HostedProvider):
                  environ: Mapping[str, str] | None = None,
                  exchange: HttpsExchange | None = None,
                  model: str | None = None, routing: str = DEFAULT_ROUTING,
-                 zdr: bool = False) -> None:
+                 zdr: bool = False,
+                 policy_placement: str = DEFAULT_POLICY_PLACEMENT) -> None:
         if routing not in ROUTING_CHOICES or type(zdr) is not bool:
             raise ProviderError("invalid_request")
-        super().__init__(api_key, environ=environ, exchange=exchange, model=model)
+        super().__init__(api_key, environ=environ, exchange=exchange, model=model,
+                         policy_placement=policy_placement)
         self.routing = routing
         self.zdr = zdr
 
-    def encode(self, payload: bytes) -> tuple[bytes, dict[str, Any]]:
-        return encode_request(payload, self.model_spec.id, self.routing, self.zdr)
+    def encode(self, payload: bytes,
+               max_questions: int = MAX_QUESTIONS) -> tuple[bytes, dict[str, Any]]:
+        return encode_request(payload, self.model_spec.id, self.routing, self.zdr,
+                              max_questions)
 
     def decode(self, raw: bytes, questions: Mapping[str, Any],
                outcome: Outcome) -> ProviderResponse:

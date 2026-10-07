@@ -426,25 +426,31 @@ ROUTES = {"openai": "openai-decisions", "openrouter": "openrouter-decisions"}
 
 def make_provider(route: str, *, model: str | None = None, api_key: str | None = None,
                   environ: Mapping[str, str] | None = None, routing: str | None = None,
-                  zdr: bool = False, exchange: Any = None) -> DecisionProvider:
+                  zdr: bool = False, exchange: Any = None,
+                  policy_placement: str = "instructions") -> DecisionProvider:
     """Library entry point: the hosted adapter for ``route``.
 
     ``route`` is a selector (``openai``, ``openrouter``) or a route name.
     ``model`` must be on the route's allow-list (default: its one model),
     otherwise ``invalid_request``; an unknown route is ``invalid_provider``.
     ``routing`` (``deny`` by default, or ``account-default``) and ``zdr``
-    apply to OpenRouter only. Nothing is read from disk or the network.
+    apply to OpenRouter only. ``policy_placement`` (``instructions`` or
+    ``state``) sets the caps a policy-in-state request may use: OpenRouter
+    raises them to 200 questions and 48 KiB, OpenAI direct keeps 64 and
+    24 KiB. Nothing is read from disk or the network.
     """
     name = ROUTES.get(route, route) if type(route) is str else None
     if name == "openai-decisions":
         if routing is not None or zdr:
             raise ProviderError("invalid_request")
         from .decisions import DecisionsProvider
-        return DecisionsProvider(api_key, environ=environ, exchange=exchange, model=model)
+        return DecisionsProvider(api_key, environ=environ, exchange=exchange, model=model,
+                                 policy_placement=policy_placement)
     if name == "openrouter-decisions":
         from .openrouter import OpenRouterProvider
         return OpenRouterProvider(api_key, environ=environ, exchange=exchange, model=model,
-                                  routing="deny" if routing is None else routing, zdr=zdr)
+                                  routing="deny" if routing is None else routing, zdr=zdr,
+                                  policy_placement=policy_placement)
     raise ProviderError("invalid_provider")
 
 
@@ -850,6 +856,16 @@ class ValidatedGateway:
         spec = getattr(self.provider, "model_spec", None)
         value = getattr(spec, "display_places", None)
         return value if type(value) is int and 0 <= value <= 8 else None
+
+    @property
+    def request_limits(self) -> tuple[int, int] | None:
+        """The provider's (max questions, max envelope bytes) for a request
+        whose policy sits in state, when it declares them (ADR-5(5))."""
+        value = getattr(self.provider, "request_limits", None)
+        if (type(value) is tuple and len(value) == 2
+                and all(type(item) is int and item > 0 for item in value)):
+            return value
+        return None
 
     def require_available(self) -> None:
         if self._closed or self._busy:

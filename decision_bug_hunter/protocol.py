@@ -5,6 +5,9 @@ and confidence. Strict mass is the default; rounding is explicit.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from decimal import (Context, Decimal, DecimalException, DivisionByZero, Inexact,
                      InvalidOperation, Overflow, ROUND_HALF_EVEN, localcontext)
 from fractions import Fraction
@@ -22,6 +25,17 @@ MAX_STATE_BYTES = 16 * 1024
 MAX_REQUEST_BYTES = 24 * 1024
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_QUESTIONS = 64
+#: Policy placements (ADR-5(1), revision-3 WP-13). "instructions" (default)
+#: prefixes every policy-carrying question with the policy preamble, the b1
+#: wire; "state" sends the preamble once, as the first state key ``policy``,
+#: and strips it from those questions.
+POLICY_PLACEMENTS = ("instructions", "state")
+DEFAULT_POLICY_PLACEMENT = "instructions"
+#: Ceilings for a request whose policy sits in state (ADR-5(5)): a route may
+#: raise its question and envelope caps up to these only for such requests.
+#: S12b moved no answer across four batch geometries (max |delta| 0).
+STATE_PLACEMENT_MAX_QUESTIONS = 200
+STATE_PLACEMENT_MAX_REQUEST_BYTES = 48 * 1024
 MASS_SLACK = Fraction(1, 10**12)  # Explicit serialization allowance, not calibration.
 # Every accepted probability is in [0, 1], has exponent >= -1000, and a
 # Choice has at most 255 options. Summing all values and the clipped rounding
@@ -145,6 +159,126 @@ def _json(value):
 
 
 _REQUEST_PREFIX = b'{"contract":' + _json(CONTRACT_VERSION) + b',"state":'
+#: State key that carries the policy preamble under "state" placement.
+POLICY_STATE_KEY = "policy"
+
+
+@dataclass(frozen=True)
+class RequestEnvelope:
+    """Policy placement and request geometry for the requests of one scan.
+
+    ``policy`` is None for "instructions" placement (the b1 wire: nothing is
+    moved and the caps are 64 questions and 24 KiB). Otherwise it is the exact
+    preamble text: every question whose instructions start with it plus one
+    space is stripped, and the state gains ``policy`` as its first key.
+    ``max_questions`` and ``max_request_bytes`` apply only to requests whose
+    state carries that policy; every other request keeps the b1 caps. The
+    state cap grows by exactly the bytes of the ``policy`` entry, so evidence
+    selection is the same under both placements.
+    """
+
+    policy: str | None = None
+    max_questions: int = MAX_QUESTIONS
+    max_request_bytes: int = MAX_REQUEST_BYTES
+    placed_prefix: bytes = field(default=b"", init=False, repr=False, compare=False)
+    state_allowance: int = field(default=0, init=False, repr=False, compare=False)
+
+    def __post_init__(self):
+        if self.policy is None:
+            if (self.max_questions, self.max_request_bytes) != (MAX_QUESTIONS, MAX_REQUEST_BYTES):
+                raise ValueError("invalid_request_envelope")
+            return
+        if (type(self.policy) is not str or not self.policy.strip()
+                or type(self.max_questions) is not int
+                or not MAX_QUESTIONS <= self.max_questions <= STATE_PLACEMENT_MAX_QUESTIONS
+                or type(self.max_request_bytes) is not int
+                or not MAX_REQUEST_BYTES <= self.max_request_bytes
+                <= STATE_PLACEMENT_MAX_REQUEST_BYTES):
+            raise ValueError("invalid_request_envelope")
+        entry = _json(POLICY_STATE_KEY) + b":" + _json(self.policy)
+        object.__setattr__(self, "placed_prefix", b"{" + entry)
+        # The entry and its comma; a state holding only the policy is one
+        # byte smaller, so the allowance is never too small.
+        object.__setattr__(self, "state_allowance", len(entry) + 1)
+
+    @property
+    def placement(self):
+        return DEFAULT_POLICY_PLACEMENT if self.policy is None else "state"
+
+    def placed(self, state_wire):
+        """True when *state_wire* starts with this envelope's policy entry."""
+        if self.policy is None or type(state_wire) is not bytes:
+            return False
+        end = len(self.placed_prefix)
+        return state_wire.startswith(self.placed_prefix) and state_wire[end:end + 1] in (b",", b"}")
+
+    def limits(self, placed):
+        """(max questions, max request bytes, max state bytes) for one request."""
+        if not placed or self.policy is None:
+            return MAX_QUESTIONS, MAX_REQUEST_BYTES, MAX_STATE_BYTES
+        return (self.max_questions, self.max_request_bytes,
+                MAX_STATE_BYTES + self.state_allowance)
+
+
+#: The b1 envelope: policy in instructions, 64 questions, 24 KiB.
+DEFAULT_REQUEST_ENVELOPE = RequestEnvelope()
+_ENVELOPE: ContextVar[RequestEnvelope | None] = ContextVar("dbh_request_envelope",
+                                                           default=None)
+
+
+def request_envelope():
+    """The envelope of the current scan (``using_request_envelope``), else b1."""
+    active = _ENVELOPE.get()
+    return DEFAULT_REQUEST_ENVELOPE if active is None else active
+
+
+@contextmanager
+def using_request_envelope(envelope):
+    """Encode and pack every request inside the block under *envelope*."""
+    if type(envelope) is not RequestEnvelope:
+        raise ValueError("invalid_request_envelope")
+    token = _ENVELOPE.set(envelope)
+    try:
+        yield envelope
+    finally:
+        _ENVELOPE.reset(token)
+
+
+def place_policy(state, questions):
+    """(state, questions, placed) under the active envelope.
+
+    Under "instructions" placement the arguments come back unchanged (the
+    same objects). Under "state" placement every question whose instructions
+    start with the policy and one space loses that prefix, and the state gains
+    ``policy`` as its first key when at least one question carried it, so a
+    request without the policy (claim checks, controls) is unchanged. Applying
+    it to its own output is a no-op. A state that already holds a different
+    or misplaced ``policy`` is ``invalid_request``. Neither argument is mutated.
+    """
+    text = request_envelope().policy
+    if text is None or type(questions) is not dict or type(state) is not dict:
+        return state, questions, False
+    prefix = text + " "
+    stripped, carried = {}, False
+    for qid, question in questions.items():
+        if (type(question) is dict and type(question.get("instructions")) is str
+                and question["instructions"].startswith(prefix)):
+            question = {**question, "instructions": question["instructions"][len(prefix):]}
+            carried = True
+        stripped[qid] = question
+    if POLICY_STATE_KEY in state:
+        if next(iter(state)) != POLICY_STATE_KEY or state[POLICY_STATE_KEY] != text:
+            raise ProviderError("invalid_request")
+        return state, stripped, True
+    if not carried:
+        return state, questions, False
+    return {POLICY_STATE_KEY: text, **state}, stripped, True
+
+
+def _answered_question_cap():
+    """Most questions a response may answer: the active envelope's cap for
+    a policy-in-state request (64 under the b1 envelope)."""
+    return request_envelope().limits(True)[0]
 
 
 def _encode_validated_request(state_wire, questions_wire):
@@ -152,20 +286,23 @@ def _encode_validated_request(state_wire, questions_wire):
 
     Private callers must snapshot inputs, validate the question profile and
     enforce the question count before serializing these immutable fragments.
-    Byte limits and the fixed model/envelope remain centralized here.
+    Byte limits and the fixed model/envelope remain centralized here; a state
+    that carries the active envelope's policy gets that envelope's caps.
     """
-    if len(state_wire) > MAX_STATE_BYTES:
+    envelope = request_envelope()
+    _questions, request_limit, state_limit = envelope.limits(envelope.placed(state_wire))
+    if len(state_wire) > state_limit:
         raise ProviderError("request_too_large")
     wire = b"".join((_REQUEST_PREFIX, state_wire, b',"questions":',
                      questions_wire, b'}'))
-    if len(wire) > MAX_REQUEST_BYTES:
+    if len(wire) > request_limit:
         raise ProviderError("request_too_large")
     return wire
 
 
-def validate_questions(questions):
+def validate_questions(questions, max_questions=MAX_QUESTIONS):
     """A narrow string-only question profile, bounded before transport."""
-    if type(questions) is not dict or not 1 <= len(questions) <= MAX_QUESTIONS:
+    if type(questions) is not dict or not 1 <= len(questions) <= max_questions:
         raise ProviderError("invalid_request")
     for qid, q in questions.items():
         if (type(qid) is not str or not _QUESTION_NAME.fullmatch(qid)
@@ -199,9 +336,12 @@ def encode_request(state: dict, questions=None) -> bytes:
             raise ProviderError("invalid_request")
         copied = _snapshot(state)
         qs = _snapshot({"q": QUESTION} if questions is None else questions)
-        validate_questions(qs)
+        # Policy placement (ADR-5(1)): the identity under "instructions".
+        copied, qs, placed = place_policy(copied, qs)
+        max_questions, _request, state_limit = request_envelope().limits(placed)
+        validate_questions(qs, max_questions)
         state_wire = _json(copied)
-        if len(state_wire) > MAX_STATE_BYTES:
+        if len(state_wire) > state_limit:
             raise ProviderError("request_too_large")
         # Reuse the already encoded state; encoding the envelope again would
         # traverse and UTF-8 encode the largest part of every request twice.
@@ -348,7 +488,7 @@ def validate_answers(raw, questions, api_key="", rounding_places=DEFAULT_CHOICE_
     error = None
     try:
         _rounding_profile(rounding_places)
-        validate_questions(questions)
+        validate_questions(questions, _answered_question_cap())
         if type(raw) is not bytes or len(raw) > MAX_RESPONSE_BYTES:
             raise ProviderError("response_too_large")
         if api_key and _secret_in(api_key, [raw]):
@@ -383,7 +523,7 @@ def validate_answers(raw, questions, api_key="", rounding_places=DEFAULT_CHOICE_
 def validate_answer_objects(answers, questions, rounding_places=DEFAULT_CHOICE_ROUNDING_PLACES):
     """Return a new normalized snapshot, using the local answer validator."""
     _rounding_profile(rounding_places)
-    validate_questions(questions)
+    validate_questions(questions, _answered_question_cap())
     return _validated_answer_objects(answers, questions, rounding_places)
 
 
@@ -430,7 +570,7 @@ def validate_answer_objects_scoped(answers, questions, places=DEFAULT_CHOICE_ROU
     rejects the whole batch. ``validate_answer_objects`` stays atomic.
     """
     _rounding_profile(places)
-    validate_questions(questions)
+    validate_questions(questions, _answered_question_cap())
     if isinstance(refused, dict):
         scoped = dict(refused)
     elif type(refused) in (list, tuple, set, frozenset):

@@ -21,8 +21,9 @@ from .core import Config, Source, Span, _coverage, windows, multiscale
 from .core import contiguous_candidates, _window_count, _window_at
 from .evidence import EvidenceRef, evidence_label, fitting_pair_state, excerpt
 from .protocol import (ProviderError, encode_request, plain, validate_answer_objects, validate_usage,
-                  CONTRACT_VERSION, MAX_REQUEST_BYTES, DEFAULT_CHOICE_ROUNDING_PLACES,
-                  ANSWER_SCOPED_CODES)
+                  CONTRACT_VERSION, MAX_QUESTIONS, MAX_REQUEST_BYTES, MAX_STATE_BYTES,
+                  DEFAULT_CHOICE_ROUNDING_PLACES, ANSWER_SCOPED_CODES, RequestEnvelope,
+                  request_envelope, using_request_envelope)
 from .providers import Classification, ValidatedGateway, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
                         state_for, prepared_question_batches, target_text, action_choice,
@@ -439,7 +440,8 @@ class Search:
             # bytes cannot make retained wire storage grow without a bound.
             prepared, retained_bytes, overflow_state = [], 0, None
             wire_limit = min(MAX_PREPARED_WIRE_BYTES,
-                             max(0, self.cfg.max_calls - self.calls) * MAX_REQUEST_BYTES)
+                             max(0, self.cfg.max_calls - self.calls)
+                             * request_envelope().limits(True)[1])
             for batch, failed, wire in prepared_question_batches(
                     state, questions, controls=self.canaries):
                 key = hashlib.sha256(wire).hexdigest() if wire is not None else None
@@ -653,6 +655,34 @@ class Search:
                 "mean_residual": (str((sum(residuals) / len(residuals)).quantize(
                                       Decimal("0.000001"))) if residuals else None),
                 "max_residual": str(max(residuals)) if residuals else None}
+
+    def request_envelope(self):
+        """Policy placement and caps for this scan (revision-3 WP-13).
+
+        "instructions" is the b1 envelope. "state" moves the active layout's
+        policy into state; requests that carry it use the gateway's declared
+        caps for policy-in-state requests (OpenRouter 200 questions and
+        48 KiB), and the b1 caps when the gateway declares none.
+        """
+        if self.cfg.policy_placement != "state":
+            return RequestEnvelope()
+        limits = getattr(self.gw, "request_limits", None)
+        if not (type(limits) is tuple and len(limits) == 2
+                and all(type(item) is int for item in limits)):
+            limits = (MAX_QUESTIONS, MAX_REQUEST_BYTES)
+        return RequestEnvelope(policy(self.pack), *limits)
+
+    def geometry_report(self):
+        """``request_geometry``, present only under "state" placement."""
+        envelope = request_envelope()
+        if envelope.policy is None:
+            return {}
+        questions, request_bytes, state_bytes = envelope.limits(True)
+        return {"request_geometry": {"policy_placement": envelope.placement,
+                                     "max_questions": questions,
+                                     "max_request_bytes": request_bytes,
+                                     "max_state_bytes": state_bytes,
+                                     "max_evidence_state_bytes": MAX_STATE_BYTES}}
 
     def controls_report(self):
         """The report's ``controls`` record; absent when canaries are off."""
@@ -1957,8 +1987,11 @@ class Search:
         # Every state and policy preamble of this scan uses the configured
         # layout (ADR-5(4)); the report's configuration records it, so the
         # question-pack hash plus the layout identify each request's bytes.
+        # Policy placement and request caps (WP-13) are fixed for the scan
+        # too; under "instructions" the envelope is the b1 one.
         with using_state_layout(self.cfg.state_layout):
-            return self._run()
+            with using_request_envelope(self.request_envelope()):
+                return self._run()
 
     def _run(self):
         ready = True
@@ -2054,6 +2087,7 @@ class Search:
                 **self.answer_quality(),
                 **self.controls_report(),
                 **self.injection_report(),
+                **self.geometry_report(),
                 "calibration": dict(CALIBRATION),
                 "cache_hits": self.cache_hits, "windows_planned": self.window_count,
                 "findings": findings, "coverage": coverage,
