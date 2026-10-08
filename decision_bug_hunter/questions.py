@@ -552,6 +552,17 @@ Under "state" policy placement (``protocol.using_request_envelope``) the
 state and questions are placed once, before packing: batches hold the
 questions as sent, and a placed request packs to the envelope's caps.
 """
+    for batch, failure, wire, _state in _prepared_request_batches(
+            state, questions, controls=controls):
+        yield batch, failure, wire
+
+
+def _prepared_request_batches(state, questions, *, controls=False):
+    """Yield ``(batch, failure, wire, placed state)`` for ``prepared_question_batches``.
+
+    The placed state is the same object in every item, so an overflow request is
+    encoded from it and no wire is decoded.
+    """
     if not questions:
         return
     try:
@@ -588,16 +599,16 @@ questions as sent, and a placed request packs to the envelope's caps.
             entry_size = len(fragment)
             predicted = size + entry_size + bool(batch)
             if batch and (len(batch) == limit or predicted + reserve > request_limit):
-                yield finish(batch, fragments, size)
+                yield (*finish(batch, fragments, size), state)
                 batch, fragments, size = {}, [], base
             if not state_fits or base + entry_size > request_limit:
-                yield {}, qid, None
+                yield {}, qid, None, state
                 continue
             size += entry_size + bool(batch)
             batch[qid] = question
             fragments.append(fragment)
         if batch:
-            yield finish(batch, fragments, size)
+            yield (*finish(batch, fragments, size), state)
     except ProviderError:
         raise
     except (ValueError, TypeError, UnicodeError):

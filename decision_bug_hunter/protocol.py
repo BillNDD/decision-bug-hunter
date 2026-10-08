@@ -170,6 +170,8 @@ def _json(value):
 
 
 _REQUEST_PREFIX = b'{"contract":' + _json(CONTRACT_VERSION) + b',"state":'
+#: The same bytes under a public name, for the engine's state digest slice.
+REQUEST_PREFIX = _REQUEST_PREFIX
 #: State key that carries the policy preamble under "state" placement.
 POLICY_STATE_KEY = "policy"
 

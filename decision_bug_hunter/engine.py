@@ -23,10 +23,12 @@ from .evidence import EvidenceRef, evidence_label, fitting_pair_state, excerpt
 from .protocol import (ProviderError, encode_request, plain, validate_answer_objects, validate_usage,
                   CONTRACT_VERSION, MAX_QUESTIONS, MAX_REQUEST_BYTES, MAX_STATE_BYTES,
                   DEFAULT_CHOICE_ROUNDING_PLACES, ANSWER_SCOPED_CODES, RequestEnvelope,
+                  REQUEST_PREFIX,
                   request_envelope, using_request_envelope)
-from .providers import Classification, ValidatedGateway, classify
+from .providers import Classification, ValidatedGateway, VALIDATED_EVALUATE, classify
 from .questions import (load_pack, noul, choice, screening, fitting_state,
-                        state_for, prepared_question_batches, target_text, action_choice,
+                        state_for, prepared_question_batches, _prepared_request_batches,
+                        target_text, action_choice,
                         evidence_noul, LENS_KINDS, policy, _ordered_state,
                         using_state_layout, singleton_candidates, MAX_RANK_PAGE,
                         CONTROL_NAME, CONTROL_RESERVE_BYTES, CONTROL_SET,
@@ -313,6 +315,53 @@ def digest(value):
     return hashlib.sha256(raw).hexdigest()
 
 
+#: The bytes between the state and the questions of every request wire.
+_QUESTIONS_SEPARATOR = b',"questions":'
+
+
+def _decoded_state_digest(wire):
+    """``digest`` of the state a wire decodes to: the fallback of ``_wire_state_digest``."""
+    return digest(json.loads(wire)["state"])
+
+
+def _policy_restrips(batch):
+    """True when ``encode_request`` would strip the policy preamble again from a
+    question of *batch* (state placement, a doubled preamble).
+
+    The packer's bytes then differ from a re-encode of the same questions, so
+    such a batch takes the evaluate path, which encodes it exactly as before.
+    """
+    text = request_envelope().policy
+    if text is None:
+        return False
+    prefix = text + " "
+    return any(type(question.get("instructions")) is str
+               and question["instructions"].startswith(prefix)
+               for question in batch.values())
+
+
+def _wire_state_digest(wire, qraw):
+    """``digest(state)`` taken from the packer's bytes inside *wire* (A2).
+
+    *qraw* is the compact JSON of the batch, the questions part of the wire.
+    The slice is taken only when the wire is exactly ``REQUEST_PREFIX + state +
+    ',"questions":' + qraw + "}"``: the questions bytes are compared with
+    *qraw* at their exact place, so a same-length questions part that differs
+    takes the decode too. The state is then the exact slice between the
+    prefix and the separator. Any other layout is decoded instead, so the
+    digest is always the one a decode would give. The "questions" substring
+    is never searched for, because state and questions can hold that key.
+    """
+    tail_end = len(wire) - 1
+    q_start = tail_end - len(qraw)
+    s_end = q_start - len(_QUESTIONS_SEPARATOR)
+    if (wire.startswith(REQUEST_PREFIX) and s_end > len(REQUEST_PREFIX)
+            and wire.endswith(b"}") and wire.endswith(qraw, 0, tail_end)
+            and wire.endswith(_QUESTIONS_SEPARATOR, 0, q_start)):
+        return hashlib.sha256(memoryview(wire)[len(REQUEST_PREFIX):s_end]).hexdigest()
+    return _decoded_state_digest(wire)
+
+
 def _copy_validated_answers(answers):
     """Copy the closed answer schema; validated scalars are immutable."""
     result = {}
@@ -479,11 +528,20 @@ class Search:
             # here, and again for scoped provenance, repeated the same work.
             # Large screens still receive atomic preflight, but repeated state
             # bytes cannot make retained wire storage grow without a bound.
+            # A ValidatedGateway takes the prepared path: its wire is handed over
+            # as packed, and its answers are checked against the questions only.
+            # A batch whose policy preamble the gateway would strip again takes
+            # the evaluate path, so its bytes and keys stay those of a re-encode.
+            # An evaluate replaced on the instance or on the class (a hook) takes
+            # the base route, so the hook still receives every call.
+            validated = (type(self.gw) is ValidatedGateway
+                         and ValidatedGateway.evaluate is VALIDATED_EVALUATE
+                         and "evaluate" not in vars(self.gw))
             prepared, retained_bytes, overflow_state = [], 0, None
             wire_limit = min(MAX_PREPARED_WIRE_BYTES,
                              max(0, self.cfg.max_calls - self.calls)
                              * request_envelope().limits(True)[1])
-            for batch, failed, wire in prepared_question_batches(
+            for batch, failed, wire, placed in _prepared_request_batches(
                     state, questions, controls=self.canaries):
                 key = hashlib.sha256(wire).hexdigest() if wire is not None else None
                 if wire is not None:
@@ -491,7 +549,10 @@ class Search:
                         retained_bytes += len(wire)
                     else:
                         if overflow_state is None:
-                            overflow_state = json.loads(wire)["state"]
+                            # The placed state the packer already holds on the
+                            # prepared path; any other gateway decodes its wire.
+                            overflow_state = (placed if validated
+                                              else json.loads(wire)["state"])
                         wire = None
                 prepared.append((batch, failed, wire, key))
         except ProviderError as exc:
@@ -506,6 +567,7 @@ class Search:
             if failed is not None:
                 self.issue("question_too_large", region, phase)
                 continue
+            fast = validated and not _policy_restrips(batch)
             ckey = (*self.route_key, key)
             if ckey in self.cache:
                 # Never return cache-owned mutable dictionaries to a caller.
@@ -548,27 +610,52 @@ class Search:
                 wire = encode_request(overflow_state, batch)
             self.calls += 1
             self.questions += len(batch)
+            # On the prepared path the batch's compact JSON is the questions part
+            # of its wire: one encode serves question_sha256 and the exact state
+            # digest slice. Other gateways hash the batch as they always did.
+            qraw = (json.dumps(batch, ensure_ascii=False, separators=(",", ":")).encode()
+                    if fast else None)
             row = {"sequence": self.calls, "phase": phase,
                    "range": [region.start, region.end], "request_sha256": key,
-                   "state_sha256": None, "question_sha256": digest(batch),
+                   "state_sha256": None,
+                   "question_sha256": (digest(batch) if qraw is None
+                                       else hashlib.sha256(qraw).hexdigest()),
                    "question_ids": list(batch), "question_count": len(batch),
                    "status": "failed", "answers": None, "error": None}
             try:
-                sent = json.loads(wire)
-                if state_sha256 is None:
-                    # Fingerprint the owned wire snapshot, never a caller's
-                    # mutable dictionaries after request preparation.
-                    state_sha256 = digest(sent["state"])
-                row["state_sha256"] = state_sha256
-                answers = self.gw.evaluate(sent["state"], sent["questions"], metadata={
-                    "sequence": self.calls, "phase": phase,
-                    "window_id": region.id, "source_sha256": self.source.sha256})
+                metadata = {"sequence": self.calls, "phase": phase,
+                            "window_id": region.id, "source_sha256": self.source.sha256}
+                if fast:
+                    if state_sha256 is None:
+                        # Fingerprint the owned wire snapshot, never a caller's
+                        # mutable dictionaries after request preparation.
+                        state_sha256 = _wire_state_digest(wire, qraw)
+                    row["state_sha256"] = state_sha256
+                    answers = self.gw._evaluate_prepared(wire, key, metadata=metadata)
+                else:
+                    sent = json.loads(wire)
+                    if state_sha256 is None:
+                        # Fingerprint the owned wire snapshot, never a caller's
+                        # mutable dictionaries after request preparation.
+                        state_sha256 = digest(sent["state"])
+                    row["state_sha256"] = state_sha256
+                    answers = self.gw.evaluate(sent["state"], sent["questions"],
+                                               metadata=metadata)
                 # A conforming Gateway validates types and values; the engine
                 # re-checks the answers it kept. Only a ValidatedGateway may
                 # report answer-scoped defects: custom gateways stay atomic.
                 defects = self.gateway_defects(batch)
                 kept = {qid: q for qid, q in batch.items() if qid not in defects}
-                if kept:
+                if kept and validated:
+                    # The gateway validated these answers for these questions
+                    # and rounding places (validate_answer_objects_scoped), and
+                    # re-validating its own output returns the same objects:
+                    # the probabilities are Decimals that validate to themselves.
+                    # This holds for a batch the gateway received on either route,
+                    # so only the names need checking here (A3).
+                    if answers.keys() != kept.keys():
+                        raise ProviderError("response_schema")
+                elif kept:
                     answers = validate_answer_objects(answers, kept,
                                   getattr(self.gw, "rounding_places", DEFAULT_CHOICE_ROUNDING_PLACES))
                 elif answers != {}:

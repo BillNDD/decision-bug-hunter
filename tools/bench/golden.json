@@ -38,17 +38,17 @@
       "config": {},
       "counters": {
         "copy_deepcopy_calls": 36,
-        "dbh_ncalls": 11518,
-        "dbh_primitive_calls": 8914,
-        "json_dumps_calls": 298,
-        "json_dumps_chars": 299080,
+        "dbh_ncalls": 10052,
+        "dbh_primitive_calls": 8400,
+        "json_dumps_calls": 238,
+        "json_dumps_chars": 215780,
         "json_loads_bytes": 184280,
         "json_loads_calls": 64,
         "path_mkdir_calls": 4,
         "protocol_secret_in_calls": 804,
-        "protocol_snapshot_calls": 864,
-        "sha256_bytes": 401915,
-        "sha256_calls": 188
+        "protocol_snapshot_calls": 456,
+        "sha256_bytes": 327230,
+        "sha256_calls": 168
       },
       "exact": {
         "critical_path_upper": 20,
@@ -285,17 +285,17 @@
       "config": {},
       "counters": {
         "copy_deepcopy_calls": 314,
-        "dbh_ncalls": 135452,
-        "dbh_primitive_calls": 95925,
-        "json_dumps_calls": 3224,
-        "json_dumps_chars": 4148452,
+        "dbh_ncalls": 115522,
+        "dbh_primitive_calls": 90399,
+        "json_dumps_calls": 2639,
+        "json_dumps_chars": 2853840,
         "json_loads_bytes": 2561610,
         "json_loads_calls": 631,
         "path_mkdir_calls": 34,
         "protocol_secret_in_calls": 11494,
-        "protocol_snapshot_calls": 15219,
-        "sha256_bytes": 5874398,
-        "sha256_calls": 1894
+        "protocol_snapshot_calls": 7888,
+        "sha256_bytes": 4756739,
+        "sha256_calls": 1695
       },
       "exact": {
         "critical_path_upper": 183,
@@ -536,17 +536,17 @@
       },
       "counters": {
         "copy_deepcopy_calls": 724,
-        "dbh_ncalls": 146779,
-        "dbh_primitive_calls": 99827,
-        "json_dumps_calls": 3625,
-        "json_dumps_chars": 5075052,
+        "dbh_ncalls": 126043,
+        "dbh_primitive_calls": 94482,
+        "json_dumps_calls": 3064,
+        "json_dumps_chars": 3533296,
         "json_loads_bytes": 2850334,
         "json_loads_calls": 607,
         "path_mkdir_calls": 34,
         "protocol_secret_in_calls": 12045,
-        "protocol_snapshot_calls": 16359,
-        "sha256_bytes": 7107116,
-        "sha256_calls": 2209
+        "protocol_snapshot_calls": 8417,
+        "sha256_bytes": 5845712,
+        "sha256_calls": 2018
       },
       "exact": {
         "critical_path_upper": 175,
@@ -586,17 +586,17 @@
       "config": {},
       "counters": {
         "copy_deepcopy_calls": 49,
-        "dbh_ncalls": 264980,
-        "dbh_primitive_calls": 142494,
-        "json_dumps_calls": 5813,
-        "json_dumps_chars": 13591393,
+        "dbh_ncalls": 208583,
+        "dbh_primitive_calls": 133204,
+        "json_dumps_calls": 5231,
+        "json_dumps_chars": 9146422,
         "json_loads_bytes": 9288541,
         "json_loads_calls": 707,
         "path_mkdir_calls": 3,
         "protocol_secret_in_calls": 32455,
-        "protocol_snapshot_calls": 47716,
-        "sha256_bytes": 19903318,
-        "sha256_calls": 1852
+        "protocol_snapshot_calls": 22055,
+        "sha256_bytes": 15890204,
+        "sha256_calls": 1617
       },
       "exact": {
         "critical_path_upper": 72,
@@ -635,17 +635,17 @@
       "config": {},
       "counters": {
         "copy_deepcopy_calls": 49,
-        "dbh_ncalls": 264698,
-        "dbh_primitive_calls": 142212,
-        "json_dumps_calls": 5808,
-        "json_dumps_chars": 12595895,
+        "dbh_ncalls": 208301,
+        "dbh_primitive_calls": 132922,
+        "json_dumps_calls": 5226,
+        "json_dumps_chars": 8150938,
         "json_loads_bytes": 8294755,
         "json_loads_calls": 706,
         "path_mkdir_calls": 1,
         "protocol_secret_in_calls": 32453,
-        "protocol_snapshot_calls": 47716,
-        "sha256_bytes": 19899969,
-        "sha256_calls": 1848
+        "protocol_snapshot_calls": 22055,
+        "sha256_bytes": 15886855,
+        "sha256_calls": 1613
       },
       "exact": {
         "critical_path_upper": 72,
@@ -686,17 +686,17 @@
       },
       "counters": {
         "copy_deepcopy_calls": 49,
-        "dbh_ncalls": 283183,
-        "dbh_primitive_calls": 154636,
-        "json_dumps_calls": 5940,
-        "json_dumps_chars": 13015841,
+        "dbh_ncalls": 223596,
+        "dbh_primitive_calls": 144213,
+        "json_dumps_calls": 5325,
+        "json_dumps_chars": 8401375,
         "json_loads_bytes": 8565974,
         "json_loads_calls": 739,
         "path_mkdir_calls": 1,
         "protocol_secret_in_calls": 33630,
-        "protocol_snapshot_calls": 49608,
-        "sha256_bytes": 20532173,
-        "sha256_calls": 1936
+        "protocol_snapshot_calls": 22979,
+        "sha256_bytes": 16392297,
+        "sha256_calls": 1690
       },
       "exact": {
         "critical_path_upper": 83,
@@ -737,17 +737,17 @@
       },
       "counters": {
         "copy_deepcopy_calls": 49,
-        "dbh_ncalls": 244843,
-        "dbh_primitive_calls": 128937,
-        "json_dumps_calls": 5328,
-        "json_dumps_chars": 12304521,
+        "dbh_ncalls": 192676,
+        "dbh_primitive_calls": 120117,
+        "json_dumps_calls": 4746,
+        "json_dumps_chars": 7948807,
         "json_loads_bytes": 8093611,
         "json_loads_calls": 706,
         "path_mkdir_calls": 1,
         "protocol_secret_in_calls": 31043,
-        "protocol_snapshot_calls": 46776,
-        "sha256_bytes": 15541307,
-        "sha256_calls": 1128
+        "protocol_snapshot_calls": 22055,
+        "sha256_bytes": 11617493,
+        "sha256_calls": 893
       },
       "exact": {
         "critical_path_upper": 72,
@@ -788,17 +788,17 @@
       },
       "counters": {
         "copy_deepcopy_calls": 49,
-        "dbh_ncalls": 214159,
-        "dbh_primitive_calls": 115514,
-        "json_dumps_calls": 4826,
-        "json_dumps_chars": 6426012,
+        "dbh_ncalls": 175024,
+        "dbh_primitive_calls": 111996,
+        "json_dumps_calls": 4490,
+        "json_dumps_chars": 4179893,
         "json_loads_bytes": 3708416,
         "json_loads_calls": 337,
         "path_mkdir_calls": 1,
         "protocol_secret_in_calls": 20225,
-        "protocol_snapshot_calls": 37456,
-        "sha256_bytes": 9024087,
-        "sha256_calls": 987
+        "protocol_snapshot_calls": 22055,
+        "sha256_bytes": 7285703,
+        "sha256_calls": 875
       },
       "exact": {
         "critical_path_upper": 72,
@@ -837,17 +837,17 @@
       "config": {},
       "counters": {
         "copy_deepcopy_calls": 59,
-        "dbh_ncalls": 117315,
-        "dbh_primitive_calls": 65639,
-        "json_dumps_calls": 2093,
-        "json_dumps_chars": 4521260,
+        "dbh_ncalls": 94269,
+        "dbh_primitive_calls": 61164,
+        "json_dumps_calls": 1757,
+        "json_dumps_chars": 2785718,
         "json_loads_bytes": 2805906,
         "json_loads_calls": 361,
         "path_mkdir_calls": 1,
         "protocol_secret_in_calls": 14477,
-        "protocol_snapshot_calls": 23364,
-        "sha256_bytes": 6887295,
-        "sha256_calls": 1004
+        "protocol_snapshot_calls": 11598,
+        "sha256_bytes": 5535482,
+        "sha256_calls": 884
       },
       "exact": {
         "critical_path_upper": 88,
@@ -887,17 +887,17 @@
       "config": {},
       "counters": {
         "copy_deepcopy_calls": 49,
-        "dbh_ncalls": 1080287,
-        "dbh_primitive_calls": 565099,
-        "json_dumps_calls": 25679,
-        "json_dumps_chars": 56217782,
+        "dbh_ncalls": 841226,
+        "dbh_primitive_calls": 528590,
+        "json_dumps_calls": 23594,
+        "json_dumps_chars": 36917036,
         "json_loads_bytes": 37637137,
         "json_loads_calls": 2710,
         "path_mkdir_calls": 1,
         "protocol_secret_in_calls": 133466,
-        "protocol_snapshot_calls": 189964,
-        "sha256_bytes": 89645013,
-        "sha256_calls": 6858
+        "protocol_snapshot_calls": 85499,
+        "sha256_bytes": 71416687,
+        "sha256_calls": 5955
       },
       "exact": {
         "critical_path_upper": 72,

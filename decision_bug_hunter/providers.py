@@ -1006,6 +1006,20 @@ class ValidatedGateway:
 
     def evaluate(self, state: dict[str, Any], questions: dict[str, Any], *,
                  metadata: dict[str, Any]) -> dict[str, Any]:
+        return self._locked(lambda: self._evaluate(state, questions, metadata=metadata))
+
+    def _evaluate_prepared(self, wire: bytes, key: str, *,
+                           metadata: dict[str, Any]) -> dict[str, Any]:
+        """``evaluate`` for a wire the engine's packer already validated (A2).
+
+        The packer checked every question, the count, the request limit and the
+        state limit, so the wire is not encoded again. ``key`` must be
+        ``sha256(wire)``: the engine computed it and it is not re-hashed here.
+        """
+        return self._locked(lambda: self._evaluate_wire(wire, key, metadata=metadata))
+
+    def _locked(self, run: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        """Run one request under the non-blocking call lock and owner bookkeeping."""
         if not self._call_lock.acquire(blocking=False):
             raise ProviderError("transport_failed")
         try:
@@ -1016,7 +1030,7 @@ class ValidatedGateway:
             self._last_defects = {}
             self.require_available()
             self._busy = True
-            return self._evaluate(state, questions, metadata=metadata)
+            return run()
         except BaseException as exc:
             if not isinstance(exc, Exception):
                 self._block("interrupted")
@@ -1040,7 +1054,19 @@ class ValidatedGateway:
         # Own the expected question schema independently of caller/provider mutation.
         # encode_request has validated questions as plain JSON data by now.
         expected = _tree_copy(questions)
-        key = hashlib.sha256(wire).hexdigest()
+        return self._dispatch(wire, expected, hashlib.sha256(wire).hexdigest(), meta)
+
+    def _evaluate_wire(self, wire: bytes, key: str, *,
+                       metadata: dict[str, Any]) -> dict[str, Any]:
+        meta = _metadata(metadata)
+        # json.loads builds fresh objects that nothing else holds, so the
+        # expected questions need no copy.
+        sent = json.loads(wire)
+        self.check_sensitive(sent["state"], sent["questions"], metadata)
+        return self._dispatch(wire, sent["questions"], key, meta)
+
+    def _dispatch(self, wire: bytes, expected: dict[str, Any], key: str,
+                  meta: dict[str, Any]) -> dict[str, Any]:
         self.logical_requests += 1
         sequence = meta.get("sequence")
         self._sequence = sequence if type(sequence) is int else self.logical_requests
@@ -1422,3 +1448,9 @@ class ValidatedGateway:
             self._progress.flush()
         except Exception:
             pass
+
+
+#: The evaluate the engine's prepared path stands in for. It is captured as this
+#: module loads, before any caller can patch the class, so a replacement made
+#: later (a hook) is never this function.
+VALIDATED_EVALUATE = ValidatedGateway.evaluate
