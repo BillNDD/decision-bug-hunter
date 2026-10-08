@@ -1270,6 +1270,7 @@ class ValidatedGateway:
         Returns (answers, error, classification) with ``receipt`` updated but
         its terminal state not yet written; the caller settles it.
         """
+        dispatches = self._dispatch_writes
         try:
             if not self._receipt_dir_ready:
                 self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1289,7 +1290,27 @@ class ValidatedGateway:
             # its directory entry is made durable here, settlements skip it.
             self._dispatch_writes += 1
             _sync_directory(self.receipt_dir)
-        except Exception:
+        except BaseException as exc:
+            # The directory is created once. Before the dispatching write, a
+            # removed directory is recreated best effort, so the failure receipt
+            # lands as it did when every attempt created it (1a5f5be). A first
+            # mkdir failure writes nothing, as before. A stat that fails counts
+            # as missing. After the dispatching write the directory is left
+            # alone, as 1a5f5be left it.
+            if self._receipt_dir_ready and self._dispatch_writes == dispatches:
+                try:
+                    present = self.receipt_dir.is_dir()
+                except Exception:
+                    present = False
+                if not present:
+                    try:
+                        self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    except Exception:
+                        pass
+            if not isinstance(exc, Exception):
+                # An interrupt is settled by the attempt loop, which writes its
+                # interrupted receipt. Nothing is changed here.
+                raise
             # The provider was never called: nothing can have been submitted.
             receipt.update(submission="not_sent", submission_possible=False,
                            cost_bound_usd=self._zero_bound())

@@ -360,8 +360,8 @@ class MemoryReceipts:
 
     It keeps the exact receipt bytes and skips only the temp-file, fsync and
     rename syscalls, which took 0.5-1.9 s each on the slow disk this was
-    measured on. A seam with ``providers._durable_write`` is patched there, so
-    receipt serialization stays measured; otherwise ``_write_receipt`` is.
+    measured on. ``providers._durable_write`` is patched, so receipt
+    serialization stays measured.
     """
 
     def __init__(self):
@@ -369,21 +369,17 @@ class MemoryReceipts:
 
     @contextlib.contextmanager
     def active(self):
+        if providers is None:
+            raise SystemExit("MemoryReceipts needs _import_code() to run first")
+        if not hasattr(providers, "_durable_write"):
+            raise SystemExit("MemoryReceipts needs providers._durable_write; the receipt "
+                             "write seam is missing, so the benchmark cannot run")
         files = self.files
-        if hasattr(providers, "_durable_write"):
-            def durable_write(path, data):
-                files[str(Path(path))] = bytes(data)
 
-            with patch.object(providers, "_durable_write", durable_write):
-                yield
-            return
+        def durable_write(path, data):
+            files[str(Path(path))] = bytes(data)
 
-        json_bytes, plain = protocol._json, protocol.plain
-
-        def write_receipt(path, receipt):
-            files[str(Path(path))] = json_bytes(plain(receipt))
-
-        with patch.object(providers, "_write_receipt", write_receipt):
+        with patch.object(providers, "_durable_write", durable_write):
             yield
 
     def under(self, directory: Path):

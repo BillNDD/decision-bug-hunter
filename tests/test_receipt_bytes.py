@@ -6,11 +6,15 @@ byte for byte on every receipt shape, including the receipts of a real gateway r
 """
 from copy import deepcopy
 from decimal import Decimal
+import errno
+import importlib.util
 import json
+import os
 from pathlib import Path
 import pathlib
 import random
 import shutil
+import stat
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,6 +26,37 @@ from decision_bug_hunter.protocol import QUESTION, ProviderError
 from decision_bug_hunter.providers import ProviderResponse, ValidatedGateway
 from tests.support import FixtureProvider
 from tests.test_provider_boundary import SyntheticProvider
+
+ROOT = Path(__file__).resolve().parents[1]
+BENCH = ROOT / "tools" / "bench" / "bench.py"
+#: Sorted keys of the failure receipt that 1a5f5be wrote for a directory removed
+#: after its first write, checked against that commit's code.
+FAILURE_RECEIPT_KEYS = [
+    "answer_order_mismatch", "answers", "attempt", "cost_bound_usd", "cost_source",
+    "cost_usd", "deadline_seconds", "duplicate_billing_possible", "error",
+    "generation_id", "late", "logical_id", "metadata", "model", "model_requested",
+    "model_returned", "provider", "provider_error", "question_count", "request_id",
+    "request_sha256", "retry_reason", "rounding_places", "route", "schema_version",
+    "scoped", "status", "submission", "submission_possible", "synthetic",
+    "timeout_seconds", "upstream_provider", "usage", "waited_seconds", "wire_sha256",
+]
+#: The whole failure receipt of the same scenario as written by 1a5f5be, with the
+#: random logical_id left out (captured by running that commit's providers.py).
+PRE_A9_FAILURE_RECEIPT = {
+    "answer_order_mismatch": False, "answers": None, "attempt": 1,
+    "cost_bound_usd": None, "cost_source": "none", "cost_usd": None,
+    "deadline_seconds": 30.0, "duplicate_billing_possible": False,
+    "error": "receipt_failed", "generation_id": None, "late": False,
+    "metadata": {"end_line": 2, "start_line": 1, "window_id": "W1"},
+    "model": None, "model_requested": None, "model_returned": None,
+    "provider": "offline-contract-fixture", "provider_error": None,
+    "question_count": 1, "request_id": None,
+    "request_sha256": "a948396823817c00bf5975cb6731ee9f7269c693b2b816feae682a4965350fdf",
+    "retry_reason": None, "rounding_places": None, "route": "offline-contract-fixture",
+    "schema_version": 2, "scoped": None, "status": "failed", "submission": "not_sent",
+    "submission_possible": False, "synthetic": True, "timeout_seconds": 30.0,
+    "upstream_provider": None, "usage": None, "waited_seconds": 0.0, "wire_sha256": None,
+}
 
 
 def frozen_plain(value):
@@ -363,6 +398,154 @@ class ReceiptDirectoryTests(unittest.TestCase):
         self.assertEqual(len(provider.requests), 1)
         self.assertEqual(gateway.last_call_stats["submission"], "not_sent")
 
+    def refusing_dispatch(self, gateway):
+        """Patch check_sensitive to refuse the dispatching write, before any provider call."""
+        real = gateway.check_sensitive
+
+        def refuse_receipt_path(*values):
+            # Only the dispatching check passes a receipt path and a receipt.
+            if len(values) == 2 and str(values[0]).endswith(".json"):
+                raise ProviderError("sensitive_input")
+            return real(*values)
+
+        return patch.object(gateway, "check_sensitive", refuse_receipt_path)
+
+    def failure_receipt_for(self, gateway):
+        """The receipt of an attempt that check_sensitive refuses before its dispatching write."""
+        with self.refusing_dispatch(gateway):
+            with self.assertRaises(ProviderError) as caught:
+                self.evaluate(gateway)
+        self.assertEqual(caught.exception.code, "receipt_failed")
+        path = Path(gateway.last_receipt)
+        return path, json.loads(path.read_text())
+
+    def test_failure_receipt_is_persisted_after_the_directory_was_removed(self):
+        gateway, provider = self.gateway()
+        self.evaluate(gateway)
+        shutil.rmtree(gateway.receipt_dir)
+        modes = []
+        real = self.real_mkdir
+
+        def recording(path, *args, **kwargs):
+            if Path(path) == gateway.receipt_dir:
+                modes.append(kwargs.get("mode"))
+            return real(path, *args, **kwargs)
+
+        with patch.object(pathlib.Path, "mkdir", recording):
+            path, saved = self.failure_receipt_for(gateway)
+        self.assertEqual(path.parent, gateway.receipt_dir)
+        self.assertTrue(path.is_file())
+        self.assertEqual(len(provider.requests), 1)
+        # The fields the pre-A9 code wrote: a failed attempt that was never
+        # submitted, with no answers and no usage.
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "receipt_failed")
+        self.assertEqual(saved["submission"], "not_sent")
+        self.assertIs(saved["submission_possible"], False)
+        self.assertIsNone(saved["answers"])
+        self.assertIsNone(saved["usage"])
+        self.assertEqual(saved["attempt"], 1)
+        self.assertEqual(saved["metadata"], META)
+        # The full receipt, with the values 1a5f5be wrote for this same scenario.
+        self.assertEqual(sorted(saved), FAILURE_RECEIPT_KEYS)
+        self.assertIsNone(saved["cost_bound_usd"])
+        self.assertIsNone(saved["cost_usd"])
+        self.assertEqual(saved["cost_source"], "none")
+        self.assertIsNone(saved["wire_sha256"])
+        self.assertIsNone(saved["provider_error"])
+        self.assertIsNone(saved["generation_id"])
+        self.assertIsNone(saved["request_id"])
+        self.assertIs(saved["duplicate_billing_possible"], False)
+        self.assertIs(saved["late"], False)
+        self.assertIs(saved["answer_order_mismatch"], False)
+        self.assertEqual(saved["waited_seconds"], 0.0)
+        self.assertEqual(saved["deadline_seconds"], saved["timeout_seconds"])
+        # The recreated directory keeps the mode the pre-A9 code gave it. The
+        # spy checks this on every platform; the stat check adds the real mode
+        # where POSIX permissions exist.
+        self.assertEqual(modes, [0o700])
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(gateway.receipt_dir.stat().st_mode), 0o700)
+        # The same failure with the directory intact writes the same receipt,
+        # apart from its random logical id.
+        control, _ = self.gateway("control")
+        self.evaluate(control)
+        _, expected = self.failure_receipt_for(control)
+        self.assertEqual({k: v for k, v in saved.items() if k != "logical_id"},
+                         {k: v for k, v in expected.items() if k != "logical_id"})
+        # And the same content 1a5f5be wrote, field by field, request hash included.
+        self.assertEqual({k: v for k, v in saved.items() if k != "logical_id"},
+                         PRE_A9_FAILURE_RECEIPT)
+
+    def test_failure_receipt_is_persisted_when_an_outer_directory_was_removed(self):
+        # The receipt directory is nested: removing its parent must not stop the
+        # failure receipt, because the best-effort recreate makes parents too.
+        gateway, provider = self.gateway("outer/receipts")
+        self.evaluate(gateway)
+        shutil.rmtree(self.root / "outer")
+        path, saved = self.failure_receipt_for(gateway)
+        self.assertEqual(path.parent, gateway.receipt_dir)
+        self.assertTrue(path.is_file())
+        self.assertEqual(len(provider.requests), 1)
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "receipt_failed")
+        self.assertEqual(saved["submission"], "not_sent")
+        self.assertEqual(gateway.last_call_stats["submission"], "not_sent")
+
+    def test_failure_receipt_is_persisted_when_removed_directory_cannot_be_statted(self):
+        gateway, provider = self.gateway()
+        self.evaluate(gateway)
+        receipt_dir = gateway.receipt_dir
+        shutil.rmtree(receipt_dir)
+        real_is_dir = pathlib.Path.is_dir
+
+        def unreadable(path):
+            # The directory is gone and its stat is refused, so it cannot be
+            # told apart from missing: the failure receipt must still persist.
+            if Path(path) == receipt_dir:
+                raise PermissionError(errno.EACCES, "synthetic stat denial", str(path))
+            return real_is_dir(path)
+
+        with patch.object(pathlib.Path, "is_dir", unreadable):
+            path, saved = self.failure_receipt_for(gateway)
+        self.assertEqual(path.parent, receipt_dir)
+        self.assertEqual(len(provider.requests), 1)
+        self.assertEqual(gateway.last_call_stats["submission"], "not_sent")
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "receipt_failed")
+        self.assertEqual(saved["submission"], "not_sent")
+        self.assertIs(saved["submission_possible"], False)
+        self.assertEqual(len(list(receipt_dir.iterdir())), 1)
+
+    def test_unreadable_receipt_directory_still_fails_closed(self):
+        gateway, provider = self.gateway()
+        self.evaluate(gateway)
+        receipt_dir = gateway.receipt_dir
+        real_is_dir = pathlib.Path.is_dir
+
+        def unreadable(path):
+            # A stat the OS refuses: is_dir() re-raises it instead of answering.
+            if Path(path) == receipt_dir:
+                raise PermissionError(errno.EACCES, "synthetic stat denial", str(path))
+            return real_is_dir(path)
+
+        with patch.object(pathlib.Path, "is_dir", unreadable):
+            with self.refusing_dispatch(gateway):
+                with self.assertRaises(ProviderError) as caught:
+                    self.evaluate(gateway)
+        self.assertEqual(caught.exception.code, "receipt_failed")
+        self.assertEqual(len(provider.requests), 1)
+        self.assertEqual(gateway.last_call_stats["submission"], "not_sent")
+        saved = json.loads(Path(gateway.last_receipt).read_text())
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "receipt_failed")
+        self.assertEqual(len(list(receipt_dir.iterdir())), 2)
+        # Once the directory is reachable again, the gateway is still blocked.
+        with self.assertRaises(ProviderError) as again:
+            self.evaluate(gateway)
+        self.assertEqual(again.exception.code, "receipt_failed")
+        self.assertEqual(len(provider.requests), 1)
+
     def test_failing_directory_creation_still_fails_closed(self):
         gateway, provider = self.gateway()
         real = self.real_mkdir
@@ -381,6 +564,179 @@ class ReceiptDirectoryTests(unittest.TestCase):
         with self.assertRaises(ProviderError):
             self.evaluate(gateway)
         self.assertEqual(provider.requests, [])
+
+    def test_one_time_first_mkdir_failure_writes_no_receipt(self):
+        # Matches 1a5f5be, where the directory was created only inside the try:
+        # when the very first mkdir fails, no failure receipt is written and no
+        # directory is created, and the gateway stays blocked.
+        gateway, provider = self.gateway()
+        real = self.real_mkdir
+        failures = []
+
+        def failing_once(path, *args, **kwargs):
+            if Path(path) == gateway.receipt_dir and not failures:
+                failures.append(path)
+                raise OSError(errno.EIO, "transient")
+            return real(path, *args, **kwargs)
+
+        with patch.object(pathlib.Path, "mkdir", failing_once):
+            with self.assertRaises(ProviderError) as caught:
+                self.evaluate(gateway)
+            self.assertEqual(caught.exception.code, "receipt_failed")
+            self.assertEqual(provider.requests, [])
+            self.assertFalse(gateway.receipt_dir.exists())
+            with self.assertRaises(ProviderError) as again:
+                self.evaluate(gateway)
+        self.assertEqual(again.exception.code, "receipt_failed")
+        self.assertEqual(provider.requests, [])
+        self.assertEqual(len(failures), 1)
+        self.assertFalse(gateway.receipt_dir.exists())
+
+    def test_failed_recovery_directory_creation_still_fails_closed(self):
+        # The directory was created earlier and then removed, and the best
+        # effort recreate fails with a real OSError. No receipt can land, the
+        # call fails as receipt_failed, and the gateway stays blocked.
+        gateway, provider = self.gateway()
+        self.evaluate(gateway)
+        shutil.rmtree(gateway.receipt_dir)
+        real = self.real_mkdir
+
+        def refusing_recreate(path, *args, **kwargs):
+            if Path(path) == gateway.receipt_dir:
+                raise OSError(errno.EACCES, "synthetic mkdir denial", str(path))
+            return real(path, *args, **kwargs)
+
+        with patch.object(pathlib.Path, "mkdir", refusing_recreate):
+            with self.refusing_dispatch(gateway):
+                with self.assertRaises(ProviderError) as caught:
+                    self.evaluate(gateway)
+            self.assertEqual(caught.exception.code, "receipt_failed")
+            self.assertEqual(len(provider.requests), 1)
+            self.assertEqual(gateway.last_call_stats["submission"], "not_sent")
+            self.assertFalse(gateway.receipt_dir.exists())
+            with self.assertRaises(ProviderError) as again:
+                self.evaluate(gateway)
+        self.assertEqual(again.exception.code, "receipt_failed")
+        self.assertEqual(len(provider.requests), 1)
+        self.assertFalse(gateway.receipt_dir.exists())
+
+    def test_interrupt_before_dispatch_still_persists_the_interrupted_receipt(self):
+        # 1a5f5be created the directory at the top of each attempt, so an
+        # interrupt before the dispatching write left an interrupted failure
+        # receipt. The directory is restored here, and that receipt lands.
+        gateway, provider = self.gateway()
+        self.evaluate(gateway)
+        shutil.rmtree(gateway.receipt_dir)
+        real = gateway.check_sensitive
+
+        def interrupt_receipt_path(*values):
+            if len(values) == 2 and str(values[0]).endswith(".json"):
+                raise KeyboardInterrupt
+            return real(*values)
+
+        with patch.object(gateway, "check_sensitive", interrupt_receipt_path):
+            with self.assertRaises(KeyboardInterrupt):
+                self.evaluate(gateway)
+        self.assertEqual(len(provider.requests), 1)
+        files = list(gateway.receipt_dir.iterdir())
+        self.assertEqual(len(files), 1)
+        saved = json.loads(files[0].read_text())
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["error"], "interrupted")
+        self.assertEqual(saved["submission"], "possible")
+        self.assertIs(saved["submission_possible"], True)
+        self.assertEqual(saved["attempt"], 1)
+        with self.assertRaises(ProviderError) as again:
+            self.evaluate(gateway)
+        self.assertEqual(again.exception.code, "interrupted")
+        self.assertEqual(len(provider.requests), 1)
+
+    def test_interrupt_during_the_provider_call_leaves_the_directory_missing(self):
+        # The directory is removed after the dispatching write and the call
+        # is interrupted. 1a5f5be did not recreate it, so nothing is written
+        # and the gateway stays blocked.
+        gateway, provider = self.gateway()
+        self.evaluate(gateway)
+
+        def interrupt_mid_call(request):
+            provider.requests.append(request)
+            shutil.rmtree(gateway.receipt_dir)
+            raise KeyboardInterrupt
+
+        with patch.object(provider, "decide", interrupt_mid_call):
+            with self.assertRaises(KeyboardInterrupt):
+                self.evaluate(gateway)
+        self.assertEqual(len(provider.requests), 2)
+        self.assertFalse(gateway.receipt_dir.exists())
+        with self.assertRaises(ProviderError) as again:
+            self.evaluate(gateway)
+        self.assertEqual(again.exception.code, "interrupted")
+        self.assertEqual(len(provider.requests), 2)
+        self.assertFalse(gateway.receipt_dir.exists())
+
+    def test_directory_removed_before_the_dispatch_fsync_writes_no_failure_receipt(self):
+        # The directory is removed between the dispatching write and its fsync.
+        # 1a5f5be did not recreate it after the dispatching write, so the
+        # receipt_failed receipt could not land. The same holds here.
+        gateway, provider = self.gateway()
+
+        def removing_fsync(directory):
+            shutil.rmtree(directory)
+            raise OSError(errno.EIO, "synthetic fsync failure")
+
+        with patch("decision_bug_hunter.providers._sync_directory", removing_fsync):
+            with self.assertRaises(ProviderError) as caught:
+                self.evaluate(gateway)
+        self.assertEqual(caught.exception.code, "receipt_failed")
+        self.assertEqual(provider.requests, [])
+        self.assertEqual(gateway.last_call_stats["submission"], "not_sent")
+        self.assertFalse(gateway.receipt_dir.exists())
+        with self.assertRaises(ProviderError) as again:
+            self.evaluate(gateway)
+        self.assertEqual(again.exception.code, "receipt_failed")
+        self.assertEqual(provider.requests, [])
+        self.assertFalse(gateway.receipt_dir.exists())
+
+
+class BenchReceiptSeamTests(unittest.TestCase):
+    """tools/bench MemoryReceipts needs providers._durable_write and fails loudly without it."""
+
+    def load_bench(self):
+        spec = importlib.util.spec_from_file_location("dbh_bench_receipts_seam", BENCH)
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        bench._import_code()
+        return bench
+
+    def test_memory_receipts_captures_writes_through_the_seam(self):
+        bench = self.load_bench()
+        original = bench.providers._durable_write
+        receipts = bench.MemoryReceipts()
+        # A nested path tells a full-path key from a bare file-name key.
+        with receipts.active():
+            bench.providers._durable_write(Path("d") / "receipt.json", b"{}")
+        self.assertIs(bench.providers._durable_write, original)
+        self.assertEqual(receipts.files, {str(Path("d") / "receipt.json"): b"{}"})
+        self.assertNotIn("receipt.json", receipts.files)
+        self.assertEqual(receipts.under(Path("d")), {"receipt.json": b"{}"})
+
+    def test_memory_receipts_refuses_to_run_without_the_seam(self):
+        bench = self.load_bench()
+        with patch.dict(vars(bench.providers)):
+            del bench.providers._durable_write
+            with self.assertRaisesRegex(SystemExit, "_durable_write"):
+                with bench.MemoryReceipts().active():
+                    pass
+        self.assertTrue(callable(bench.providers._durable_write))
+
+    def test_memory_receipts_says_when_import_code_has_not_run(self):
+        spec = importlib.util.spec_from_file_location("dbh_bench_receipts_unloaded", BENCH)
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        self.assertIsNone(bench.providers)
+        with self.assertRaisesRegex(SystemExit, "_import_code"):
+            with bench.MemoryReceipts().active():
+                pass
 
 
 if __name__ == "__main__":
