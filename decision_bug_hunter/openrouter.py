@@ -312,11 +312,12 @@ class OpenRouterProvider(HostedProvider):
                  exchange: HttpsExchange | None = None,
                  model: str | None = None, routing: str = DEFAULT_ROUTING,
                  zdr: bool = False,
-                 policy_placement: str = DEFAULT_POLICY_PLACEMENT) -> None:
+                 policy_placement: str = DEFAULT_POLICY_PLACEMENT,
+                 max_connections: int = 1) -> None:
         if routing not in ROUTING_CHOICES or type(zdr) is not bool:
             raise ProviderError("invalid_request")
         super().__init__(api_key, environ=environ, exchange=exchange, model=model,
-                         policy_placement=policy_placement)
+                         policy_placement=policy_placement, max_connections=max_connections)
         self.routing = routing
         self.zdr = zdr
 

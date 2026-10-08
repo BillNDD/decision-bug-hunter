@@ -315,10 +315,11 @@ class DecisionsProvider(HostedProvider):
                  environ: Mapping[str, str] | None = None,
                  exchange: HttpsExchange | None = None,
                  model: str | None = None,
-                 policy_placement: str = DEFAULT_POLICY_PLACEMENT) -> None:
+                 policy_placement: str = DEFAULT_POLICY_PLACEMENT,
+                 max_connections: int = 1) -> None:
         # OpenAI direct keeps 64 questions and 24 KiB under either placement.
         super().__init__(api_key, environ=environ, exchange=exchange, model=model,
-                         policy_placement=policy_placement)
+                         policy_placement=policy_placement, max_connections=max_connections)
         env: Mapping[str, str] = os.environ if environ is None else environ
         self._routing: dict[str, str] = {}
         self._routing_invalid = False
