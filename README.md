@@ -209,6 +209,7 @@ before turning one on.
 | `--run-deadline-seconds` | `1800.0` | Cooperative deadline for the whole run, indexing included. |
 | `--no-retry` | off | One attempt per request. |
 | `--max-cost` | unset | Stop before any attempt whose cost bound could take spend above this many USD (at most 1000). |
+| `--concurrency` | `1` | Opt-in: up to N requests in flight at once (1 to 8). Results are identical on success; after a failure or a stop, requests already in flight still complete and are billed. |
 | `--allow-secrets` | off | Send the file and specification even when they contain credential-shaped text. |
 | `--output-dir` | `dbh_runs` | Parent of the private run directories. |
 | `--output-format` | `compact` | What is printed on stdout: `compact`, `ranges` or `json`. All formats are saved. |

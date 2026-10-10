@@ -14,10 +14,11 @@ import os
 from pathlib import Path
 import random
 import re
+import sys
 import tempfile
 import threading
 import time
-from typing import Any, Protocol, TextIO
+from typing import Any, NamedTuple, Protocol, TextIO
 import uuid
 
 from .protocol import (ERROR_CODES, ProviderError, _metadata, encode_request,
@@ -428,7 +429,8 @@ ROUTES = {"openai": "openai-decisions", "openrouter": "openrouter-decisions"}
 def make_provider(route: str, *, model: str | None = None, api_key: str | None = None,
                   environ: Mapping[str, str] | None = None, routing: str | None = None,
                   zdr: bool = False, exchange: Any = None,
-                  policy_placement: str = "instructions") -> DecisionProvider:
+                  policy_placement: str = "instructions",
+                  max_connections: int = 1) -> DecisionProvider:
     """Library entry point: the hosted adapter for ``route``.
 
     ``route`` is a selector (``openai``, ``openrouter``) or a route name.
@@ -438,7 +440,9 @@ def make_provider(route: str, *, model: str | None = None, api_key: str | None =
     apply to OpenRouter only. ``policy_placement`` (``instructions`` or
     ``state``) sets the caps a policy-in-state request may use: OpenRouter
     raises them to 200 questions and 48 KiB, OpenAI direct keeps 64 and
-    24 KiB. Nothing is read from disk or the network.
+    24 KiB. ``max_connections`` (1 to 8) is how many exchanges the provider
+    may use at once, for a gateway built with ``max_in_flight`` above 1.
+    Nothing is read from disk or the network.
     """
     name = ROUTES.get(route, route) if type(route) is str else None
     if name == "openai-decisions":
@@ -446,12 +450,14 @@ def make_provider(route: str, *, model: str | None = None, api_key: str | None =
             raise ProviderError("invalid_request")
         from .decisions import DecisionsProvider
         return DecisionsProvider(api_key, environ=environ, exchange=exchange, model=model,
-                                 policy_placement=policy_placement)
+                                 policy_placement=policy_placement,
+                                 max_connections=max_connections)
     if name == "openrouter-decisions":
         from .openrouter import OpenRouterProvider
         return OpenRouterProvider(api_key, environ=environ, exchange=exchange, model=model,
                                   routing="deny" if routing is None else routing, zdr=zdr,
-                                  policy_placement=policy_placement)
+                                  policy_placement=policy_placement,
+                                  max_connections=max_connections)
     raise ProviderError("invalid_provider")
 
 
@@ -633,6 +639,132 @@ def _tree_copy(value: Any) -> Any:
     return deepcopy(value)
 
 
+#: Most requests one gateway may have in flight (``max_in_flight``).
+MAX_IN_FLIGHT = 8
+#: Seconds a waiting thread sleeps between looks for an interrupt. A wake-up
+#: by the event it waits on is immediate; only an interrupt waits out the
+#: slice (a lock wait cannot be interrupted on Windows).
+_WAIT_SLICE = 0.1
+_ZERO = Decimal(0)
+
+
+class CallResult(NamedTuple):
+    """What a settled call hands back.
+
+    ``answers`` is what ``_evaluate_prepared`` returns. ``summary`` holds the
+    receipt fields the engine reads (``_CALL_SUMMARY_FIELDS``), ``defects``
+    the answer-scoped defects by question name and ``receipts`` every attempt
+    receipt path of the call, in order.
+    """
+
+    answers: dict[str, Any]
+    summary: dict[str, Any]
+    defects: dict[str, str]
+    receipts: tuple[str, ...]
+
+
+class CallHandle:
+    """One submitted request: the state of its call and, once settled, its outcome.
+
+    The gateway keeps a call's bookkeeping here (the receipt it wrote last, its
+    receipt paths, its defects, the cost it holds in reserve), never in a
+    field another call could overwrite, so calls in flight do not interfere.
+    ``result()`` waits for the call and returns a ``CallResult``, or raises
+    the ``ProviderError`` the call ended with. ``summary``, ``receipts`` and
+    ``defects`` describe the call whether it succeeded or failed; a call
+    refused before any receipt has none. The serial ``evaluate`` path uses a
+    handle of its own for the same bookkeeping and never shows it.
+    """
+
+    __slots__ = ("_gateway", "_done", "_answers", "_error", "_stats", "_receipt",
+                 "_receipts", "_defects", "_sequence", "_attempts", "_reserved",
+                 "_honored", "_shared", "_place")
+
+    def __init__(self, gateway: ValidatedGateway, *, shared: bool = False) -> None:
+        self._gateway = gateway
+        self._done = threading.Event()
+        self._answers: dict[str, Any] | None = None
+        self._error: BaseException | None = None
+        self._stats: dict[str, Any] | None = None
+        self._receipt: str | None = None
+        self._receipts: tuple[str, ...] = ()
+        self._defects: dict[str, str] = {}
+        self._sequence: int | None = None
+        #: Attempts this call began.
+        self._attempts = 0
+        #: Cost bound this call holds in the gateway's reservation.
+        self._reserved = _ZERO
+        #: The latest backoff-gate time this call has waited out or set itself.
+        self._honored = -math.inf
+        #: Whether other calls may run beside this one (``max_in_flight`` above 1).
+        self._shared = shared
+        #: Whether this call holds one of the gateway's in-flight places.
+        self._place = False
+
+    @property
+    def summary(self) -> dict[str, Any] | None:
+        """The receipt fields the engine reads, copied; None without a receipt.
+
+        A key appears only when the receipt has it.
+        """
+        stats = self._stats
+        if stats is None:
+            return None
+        return {name: _tree_copy(stats[name]) for name in _CALL_SUMMARY_FIELDS
+                if name in stats}
+
+    @property
+    def receipts(self) -> tuple[str, ...]:
+        """Every attempt receipt path of this call so far, in order."""
+        return self._receipts
+
+    @property
+    def defects(self) -> dict[str, str]:
+        """The answer-scoped defects of the call, by question name (a copy)."""
+        return dict(self._defects)
+
+    @property
+    def sequence(self) -> int | None:
+        """The call's sequence number, once it began."""
+        return self._sequence
+
+    def done(self) -> bool:
+        """Whether the call has settled (its outcome is ready)."""
+        return self._done.is_set()
+
+    def result(self) -> CallResult:
+        """Wait for the call; its answers and summary, or its error raised.
+
+        An interrupt while waiting blocks the gateway with ``interrupted`` and
+        stops new submissions; calls in flight still run to settlement.
+        """
+        done = self._done
+        if not done.is_set():
+            try:
+                while not done.wait(_WAIT_SLICE):
+                    pass
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    self._gateway._block("interrupted")
+                raise
+        if self._error is not None:
+            raise self._error
+        assert self._answers is not None
+        return CallResult(self._answers, self.summary or {}, dict(self._defects),
+                          self._receipts)
+
+    def _finish(self, answers: dict[str, Any] | None = None,
+                error: BaseException | None = None) -> None:
+        self._answers, self._error = answers, error
+        self._done.set()
+
+
+class _Local(threading.local):
+    """The call a thread is running (set by the serial path or by a worker)."""
+
+    call: CallHandle | None = None
+
+
 class ValidatedGateway:
     """Serial evaluation with exact validation, retries and local receipts.
 
@@ -670,6 +802,32 @@ class ValidatedGateway:
     is not dispatched: the gateway stops with ``cost_budget_exhausted``.
     Estimates and bounds need the provider's ``model_spec`` prices; without
     them they are None and ``max_cost`` is refused.
+
+    Concurrency (``max_in_flight``, 1 to ``MAX_IN_FLIGHT``, default 1): the
+    package-private ``_submit_prepared`` returns a ``CallHandle`` and, above
+    1, runs up to ``max_in_flight`` requests at once, each on its own
+    non-daemon worker thread. At 1 it runs the request in the calling thread,
+    as ``_evaluate_prepared`` does. ``evaluate``, ``_evaluate_prepared`` and
+    the ``last_*`` properties stay single-call and owned by one thread; a
+    second concurrent ``evaluate`` is refused with ``transport_failed``.
+    ``_state_lock`` guards every field the calls share: the counters, the
+    cost totals and the reservations, the breaker and the block and stop
+    state, the dispatch-write count, the backoff gate, the retry generator,
+    the attempt history and the progress line. A request holds its attempt's
+    cost bound in reserve from before the dispatching receipt until
+    settlement, so ``max_cost`` counts calls in flight. A rate-limit wait
+    (``rejected`` retries) closes a shared gate: no call starts a new
+    attempt before it opens. A blocking failure, a stop (the breaker, the
+    budget, a deadline) or an interrupt refuses every call that has not yet
+    begun. A request that has begun runs to settlement, so a stop does not end
+    its retries: only a blocking failure, a close or an interrupt abandons a
+    retry that is waiting to be sent. Attempts already sent run to
+    settlement. A call that has written its dispatching receipt looks at the
+    gate and at these once more just before the send: it waits for a gate that
+    closed meanwhile (its attempt deadline starts at the send). A first
+    attempt is then refused by anything that refuses a new call, a retry by a
+    blocking failure or a close, and the refused attempt settles as not sent.
+    ``close`` waits for the workers up to the attempt deadline.
     """
 
     #: The p95 multiplier over recent attempts for the run reserve (ADR-2(7)).
@@ -688,7 +846,8 @@ class ValidatedGateway:
                  rng: random.Random | None = None,
                  progress: TextIO | None = None,
                  reserve_floor_seconds: float = 3.0,
-                 max_cost: Decimal | None = None) -> None:
+                 max_cost: Decimal | None = None,
+                 max_in_flight: int = 1) -> None:
         deadline = validate_call_deadline(deadline_seconds)
         _rounding_profile(rounding_places)
         if type(provider.identity) is not ProviderIdentity:
@@ -700,6 +859,8 @@ class ValidatedGateway:
                 or not math.isfinite(reserve_floor_seconds)
                 or not 0 <= reserve_floor_seconds <= MAX_CALL_DEADLINE_SECONDS):
             raise ProviderError("invalid_deadline")
+        if type(max_in_flight) is not int or not 1 <= max_in_flight <= MAX_IN_FLIGHT:
+            raise ProviderError("invalid_request")
         self.max_cost = validate_max_cost(max_cost)
         spec = getattr(provider, "model_spec", None)
         price_in = getattr(spec, "price_in_per_mtok", None)
@@ -730,15 +891,26 @@ class ValidatedGateway:
         self._rng = rng if rng is not None else random.Random()
         self._progress = progress
         self._deadline: float | None = None
-        self._last_stats: dict[str, Any] | None = None
-        self._last_receipt: str | None = None
-        self._last_receipts: tuple[str, ...] = ()
-        self._last_defects: dict[str, str] = {}
+        #: The call the thread-owned ``last_*`` properties describe.
+        self._last: CallHandle | None = None
         self._stats_owner: int | None = None
         self._busy = False
         self._block_code: str | None = None
         self._closed = False
         self._call_lock = threading.Lock()
+        self.max_in_flight = max_in_flight
+        # Without a semaphore (the default) no call runs beside another and
+        # the call lock above is the only exclusion, as before.
+        self._slots = (threading.BoundedSemaphore(max_in_flight)
+                       if max_in_flight > 1 else None)
+        self._state_lock = threading.RLock()
+        self._local = _Local()
+        self._workers: set[threading.Thread] = set()
+        self._closing = False
+        #: Set when the gateway blocks or closes, so a waiting worker wakes.
+        self._wake = threading.Event()
+        self._reserved = _ZERO
+        self._gate_until = -math.inf
         self.breaker = Breaker()
         self.stopped_at_sequence: int | None = None
         self.logical_requests = 0
@@ -765,6 +937,15 @@ class ValidatedGateway:
     def _pause(self, seconds: float) -> None:
         if self._sleep is not None:
             self._sleep(seconds)
+        elif self._slots is not None:
+            # Ends early once the gateway blocks or closes. Short slices keep
+            # an interrupt of the main thread from waiting out the whole pause
+            # (a timed wait cannot be interrupted on Windows).
+            end = time.monotonic() + seconds
+            while True:
+                left = end - time.monotonic()
+                if left <= 0 or self._wake.wait(min(left, _WAIT_SLICE)):
+                    return
         else:
             time.sleep(seconds)
 
@@ -777,16 +958,36 @@ class ValidatedGateway:
     def _blocked(self) -> bool:
         return self._block_code is not None
 
-    def _block(self, code: str) -> None:
-        if self._block_code is None:
-            self._block_code = code
-        self._stop("blocked:" + self._block_code)
+    def _block(self, code: str, call: CallHandle | None = None) -> None:
+        with self._state_lock:
+            if self._block_code is None:
+                self._block_code = code
+            self._stop("blocked:" + self._block_code, call)
+        self._wake.set()
 
-    def _stop(self, reason: str) -> None:
-        if self.breaker.stop_reason is None:
-            self.breaker.stop(reason)
-        if self.stopped_at_sequence is None:
-            self.stopped_at_sequence = self._sequence
+    def _stop(self, reason: str, call: CallHandle | None = None) -> None:
+        """Latch the first stop reason; ``stopped_at_sequence`` is that of ``call``."""
+        with self._state_lock:
+            if self.breaker.stop_reason is None:
+                self.breaker.stop(reason)
+            if self.stopped_at_sequence is None:
+                sequence = None if call is None else call._sequence
+                self.stopped_at_sequence = self._sequence if sequence is None else sequence
+
+    def _refusal(self) -> str | None:
+        """The code a call that has not begun is refused with, else None.
+
+        A blocking failure, a stop (the breaker, the budget, a deadline) or a
+        closing gateway refuses it before any receipt. Call with the state
+        lock held.
+        """
+        if self._block_code is not None:
+            return self._block_code
+        if self.breaker.stop_reason is not None:
+            return "provider_stopped"
+        if self._closed or self._closing:
+            return "transport_failed"
+        return None
 
     def stop(self, reason: str) -> None:
         """Stop further dispatch for ``reason`` (one of ``STOP_REASONS``)."""
@@ -799,9 +1000,10 @@ class ValidatedGateway:
 
         The floor is ``reserve_floor_seconds`` (3 s by default).
         """
-        if not self._elapsed:
-            return self.reserve_floor_seconds
-        ordered = sorted(self._elapsed)
+        with self._state_lock:
+            if not self._elapsed:
+                return self.reserve_floor_seconds
+            ordered = sorted(self._elapsed)
         p95 = ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
         return max(self.reserve_floor_seconds, self.RESERVE_P95_FACTOR * p95)
 
@@ -815,24 +1017,40 @@ class ValidatedGateway:
         without a price table.
         """
         priced = self._prices is not None
-        return {
-            "provider_reported_usd": usd(self._reported),
-            "estimated_usd": usd(self._estimated) if priced else None,
-            "unknown_usage_upper_bound_usd": usd(self._unknown_bound) if priced else None,
-            "upper_bound_usd": usd(self._spent_upper()) if priced else None,
-            "price_table_date": self.price_table_date,
-            "max_cost_usd": usd(self.max_cost) if self.max_cost is not None else None,
-            "attempts": dict(self._cost_counts),
-        }
+        with self._state_lock:
+            return {
+                "provider_reported_usd": usd(self._reported),
+                "estimated_usd": usd(self._estimated) if priced else None,
+                "unknown_usage_upper_bound_usd": usd(self._unknown_bound) if priced else None,
+                "upper_bound_usd": usd(self._spent_upper()) if priced else None,
+                "price_table_date": self.price_table_date,
+                "max_cost_usd": usd(self.max_cost) if self.max_cost is not None else None,
+                "attempts": dict(self._cost_counts),
+            }
 
     def _spent_upper(self) -> Decimal:
         return _COST.add(_COST.add(self._reported, self._estimated), self._unknown_bound)
 
     def _over_budget(self, bound: Decimal | None) -> bool:
-        """Whether one more attempt could take spend above ``max_cost``."""
+        """Whether one more attempt could take spend above ``max_cost``.
+
+        The attempts in flight count: each holds its bound in ``_reserved``
+        until it settles. Call with the state lock held.
+        """
         if self.max_cost is None or bound is None:
             return False
-        return _COST.add(self._spent_upper(), bound) > self.max_cost
+        return _COST.add(_COST.add(self._spent_upper(), self._reserved),
+                         bound) > self.max_cost
+
+    def _reserve(self, call: CallHandle, bound: Decimal) -> None:
+        """Hold ``bound`` for ``call``'s next attempt. Call with the state lock held."""
+        self._reserved = _COST.add(self._reserved, bound)
+        call._reserved = _COST.add(call._reserved, bound)
+
+    def _release(self, call: CallHandle) -> None:
+        """Give back what ``call`` holds. Call with the state lock held."""
+        self._reserved = _COST.subtract(self._reserved, call._reserved)
+        call._reserved = _ZERO
 
     def _wire_bytes(self, wire: bytes) -> int:
         """The adapter's wire size for this envelope, else the envelope size."""
@@ -854,13 +1072,15 @@ class ValidatedGateway:
     def _zero_bound(self) -> str | None:
         return usd(Decimal(0)) if self._prices is not None else None
 
-    def _settle_cost(self, receipt: dict[str, Any], bound: Decimal | None) -> None:
+    def _settle_cost(self, call: CallHandle, receipt: dict[str, Any],
+                     bound: Decimal | None) -> None:
         """Fix an attempt's cost fields and add them to ``spend`` (once per attempt).
 
         A reported cost wins; otherwise known usage is priced at list price;
         otherwise a possibly billed attempt adds its bound. A cost flagged
         invalid counts as unknown, never as zero. Not-sent, rejected and
-        terminal attempts add nothing.
+        terminal attempts add nothing. The attempt's reservation ends in the
+        same step, so no other call sees its cost counted twice or not at all.
         """
         error = receipt.get("provider_error")
         invalid = isinstance(error, dict) and error.get("cost_error") == "invalid"
@@ -869,31 +1089,35 @@ class ValidatedGateway:
         if self._prices is not None and isinstance(usage, dict):
             estimate = list_price(usage["input_tokens"], usage["output_tokens"],
                                   *self._prices)
-        if receipt.get("cost_source") == "provider_reported":
-            self._reported = _COST.add(self._reported, Decimal(receipt["cost_usd"]))
-            self._cost_counts["provider_reported"] += 1
-            receipt["cost_bound_usd"] = self._zero_bound()
-            return
-        receipt.update(cost_usd=None, cost_source="none")
-        if estimate is not None and not invalid:
-            receipt.update(cost_usd=usd(estimate), cost_source="list_price_estimate",
-                           cost_bound_usd=self._zero_bound())
-            self._estimated = _COST.add(self._estimated, estimate)
-            self._cost_counts["list_price_estimate"] += 1
-        elif receipt.get("submission") == "possible" and bound is not None:
-            chosen = bound if estimate is None else max(bound, estimate)
-            receipt["cost_bound_usd"] = usd(chosen)
-            self._unknown_bound = _COST.add(self._unknown_bound, chosen)
-            self._cost_counts["unknown_bounded"] += 1
-        else:
-            receipt["cost_bound_usd"] = self._zero_bound()
-            self._cost_counts["not_billable"] += 1
+        with self._state_lock:
+            if call._reserved:
+                self._release(call)
+            if receipt.get("cost_source") == "provider_reported":
+                self._reported = _COST.add(self._reported, Decimal(receipt["cost_usd"]))
+                self._cost_counts["provider_reported"] += 1
+                receipt["cost_bound_usd"] = self._zero_bound()
+                return
+            receipt.update(cost_usd=None, cost_source="none")
+            if estimate is not None and not invalid:
+                receipt.update(cost_usd=usd(estimate), cost_source="list_price_estimate",
+                               cost_bound_usd=self._zero_bound())
+                self._estimated = _COST.add(self._estimated, estimate)
+                self._cost_counts["list_price_estimate"] += 1
+            elif receipt.get("submission") == "possible" and bound is not None:
+                chosen = bound if estimate is None else max(bound, estimate)
+                receipt["cost_bound_usd"] = usd(chosen)
+                self._unknown_bound = _COST.add(self._unknown_bound, chosen)
+                self._cost_counts["unknown_bounded"] += 1
+            else:
+                receipt["cost_bound_usd"] = self._zero_bound()
+                self._cost_counts["not_billable"] += 1
 
     @property
     def last_call_stats(self) -> dict[str, Any] | None:
-        if self._stats_owner != threading.get_ident():
+        call = self._last
+        if self._stats_owner != threading.get_ident() or call is None:
             return None
-        return _tree_copy(self._last_stats)
+        return _tree_copy(call._stats)
 
     @property
     def last_call_summary(self) -> dict[str, Any] | None:
@@ -902,33 +1126,33 @@ class ValidatedGateway:
         A key appears only when the receipt has it, so ``get`` fallbacks see
         what they see in ``last_call_stats``.
         """
-        if self._stats_owner != threading.get_ident():
+        call = self._last
+        if self._stats_owner != threading.get_ident() or call is None:
             return None
-        stats = self._last_stats
-        if stats is None:
-            return None
-        return {name: _tree_copy(stats[name]) for name in _CALL_SUMMARY_FIELDS
-                if name in stats}
+        return call.summary
 
     @property
     def last_receipt(self) -> str | None:
-        if self._stats_owner != threading.get_ident():
+        call = self._last
+        if self._stats_owner != threading.get_ident() or call is None:
             return None
-        return self._last_receipt
+        return call._receipt
 
     @property
     def last_receipts(self) -> tuple[str, ...]:
         """Every attempt receipt of the last logical request, in order."""
-        if self._stats_owner != threading.get_ident():
+        call = self._last
+        if self._stats_owner != threading.get_ident() or call is None:
             return ()
-        return self._last_receipts
+        return call._receipts
 
     @property
     def last_defects(self) -> dict[str, str]:
         """The answer-scoped defects of the last logical request, by name."""
-        if self._stats_owner != threading.get_ident():
+        call = self._last
+        if self._stats_owner != threading.get_ident() or call is None:
             return {}
-        return dict(self._last_defects)
+        return dict(call._defects)
 
     @property
     def confidence_identity(self) -> str | None:
@@ -975,7 +1199,7 @@ class ValidatedGateway:
         self.require_available()
         return self
 
-    def __exit__(self, *_args: Any) -> None:
+    def __exit__(self, exc_type: type[BaseException] | None, *_args: Any) -> None:
         self.close()
 
     def close(self) -> None:
@@ -983,7 +1207,15 @@ class ValidatedGateway:
             raise ProviderError("transport_failed")
         try:
             if not self._closed:
-                error = None
+                pending = sys.exc_info()[1]
+                if (self._workers and pending is not None
+                        and not isinstance(pending, Exception)):
+                    # An interrupt unwinding past calls in flight (through a
+                    # ``with`` block or a ``finally``) blocks the gateway
+                    # first, so no further call begins and the join below
+                    # waits for the calls in flight.
+                    self._block("interrupted")
+                error = self._join_workers() if self._workers else None
                 if self._dispatch_writes:
                     # The one directory sync that makes every settlement
                     # rename durable (settlements skip it; ADR-9, F23).
@@ -1018,25 +1250,164 @@ class ValidatedGateway:
         """
         return self._locked(lambda: self._evaluate_wire(wire, key, metadata=metadata))
 
-    def _locked(self, run: Callable[[], dict[str, Any]]) -> dict[str, Any]:
-        """Run one request under the non-blocking call lock and owner bookkeeping."""
+    def _submit_prepared(self, wire: bytes, key: str, *,
+                         metadata: dict[str, Any]) -> CallHandle:
+        """Start ``_evaluate_prepared``'s request and return its handle.
+
+        At ``max_in_flight`` 1 the request runs here, in the calling thread,
+        before this returns: the handle is settled and its receipts are those
+        ``_evaluate_prepared`` writes. Above 1 it runs on a worker thread, and
+        this waits for a free place when ``max_in_flight`` requests are in
+        flight. Either way a request that fails, or is refused because the
+        gateway stopped, is reported by the handle (``result()`` raises) and
+        never by this call; a refused request writes no receipt. An interrupt
+        propagates, after it blocked the gateway with ``interrupted``.
+        """
+        if self._slots is None:
+            call = CallHandle(self)
+            try:
+                answers = self._locked(
+                    lambda: self._evaluate_wire(wire, key, metadata=metadata), call)
+            except Exception as exc:
+                call._finish(error=exc)
+            else:
+                call._finish(answers)
+            return call
+        return self._submit_shared(wire, key, metadata)
+
+    def _admission(self) -> str | None:
+        """The code a new submission is refused with now, else None."""
+        with self._state_lock:
+            code = self._refusal()
+        if code is None:
+            try:
+                self.provider.require_available()
+            except ProviderError as exc:
+                code = exc.code
+        return code
+
+    def _submit_shared(self, wire: bytes, key: str,
+                       metadata: dict[str, Any]) -> CallHandle:
+        call = CallHandle(self, shared=True)
+        slots = self._slots
+        assert slots is not None
+        worker: threading.Thread | None = None
+        try:
+            while True:
+                code = self._admission()
+                if code is not None:
+                    call._finish(error=ProviderError(code))
+                    return call
+                if slots.acquire(timeout=_WAIT_SLICE):
+                    call._place = True
+                    break
+            # The place is held from here until the worker frees it, so
+            # everything up to the worker's start answers for it.
+            worker = threading.Thread(target=self._work,
+                                      args=(call, wire, key, metadata),
+                                      name="dbh-gateway-call", daemon=False)
+            with self._state_lock:
+                self._workers.add(worker)
+            worker.start()
+        except BaseException as exc:
+            # A worker that did start frees its own place and registration;
+            # freeing a place is once per call, so a worker that began to run
+            # in spite of the interrupt does not free it a second time.
+            held = call._place
+            started = worker is not None and worker.is_alive()
+            if not started:
+                if worker is not None:
+                    with self._state_lock:
+                        self._workers.discard(worker)
+                self._free_place(call)
+            if not isinstance(exc, Exception):
+                self._block("interrupted")
+                raise
+            if not held or started:
+                # The admission check itself failed, or the worker is running.
+                raise
+            self._block("internal_error")
+            call._finish(error=ProviderError("internal_error",
+                                             classification=classify("internal_error")))
+        return call
+
+    def _free_place(self, call: CallHandle) -> None:
+        """Give back the in-flight place ``call`` holds; a second call does nothing."""
+        with self._state_lock:
+            held, call._place = call._place, False
+        if held:
+            assert self._slots is not None
+            self._slots.release()
+
+    def _work(self, call: CallHandle, wire: bytes, key: str,
+              metadata: dict[str, Any]) -> None:
+        """One worker thread: run the request, settle the handle, free the place."""
+        try:
+            self._local.call = call
+            try:
+                answers = self._evaluate_wire(wire, key, metadata=metadata)
+            except BaseException as exc:
+                if not isinstance(exc, Exception):
+                    self._block("interrupted", call)
+                call._finish(error=exc)
+            else:
+                call._finish(answers)
+        finally:
+            with self._state_lock:
+                self._workers.discard(threading.current_thread())
+            self._free_place(call)
+
+    def _join_workers(self) -> str | None:
+        """Stop new work and wait for the workers up to the attempt deadline.
+
+        Returns ``transport_failed`` when some are still running after that.
+        A retry that is waiting is abandoned; an attempt already sent is not.
+        """
+        with self._state_lock:
+            self._closing = True
+            pending = list(self._workers)
+        self._wake.set()
+        end = time.monotonic() + self.deadline_seconds
+        for worker in pending:
+            while worker.is_alive() and time.monotonic() < end:
+                worker.join(_WAIT_SLICE)
+        return "transport_failed" if any(worker.is_alive() for worker in pending) else None
+
+    def _locked(self, run: Callable[[], dict[str, Any]],
+                call: CallHandle | None = None) -> dict[str, Any]:
+        """Run one request under the non-blocking call lock and owner bookkeeping.
+
+        ``call`` is the handle that keeps the request's state (a fresh one
+        when not given); it becomes what the ``last_*`` properties describe.
+        Above ``max_in_flight`` 1 the request runs beside worker threads, so
+        it obeys the same gate and stops they do.
+        """
         if not self._call_lock.acquire(blocking=False):
             raise ProviderError("transport_failed")
+        slot = False
         try:
+            if self._slots is not None:
+                # Counts against max_in_flight like a submitted request.
+                if not self._slots.acquire(blocking=False):
+                    raise ProviderError("transport_failed")
+                slot = True
+            if call is None:
+                call = CallHandle(self, shared=self._slots is not None)
             self._stats_owner = threading.get_ident()
-            self._last_stats = None
-            self._last_receipt = None
-            self._last_receipts = ()
-            self._last_defects = {}
+            self._last = call
+            self._local.call = call
             self.require_available()
             self._busy = True
             return run()
         except BaseException as exc:
             if not isinstance(exc, Exception):
-                self._block("interrupted")
+                self._block("interrupted", call)
             raise
         finally:
             self._busy = False
+            if slot:
+                assert self._slots is not None
+                self._slots.release()
             self._call_lock.release()
 
     # -- one logical request -------------------------------------------------
@@ -1067,10 +1438,21 @@ class ValidatedGateway:
 
     def _dispatch(self, wire: bytes, expected: dict[str, Any], key: str,
                   meta: dict[str, Any]) -> dict[str, Any]:
-        self.logical_requests += 1
-        sequence = meta.get("sequence")
-        self._sequence = sequence if type(sequence) is int else self.logical_requests
-        attempts_before = self.attempts
+        call = self._local.call
+        assert call is not None
+        if call._shared:
+            # A call that waited for a place or for the backoff gate begins
+            # only if the gateway has not stopped meanwhile.
+            self._await_gate(call)
+        with self._state_lock:
+            if call._shared:
+                code = self._refusal()
+                if code is not None:
+                    raise ProviderError(code)
+            self.logical_requests += 1
+            sequence = meta.get("sequence")
+            self._sequence = call._sequence = (
+                sequence if type(sequence) is int else self.logical_requests)
         try:
             now = self._now()
             if self._attempt_timeout(now) <= 0:
@@ -1082,12 +1464,13 @@ class ValidatedGateway:
                 # refused before any receipt or byte, never a submission.
                 raise ProviderError("run_deadline_reserved",
                                     classification=classify("run_deadline_reserved"))
-            return self._logical(wire, expected, key, meta)
+            return self._logical(call, wire, expected, key, meta)
         except ProviderError as exc:
-            if exc.code in _UNCOUNTED_REFUSALS and self.attempts == attempts_before:
+            if exc.code in _UNCOUNTED_REFUSALS and call._attempts == 0:
                 # Refused before any receipt or byte: not a call, so the
                 # progress line's calls= agrees with the report's count.
-                self.logical_requests -= 1
+                with self._state_lock:
+                    self.logical_requests -= 1
             raise
         finally:
             self._maybe_progress()
@@ -1113,102 +1496,133 @@ class ValidatedGateway:
             "cost_usd": None, "cost_source": "none", "cost_bound_usd": self._zero_bound(),
         }
 
-    def _logical(self, wire: bytes, expected: dict[str, Any], key: str,
+    def _logical(self, call: CallHandle, wire: bytes, expected: dict[str, Any], key: str,
                  meta: dict[str, Any]) -> dict[str, Any]:
         logical_id = uuid.uuid4().hex
         used = {"not_sent": 0, "rejected": 0, "possible": 0, "stale_connection": 0}
         usage_total: dict[str, int] | None = None
         attempt, waited, reason, duplicate = 0, 0.0, None, False
         bound = self._attempt_bound(wire, len(expected))
-        if self._over_budget(bound):
-            # Refused before any receipt or byte, like the reserve refusal.
-            self._stop("cost_budget_exhausted")
-            raise ProviderError("cost_budget_exhausted",
-                                classification=classify("cost_budget_exhausted"))
-        while True:
-            attempt += 1
-            self.attempts += 1
-            if attempt > 1:
-                self.retries += 1
-            # Each attempt gets a fresh deadline, fixed before its receipt.
-            started = self._now()
-            timeout = self._attempt_timeout(started)
-            receipt = self._base_receipt(meta, key, len(expected), logical_id, attempt,
-                                         timeout)
-            receipt.update(retry_reason=reason, waited_seconds=waited,
-                           duplicate_billing_possible=duplicate)
-            if bound is not None:
-                # The dispatching receipt carries the full bound: after a
-                # crash it alone says what this attempt may have cost.
-                receipt["cost_bound_usd"] = usd(bound)
-            path = self.receipt_dir / (uuid.uuid4().hex + ".json")
-            try:
-                answers, error, classification = self._journaled_attempt(
-                    path, wire, expected, receipt, started + timeout)
-            except BaseException as exc:
-                if not isinstance(exc, Exception):
-                    # Block before another filesystem operation or propagation.
-                    # The shared local receipt retains usage learned before.
-                    self._settle_cost(receipt, bound)
-                    self._fail_receipt(path, receipt, "interrupted", persist=True)
-                raise
-            self._settle_cost(receipt, bound)
-            if receipt["submission"] != "not_sent":
-                self.attempts_transmitted += 1
-                self._elapsed.append(float(receipt.get("elapsed_seconds", 0.0)))
-            if receipt["usage"] is not None:
-                usage = receipt["usage"]
-                usage_total = {name: (0 if usage_total is None else usage_total[name])
-                               + usage[name] for name in ("input_tokens", "output_tokens")}
-            plan: tuple[float, str, bool] | str | None = None
-            if error is not None and classification is not None and self._block_code is None:
-                plan = self._plan_retry(classification, used, bound)
-            if isinstance(plan, tuple):
-                wait, next_reason, next_duplicate = plan
-                self._settle(path, receipt)
-                pause_error: BaseException | None = None
+        with self._state_lock:
+            if self._over_budget(bound):
+                # Refused before any receipt or byte, like the reserve refusal.
+                self._stop("cost_budget_exhausted", call)
+                raise ProviderError("cost_budget_exhausted",
+                                    classification=classify("cost_budget_exhausted"))
+            if self.max_cost is not None and bound is not None:
+                self._reserve(call, bound)
+        try:
+            while True:
+                attempt += 1
+                call._attempts = attempt
+                with self._state_lock:
+                    self.attempts += 1
+                    if attempt > 1:
+                        self.retries += 1
+                # Each attempt gets a fresh deadline, fixed before its receipt.
+                started = self._now()
+                timeout = self._attempt_timeout(started)
+                receipt = self._base_receipt(meta, key, len(expected), logical_id, attempt,
+                                             timeout)
+                receipt.update(retry_reason=reason, waited_seconds=waited,
+                               duplicate_billing_possible=duplicate)
+                if bound is not None:
+                    # The dispatching receipt carries the full bound: after a
+                    # crash it alone says what this attempt may have cost.
+                    receipt["cost_bound_usd"] = usd(bound)
+                path = self.receipt_dir / (uuid.uuid4().hex + ".json")
                 try:
-                    if wait > 0:
-                        self._pause(wait)
+                    answers, error, classification = self._journaled_attempt(
+                        call, path, wire, expected, receipt, started + timeout)
                 except BaseException as exc:
-                    pause_error = exc
-                if pause_error is not None:
-                    # The next attempt was never sent. An interrupt (or a
-                    # SystemExit) propagates as itself; a failing injected
-                    # sleep is an internal defect that still settles the
-                    # logical request and stops the gateway.
-                    internal = isinstance(pause_error, Exception)
-                    self._interrupted_backoff(meta, key, len(expected), logical_id,
-                                              attempt + 1, wait, next_reason, usage_total,
-                                              "internal_error" if internal else "interrupted")
-                    if internal:
-                        raise ProviderError("internal_error") from None
-                    raise pause_error
-                waited, reason, duplicate = wait, next_reason, next_duplicate
-                continue
-            receipt.update(logical_status="failed" if error else receipt["status"],
-                           logical_attempts=attempt, logical_usage=usage_total)
-            if plan in {"run_deadline", "cost_budget"}:
-                receipt["retry_abandoned"] = plan
-            self._settle(path, receipt)
-            if plan == "cost_budget":
-                # The retry was not sent; nothing more is dispatched this run.
-                self._stop("cost_budget_exhausted")
-            if self._block_code is None and self.breaker.record(error, classification):
-                self._stop(self.breaker.stop_reason or "")
-            if error:
-                raise ProviderError(error, classification=classification)
-            assert answers is not None
-            self._last_defects = dict(receipt["scoped"] or {})
-            return answers
+                    if not isinstance(exc, Exception):
+                        # Block before another filesystem operation or propagation.
+                        # The shared local receipt retains usage learned before.
+                        self._settle_cost(call, receipt, bound)
+                        self._fail_receipt(call, path, receipt, "interrupted", persist=True)
+                    raise
+                if receipt["usage"] is not None:
+                    usage = receipt["usage"]
+                    usage_total = {name: (0 if usage_total is None else usage_total[name])
+                                   + usage[name] for name in ("input_tokens", "output_tokens")}
+                plan: tuple[float, str, bool] | str | None = None
+                with self._state_lock:
+                    self._settle_cost(call, receipt, bound)
+                    if receipt["submission"] != "not_sent":
+                        self.attempts_transmitted += 1
+                        self._elapsed.append(float(receipt.get("elapsed_seconds", 0.0)))
+                    if (error is not None and classification is not None
+                            and self._block_code is None):
+                        plan = self._plan_retry(call, classification, used, bound)
+                if isinstance(plan, tuple):
+                    wait, next_reason, next_duplicate = plan
+                    self._settle(call, path, receipt)
+                    pause_error: BaseException | None = None
+                    halted: str | None = None
+                    try:
+                        if wait > 0:
+                            self._pause(wait)
+                        if call._shared:
+                            self._await_gate(call)
+                            # Another call's blocking failure, or a close, ends
+                            # a retry that has not been sent.
+                            halted = self._block_code or (
+                                "transport_failed" if self._closing else None)
+                    except BaseException as exc:
+                        pause_error = exc
+                    if pause_error is not None:
+                        # The next attempt was never sent. An interrupt (or a
+                        # SystemExit) propagates as itself; a failing injected
+                        # sleep is an internal defect that still settles the
+                        # logical request and stops the gateway.
+                        internal = isinstance(pause_error, Exception)
+                        self._interrupted_backoff(call, meta, key, len(expected), logical_id,
+                                                  attempt + 1, wait, next_reason, usage_total,
+                                                  "internal_error" if internal else "interrupted")
+                        if internal:
+                            raise ProviderError("internal_error") from None
+                        raise pause_error
+                    if halted is not None:
+                        self._interrupted_backoff(call, meta, key, len(expected), logical_id,
+                                                  attempt + 1, wait, next_reason, usage_total,
+                                                  halted)
+                        raise ProviderError(halted)
+                    waited, reason, duplicate = wait, next_reason, next_duplicate
+                    continue
+                receipt.update(logical_status="failed" if error else receipt["status"],
+                               logical_attempts=attempt, logical_usage=usage_total)
+                if plan in {"run_deadline", "cost_budget"}:
+                    receipt["retry_abandoned"] = plan
+                self._settle(call, path, receipt)
+                with self._state_lock:
+                    if plan == "cost_budget":
+                        # The retry was not sent; nothing more is dispatched this run.
+                        self._stop("cost_budget_exhausted", call)
+                    if self._block_code is None and self.breaker.record(error, classification):
+                        self._stop(self.breaker.stop_reason or "", call)
+                if error:
+                    raise ProviderError(error, classification=classification)
+                assert answers is not None
+                call._defects = dict(receipt["scoped"] or {})
+                return answers
+        finally:
+            if call._reserved:
+                # A failure between an attempt's reservation and its
+                # settlement (a refused receipt, an interrupt) ends it too.
+                with self._state_lock:
+                    self._release(call)
 
-    def _plan_retry(self, classification: Classification, used: dict[str, int],
-                    bound: Decimal | None = None) -> tuple[float, str, bool] | str | None:
+    def _plan_retry(self, call: CallHandle, classification: Classification,
+                    used: dict[str, int], bound: Decimal | None = None
+                    ) -> tuple[float, str, bool] | str | None:
         """(wait, reason, duplicate billing possible), a refusal reason or None.
 
         The refusal reasons are ``"run_deadline"`` (the wait would cut into
         the reserve) and ``"cost_budget"`` (the retry could exceed
-        ``max_cost``; ADR-9(4) checks retries too).
+        ``max_cost``, counting the attempts in flight; ADR-9(4) checks retries
+        too). A planned retry holds its bound in reserve from here until its
+        attempt settles, and a rate-limit wait closes the backoff gate for
+        every other call. Call with the state lock held.
         """
         policy = self.retry_policy
         code, submission = classification.code, classification.submission
@@ -1241,23 +1655,74 @@ class ValidatedGateway:
         if self._over_budget(bound):
             return "cost_budget"
         used[kind] = retry
+        if self.max_cost is not None and bound is not None:
+            self._reserve(call, bound)
+        if self._slots is not None and kind == "rejected" and wait > 0:
+            until = self._now() + wait
+            if until > self._gate_until:
+                self._gate_until = until
+            # This call waits out its own backoff; the gate holds the others.
+            call._honored = max(call._honored, until)
         return (wait, "stale_connection" if kind == "stale_connection" else code,
                 kind in {"stale_connection", "possible"})
 
-    def _settle(self, path: Path, receipt: dict[str, Any]) -> None:
+    def _await_gate(self, call: CallHandle) -> None:
+        """Wait until the backoff gate opens, once per gate time (shared calls).
+
+        A rate-limit wait (``rejected`` retries) pauses every call that is
+        about to send. The call that set the gate time has waited it out
+        already. A block or a close ends the wait early.
+        """
+        while True:
+            with self._state_lock:
+                until = self._gate_until
+                remaining = until - self._now()
+                if (until <= call._honored or remaining <= 0
+                        or self._block_code is not None or self._closing):
+                    call._honored = max(call._honored, until)
+                    return
+            self._pause(remaining)
+            call._honored = until
+
+    def _hold_for_send(self, call: CallHandle, first: bool) -> tuple[str | None, float]:
+        """Last look before the provider call of a shared call.
+
+        Waits out the backoff gate (a rate-limit wait another call began while
+        this one wrote its dispatching receipt) and then looks for a refusal.
+        Returns (refusal code or None, seconds waited). A first attempt is
+        refused by anything that refuses a new call; a retry, whose request
+        began earlier, only by a blocking failure or a close, as before its
+        wait. The dispatching receipt stays: it only says a send may follow,
+        and the caller settles a refusal as not sent.
+        """
+        began = self._now()
+        try:
+            self._await_gate(call)
+        except Exception:
+            # An injected sleep failed: an internal defect that stops the run.
+            self._block("internal_error", call)
+            return "internal_error", 0.0
+        waited = max(0.0, self._now() - began)
+        with self._state_lock:
+            if first:
+                return self._refusal(), waited
+            return (self._block_code or ("transport_failed" if self._closing else None),
+                    waited)
+
+    def _settle(self, call: CallHandle, path: Path, receipt: dict[str, Any]) -> None:
         """Write an attempt's terminal receipt; storage failure blocks."""
         # The settled receipt is never changed afterwards: the retry loop builds
-        # a new one, and a failure reassigns _last_stats in _fail_receipt.
-        self._last_stats = receipt
+        # a new one, and a failure reassigns the call's stats in _fail_receipt.
+        call._stats = receipt
         try:
             _write_receipt(path, receipt)
         except Exception:
-            self._fail_receipt(path, receipt, "receipt_failed", persist=False)
+            self._fail_receipt(call, path, receipt, "receipt_failed", persist=False)
             raise ProviderError("receipt_failed") from None
 
-    def _interrupted_backoff(self, meta: dict[str, Any], key: str, count: int,
-                             logical_id: str, attempt: int, wait: float, reason: str,
-                             usage_total: dict[str, int] | None,
+    def _interrupted_backoff(self, call: CallHandle, meta: dict[str, Any], key: str,
+                             count: int, logical_id: str, attempt: int, wait: float,
+                             reason: str, usage_total: dict[str, int] | None,
                              code: str = "interrupted") -> None:
         """A backoff that did not finish: the next attempt was never sent."""
         receipt = self._base_receipt(meta, key, count, logical_id, attempt, 0.0)
@@ -1265,14 +1730,14 @@ class ValidatedGateway:
                        submission_possible=False, logical_status="failed",
                        logical_attempts=attempt, logical_usage=usage_total)
         path = self.receipt_dir / (uuid.uuid4().hex + ".json")
-        self._fail_receipt(path, receipt, code, persist=True)
+        self._fail_receipt(call, path, receipt, code, persist=True)
 
-    def _fail_receipt(self, path: Path, receipt: dict[str, Any], code: str, *,
-                      persist: bool) -> None:
-        self._block(code)
+    def _fail_receipt(self, call: CallHandle, path: Path, receipt: dict[str, Any],
+                      code: str, *, persist: bool) -> None:
+        self._block(code, call)
         receipt.update(status="failed", error=code, answers=None)
-        self._note_receipt(path)
-        self._last_stats = deepcopy(receipt)
+        self._note_receipt(call, path)
+        call._stats = deepcopy(receipt)
         if persist:
             try:
                 _write_receipt(path, receipt)
@@ -1281,14 +1746,15 @@ class ValidatedGateway:
                 # when storage fails again or the operator interrupts again.
                 pass
 
-    def _note_receipt(self, path: Path) -> None:
+    def _note_receipt(self, call: CallHandle, path: Path) -> None:
         name = str(path)
-        self._last_receipt = name
-        if name not in self._last_receipts:
-            self._last_receipts = (*self._last_receipts, name)
+        call._receipt = name
+        if name not in call._receipts:
+            call._receipts = (*call._receipts, name)
 
-    def _journaled_attempt(self, path: Path, wire: bytes, expected: dict[str, Any],
-                           receipt: dict[str, Any], deadline_at: float
+    def _journaled_attempt(self, call: CallHandle, path: Path, wire: bytes,
+                           expected: dict[str, Any], receipt: dict[str, Any],
+                           deadline_at: float
                            ) -> tuple[dict[str, Any] | None, str | None,
                                       Classification | None]:
         """Intent receipt, one provider call and validation.
@@ -1296,7 +1762,9 @@ class ValidatedGateway:
         Returns (answers, error, classification) with ``receipt`` updated but
         its terminal state not yet written; the caller settles it.
         """
-        dispatches = self._dispatch_writes
+        # Whether this attempt's dispatching receipt is written: other calls
+        # write theirs meanwhile, so the shared count cannot say.
+        dispatched = False
         try:
             if not self._receipt_dir_ready:
                 self.receipt_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1314,7 +1782,9 @@ class ValidatedGateway:
                 _write_receipt(path, receipt)
             # The dispatching receipt must survive a crash before dispatch:
             # its directory entry is made durable here, settlements skip it.
-            self._dispatch_writes += 1
+            dispatched = True
+            with self._state_lock:
+                self._dispatch_writes += 1
             _sync_directory(self.receipt_dir)
         except BaseException as exc:
             # The directory is created once. Before the dispatching write, a
@@ -1323,7 +1793,7 @@ class ValidatedGateway:
             # mkdir failure writes nothing, as before. A stat that fails counts
             # as missing. After the dispatching write the directory is left
             # alone, as 1a5f5be left it.
-            if self._receipt_dir_ready and self._dispatch_writes == dispatches:
+            if self._receipt_dir_ready and not dispatched:
                 try:
                     present = self.receipt_dir.is_dir()
                 except Exception:
@@ -1340,24 +1810,39 @@ class ValidatedGateway:
             # The provider was never called: nothing can have been submitted.
             receipt.update(submission="not_sent", submission_possible=False,
                            cost_bound_usd=self._zero_bound())
-            self._fail_receipt(path, receipt, "receipt_failed", persist=True)
+            self._fail_receipt(call, path, receipt, "receipt_failed", persist=True)
             raise ProviderError("receipt_failed") from None
-        self._note_receipt(path)
+        self._note_receipt(call, path)
         # A top-level copy is enough: the only nested value present now is the
         # metadata dict, which no later step changes (every other nested value
         # is assigned whole, never edited in place).
-        self._last_stats = dict(receipt)
+        call._stats = dict(receipt)
         error: str | None = None
         answers: dict[str, Any] | None = None
+        gated = 0.0
+        refused: str | None = None
+        if call._shared:
+            # The checks made when the call began are stale by now: writing
+            # the dispatching receipt took a while, and other calls kept going.
+            refused, gated = self._hold_for_send(call, receipt["attempt"] == 1)
         started = self._now()
         # Intent persistence consumes the call budget. Recheck immediately
         # before the one provider call, including a reduced positive budget.
-        timeout = deadline_at - started
+        # Time spent waiting for the backoff gate is not the attempt's: its
+        # deadline starts at the send.
+        timeout = deadline_at + gated - started
         refusal = "deadline_exceeded"
         if self._deadline is not None and self._deadline - started <= timeout:
             timeout = self._deadline - started
             refusal = "run_deadline_exceeded"
         receipt["timeout_seconds"] = max(0.0, timeout)
+        if refused is not None:
+            # The gateway blocked, stopped or closed after this call began:
+            # nothing was handed to the provider, as in the refusal below.
+            receipt.update(submission="not_sent", submission_possible=False,
+                           status="failed", error=refused, answers=None,
+                           elapsed_seconds=0.0, timeout_seconds=0.0)
+            return None, refused, classify(refused, submission="not_sent")
         if timeout <= 0:
             # Refused before any byte was handed to the provider, so this
             # neither blocks the gateway nor counts as a possible submission.
@@ -1406,13 +1891,13 @@ class ValidatedGateway:
             # A rejected credential or a refused route cannot succeed later
             # in this run either.
             if classification.blocking:
-                self._block(error)
+                self._block(error, call)
         except Exception:
             # Not a documented failure: an adapter defect, never a transport
             # verdict. The gateway still stops because its state is unknown.
             error = "internal_error"
             classification = classify(error)
-            self._block(error)
+            self._block(error, call)
         if classification is not None:
             receipt.update(submission=classification.submission,
                            submission_possible=classification.submission_possible)
@@ -1431,23 +1916,25 @@ class ValidatedGateway:
         """Count-only progress on the optional stream (ADR-9(5))."""
         if self._progress is None:
             return
-        now = self._now()
-        if (self.logical_requests - self._progress_calls < self.PROGRESS_EVERY_CALLS
-                and now - self._progress_at < self.PROGRESS_EVERY_SECONDS):
-            return
-        self._progress_calls, self._progress_at = self.logical_requests, now
-        remaining = ("none" if self._deadline is None
-                     else f"{max(0.0, self._deadline - now):.0f}s")
-        spend = ("unknown" if self._prices is None
-                 else "$" + usd(self._spent_upper().quantize(_MICRO, rounding=ROUND_CEILING)))
-        try:
-            self._progress.write(
-                f"progress: calls={self.logical_requests} attempts={self.attempts} "
-                f"elapsed={max(0.0, now - self._started):.0f}s remaining={remaining} "
-                f"spend<={spend}\n")
-            self._progress.flush()
-        except Exception:
-            pass
+        with self._state_lock:
+            now = self._now()
+            if (self.logical_requests - self._progress_calls < self.PROGRESS_EVERY_CALLS
+                    and now - self._progress_at < self.PROGRESS_EVERY_SECONDS):
+                return
+            self._progress_calls, self._progress_at = self.logical_requests, now
+            remaining = ("none" if self._deadline is None
+                         else f"{max(0.0, self._deadline - now):.0f}s")
+            spend = ("unknown" if self._prices is None
+                     else "$" + usd(self._spent_upper().quantize(_MICRO,
+                                                                 rounding=ROUND_CEILING)))
+            try:
+                self._progress.write(
+                    f"progress: calls={self.logical_requests} attempts={self.attempts} "
+                    f"elapsed={max(0.0, now - self._started):.0f}s remaining={remaining} "
+                    f"spend<={spend}\n")
+                self._progress.flush()
+            except Exception:
+                pass
 
 
 #: The evaluate the engine's prepared path stands in for. It is captured as this

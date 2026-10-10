@@ -61,6 +61,10 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   max(3 s, 1.5 x p95 of recent attempts) refuses calls that could not finish
   (`run_deadline_reserved`). A progress line goes to stderr every 100 calls
   or 30 s.
+- `--concurrency N` (1 to 8, default 1) is opt-in: it lets up to N requests
+  be in flight at once. Results are identical on success; after a failure or
+  a stop, requests already in flight still complete and are billed. The
+  engine fan-out that makes runs faster with it arrives separately.
 
 ### Answers
 

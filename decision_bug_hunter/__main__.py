@@ -15,7 +15,7 @@ import time
 from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
                    DEFAULT_STATE_LAYOUT, CHOICE_GATES, DEFAULT_CHOICE_GATE,
                    LOCALIZATION_MENUS,
-                   CANARY_MODES, DEFAULT_CANARIES)
+                   CANARY_MODES, DEFAULT_CANARIES, MAX_CONCURRENCY)
 from .handoff import compact_report, format_handoff
 from .protocol import (ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES, POLICY_PLACEMENTS,
                        DEFAULT_POLICY_PLACEMENT)
@@ -204,6 +204,12 @@ def parser() -> argparse.ArgumentParser:
                         help="Stop before any attempt (retries included) whose cost bound "
                              "could take reported, estimated and unknown-usage spend above "
                              "USD (default: unset).")
+    result.add_argument("--concurrency", type=int, choices=range(1, MAX_CONCURRENCY + 1),
+                        default=1, metavar="N",
+                        help="Opt-in: allow up to N requests in flight at once, 1 to "
+                             f"{MAX_CONCURRENCY} (default 1: one at a time). Results are "
+                             "identical on success. After a failure or a stop, requests "
+                             "already in flight still complete and are billed.")
     result.add_argument("--allow-secrets", action="store_true",
                         help="Send the file and specification even when they hold "
                              "credential-shaped text (default: refuse with "
@@ -320,11 +326,15 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
 
     Selection is explicit (``--provider`` or ``DBH_PROVIDER``); ``--model``
     is checked against the route's allow-list. Construction reads the
-    environment once and never touches the network.
+    environment once and never touches the network. With ``--concurrency N``
+    above 1 the provider may hold N exchanges at once; at 1 it is built as
+    it always was.
     """
     route = selected_provider(args)
     args.selected_provider = route
     model = getattr(args, "model", None)
+    concurrency = getattr(args, "concurrency", 1)
+    pool = {} if concurrency == 1 else {"max_connections": concurrency}
     if route == "openai":
         if (getattr(args, "openrouter_routing", DEFAULT_ROUTING) != DEFAULT_ROUTING
                 or getattr(args, "openrouter_zdr", False)):
@@ -332,13 +342,14 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
             raise ProviderError("invalid_request")
         if model is None:
             # The documented construction, kept as the patchable name.
-            return DecisionsProvider()
-        return providers.make_provider("openai", model=model)
+            return DecisionsProvider(**pool)
+        return providers.make_provider("openai", model=model, **pool)
     return providers.make_provider(
         "openrouter", model=model,
         routing=getattr(args, "openrouter_routing", DEFAULT_ROUTING),
         zdr=bool(getattr(args, "openrouter_zdr", False)),
-        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT))
+        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT),
+        **pool)
 
 
 def check_secrets(source: Source, spec: Source | None, allow: bool) -> str:
@@ -424,6 +435,7 @@ def execute(args: argparse.Namespace) -> int:
         polarity_twin=args.polarity_twin,
         policy_placement=args.policy_placement,
         require_verification=args.require_verification,
+        concurrency=args.concurrency,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.
@@ -480,6 +492,8 @@ def execute(args: argparse.Namespace) -> int:
         retry_policy=RetryPolicy.none() if getattr(args, "no_retry", False) else RetryPolicy(),
         progress=sys.stderr,
         max_cost=max_cost,
+        # Passed only above 1, so a run at 1 builds its gateway as it always did.
+        **({} if config.concurrency == 1 else {"max_in_flight": config.concurrency}),
     )
     result = None
     try:

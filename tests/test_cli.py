@@ -15,10 +15,13 @@ from unittest.mock import Mock, patch
 from decision_bug_hunter import __main__ as cli
 from decision_bug_hunter.protocol import ProviderError
 from decision_bug_hunter.handoff import compact_report
+from tests.support import clean_provider_env
 from tests.test_provider_boundary import SyntheticProvider
 
 
 SENTINEL = "offline-sentinel-credential-never-send"
+#: The real provider factory, taken before any test patches the module's name.
+REAL_MAKE_PROVIDER = cli.make_provider
 
 
 class CliTests(unittest.TestCase):
@@ -346,6 +349,90 @@ class CliTests(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stderr.decode())
         self.assertEqual((process.stdout, process.stderr), (b"", b""))
         self.assertEqual(list(import_dir.iterdir()), [])
+
+    # --concurrency -------------------------------------------------------------
+    def test_concurrency_defaults_to_one_and_changes_nothing_at_one(self):
+        code, _, _, scan = self.run_cli()
+        self.assertEqual(code, 0)
+        config = scan.call_args.kwargs["config"]
+        self.assertEqual(config.concurrency, 1)
+        # At 1 the gateway is built with exactly the arguments it always had.
+        self.assertNotIn("max_in_flight", self.construct.call_args.kwargs)
+        code, _, _, scan = self.run_cli("--concurrency", "1")
+        self.assertEqual(code, 0)
+        self.assertEqual(scan.call_args.kwargs["config"].concurrency, 1)
+        self.assertNotIn("max_in_flight", self.construct.call_args.kwargs)
+
+    def test_concurrency_reaches_the_config_and_the_gateway_cap(self):
+        for value in range(2, 9):
+            with self.subTest(concurrency=value):
+                code, _, _, scan = self.run_cli("--concurrency", str(value))
+                self.assertEqual(code, 0)
+                config = scan.call_args.kwargs["config"]
+                self.assertEqual(config.concurrency, value)
+                self.assertEqual(self.construct.call_args.kwargs["max_in_flight"], value)
+                # It is not part of the hashed configuration.
+                self.assertNotIn("concurrency", config.as_dict())
+
+    def test_concurrency_accepts_one_to_eight_and_nothing_else(self):
+        for value in ("0", "9", "-1", "100", "1.5", "four", "", SENTINEL):
+            with self.subTest(value=value):
+                err = io.StringIO()
+                with redirect_stderr(err), self.assertRaises(SystemExit) as raised:
+                    cli.main([str(self.source), "--scope", "standalone",
+                              "--output-dir", str(self.output), "--concurrency", value])
+                self.assertEqual(raised.exception.code, 2)
+                self.assertIn("Invalid command-line arguments", err.getvalue())
+                self.assertNotIn(SENTINEL, err.getvalue())
+                self.assertEqual(self.artifacts(), [])
+        self.construct.assert_not_called()
+
+    def test_concurrency_help_says_it_is_opt_in_and_what_a_failure_does(self):
+        text = " ".join(cli.parser().format_help().split())
+        # The usage line names the flag first; its own entry follows the options.
+        flag = text.split("--concurrency N Opt-in", 1)[1].split(" --", 1)[0]
+        for needle in (": allow up to N", "1 to 8", "default 1", "identical on success",
+                       "already in flight still complete and are billed"):
+            with self.subTest(needle):
+                self.assertIn(needle, flag)
+
+    def test_the_provider_holds_a_pool_of_exchanges_only_above_one(self):
+        base = [str(self.source), "--scope", "standalone", "--provider", "openrouter"]
+        with clean_provider_env(OPENROUTER_API_KEY="offline-synthetic-key-not-real"):
+            plain_args = cli.parser().parse_args(base)
+            self.assertIsNone(REAL_MAKE_PROVIDER(plain_args)._pool)
+            pooled_args = cli.parser().parse_args([*base, "--concurrency", "4"])
+            pooled = REAL_MAKE_PROVIDER(pooled_args)
+            self.assertEqual(pooled._pool._size, 4)
+            pooled.close()
+
+    def test_the_openai_provider_holds_a_pool_only_above_one(self):
+        base = [str(self.source), "--scope", "standalone", "--provider", "openai"]
+        # Without --model the documented bare construction is used; with it the
+        # library factory is. Both reach a provider that pools only above one.
+        for extra in ([], ["--model", "gpt-6-luna"]):
+            for flags, size in (([], None), (["--concurrency", "1"], None),
+                                (["--concurrency", "6"], 6)):
+                with self.subTest(model=bool(extra), flags=flags):
+                    with clean_provider_env(OPENAI_API_KEY="offline-synthetic-key-not-real"):
+                        args = cli.parser().parse_args([*base, *extra, *flags])
+                        provider = REAL_MAKE_PROVIDER(args)
+                        try:
+                            if size is None:
+                                self.assertIsNone(provider._pool)
+                            else:
+                                self.assertEqual(provider._pool._size, size)
+                        finally:
+                            provider.close()
+
+    def test_a_full_scan_builds_a_real_gateway_with_the_cap(self):
+        gateway = patch.object(cli, "make_gateway", cli.ValidatedGateway)
+        with gateway:
+            code, _, _, scan = self.run_cli("--concurrency", "4")
+        self.assertEqual(code, 0)
+        scan.assert_called_once()
+        used = scan.call_args.args[1]
+        self.assertEqual(used.max_in_flight, 4)
 
 
 if __name__ == "__main__":

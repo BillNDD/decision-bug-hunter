@@ -2233,7 +2233,10 @@ class Search:
                            "sha256": self.source.sha256,
                            "line_count": len(self.source.lines),
                            "encoding": self.source.encoding},
-                "configuration": self.cfg.as_dict(),
+                # Concurrency changes timing only, so it is recorded (and only
+                # above 1) here and not in the hashed configuration.
+                "configuration": ({**self.cfg.as_dict(), "concurrency": self.cfg.concurrency}
+                                  if self.cfg.concurrency > 1 else self.cfg.as_dict()),
                 "choice_rounding_places": getattr(self.gw, "rounding_places", DEFAULT_CHOICE_ROUNDING_PLACES),
                 "context_scope": self.context_scope,
                 "specification_mode": "provided" if self.spec else "inferred",
