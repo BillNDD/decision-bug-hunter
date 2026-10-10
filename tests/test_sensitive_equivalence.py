@@ -322,15 +322,41 @@ class EscapeRegressions(unittest.TestCase):
                     else:
                         self.assertEqual(new, ("raised", ProviderError, expected))
 
-    def test_recursion_limit_is_reached_at_the_same_depth(self):
-        """The flat walker keeps one call frame per container level, as before."""
-        for depth in range(930, 1000):
+    def test_recursion_limit_never_hides_a_credential(self):
+        """At every depth the new walker answers as the old one did, or answers where it raised.
+
+        Both walkers keep one call frame per container level, so they reach the
+        recursion limit at nearly the same depth. Near the limit the old walker
+        can raise RecursionError a level or two before the new one (seen on
+        3.11). Where it does, the new walker must still answer, and the answer
+        must be the correct one (the needle is there, so True). The new walker
+        never raises where the old one answered, and never answers False for a
+        credential that is present.
+
+        The sweep is placed relative to the frames the test runner already
+        uses, so it covers the limit under unittest, pytest or any wrapper.
+        """
+        used, frame = 0, sys._getframe()
+        while frame is not None:
+            used += 1
+            frame = frame.f_back
+        top = sys.getrecursionlimit() - used
+        outcomes = set()
+        for depth in range(top - 70, top):
             nested = "needle-depth"
             for index in range(depth):
                 nested = [nested] if index % 2 else {"k": nested}
             with self.subTest(depth=depth):
-                self.assertEqual(_result(protocol._secret_in, "needle-depth", [nested]),
-                                 _result(_old_secret_in, "needle-depth", [nested]))
+                old = _result(_old_secret_in, "needle-depth", [nested])
+                new = _result(protocol._secret_in, "needle-depth", [nested])
+                if old == new:
+                    if new[0] == "value":
+                        self.assertEqual(new, ("value", True))
+                    outcomes.add(new)
+                    continue
+                self.assertEqual(old, ("raised", RecursionError, None))
+                self.assertEqual(new, ("value", True))
+        self.assertIn(("value", True), outcomes)
 
 
 def _nested(depth, shape, leaf):

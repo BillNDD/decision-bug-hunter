@@ -10,7 +10,7 @@ credential is read. The scenarios and their inputs are in
 
 ```
 python tools/bench/bench.py --check            # fingerprints against golden.json
-python tools/bench/bench.py --gate             # fingerprints, exact values and ceilings
+python tools/bench/bench.py --gate             # fingerprints, exact values and ceilings (see the version rule)
 python tools/bench/bench.py --scenario synth-200 --gate
 python tools/bench/bench.py --update-golden    # re-record; refuses unless hash seeds 0 and 1 agree
 python tools/bench/bench.py --markdown tools/bench/golden.json
@@ -40,9 +40,8 @@ shipped write.
   critical-path upper bound, and per phase). Any change is a behavior change.
 - **Gated counters**:
   - `dbh_ncalls` and `dbh_primitive_calls`: cProfile calls of functions defined
-    in the `decision_bug_hunter` package. Stdlib internals are excluded, so
-    Python minor-version differences in the standard library do not move this
-    count.
+    in the `decision_bug_hunter` package. Stdlib internals are excluded, but
+    the interpreter still moves this count: see the version rule below.
   - `copy_deepcopy_calls`, `json_dumps_calls`, `json_loads_calls`,
     `sha256_calls`, `protocol_snapshot_calls`, `protocol_secret_in_calls`,
     `path_mkdir_calls`: call counts.
@@ -64,10 +63,44 @@ shipped write.
   agree between them. The byte and character counters may differ by their 1%
   tolerance, because of the wall-clock digits; the difference is printed.
 
+## The version rule
+
+The cost counters depend on the interpreter, so `golden.json` records the
+Python minor version it was recorded with (`meta.python_minor`, now 3.12) and
+`--update-golden` writes it.
+
+- On that minor version, `--gate` enforces everything above.
+- On any other minor version, `--gate` still enforces the fingerprints, the
+  per-case hashes and every exact value. It reports the cost counters as one
+  informational notice per scenario, naming the counters that are above their
+  ceiling, and never fails on them. A fingerprint or exact-value change fails on
+  every version, and so does a counter that is missing altogether.
+- `--update-golden` on a different minor version refuses to re-record only some
+  scenarios, because that would mix versions in one file. Re-record every
+  scenario on one version, or use the recorded one.
+
+Why the counters move on 3.11 (measured on `synth-200` and `catalog-4`):
+
+- `dbh_ncalls` is about 17% higher on `synth-200`. Before 3.12 (PEP 709), every
+  list, dict and set comprehension in the package is a separate function call
+  that cProfile counts; 3.12 inlines them. On `synth-200` that is about 16,500
+  of the 110,600 package calls.
+- `copy_deepcopy_calls` is higher, for example 36 on 3.12 and 160 on 3.11 on
+  `catalog-4`. `dataclasses.asdict` calls `copy.deepcopy` on every leaf, and
+  3.12 skips the call for `str`, `int`, `None` and the other immutable leaf
+  types. The package reaches it through `SourceRef.id` and `as_dict`,
+  `ClaimKey.id` and `as_dict`, `EvidenceRevision.id` and the revision data in
+  `claim_search`: 152 of the 160 calls on 3.11. None of this is work that only
+  3.11 does; the interpreter's own accounting and fast paths differ. Replacing
+  `asdict` with explicit field dicts in those few methods would remove the
+  calls on every version, and is not done here.
+
 ## Current numbers
 
-Recorded on Python 3.12.10. Counts are the same on 3.13 within the gate
-tolerances (the gate test passes on both).
+Recorded on Python 3.12.10. On 3.13 the counters were within the gate
+tolerances when measured; the gate enforces them only on 3.12 (see the version
+rule). On 3.11 the fingerprints and exact values are identical, and the
+counters differ as described above.
 
 | Scenario | Jobs | Provider calls | Questions | Envelope bytes | Rounds (executed) | Critical path (upper) | DBH-own ncalls | JSON dumps chars | sha256 bytes | Receipt writes |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

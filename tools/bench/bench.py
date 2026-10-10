@@ -25,10 +25,16 @@ Per scenario (see ``scenarios.py``) it records:
 
     python tools/bench/bench.py                  # measure; writes --out
     python tools/bench/bench.py --check          # fingerprints against golden.json
-    python tools/bench/bench.py --gate           # exact values and ceilings
+    python tools/bench/bench.py --gate           # exact values and ceilings (see below)
     python tools/bench/bench.py --update-golden  # re-record; two hash seeds must agree
     python tools/bench/bench.py --markdown FILE  # table from golden.json or a result
     python tools/bench/bench.py --compare OLD NEW
+
+The cost counters depend on the interpreter (cProfile accounting and stdlib
+internals change between minor versions), so golden.json records the Python
+minor version it was recorded with. ``--gate`` on another minor version still
+enforces fingerprints and every exact value, and reports the counters as
+informational (a notice, never a failure).
 
 Outputs go under ``tempfile.gettempdir()/dbh-bench`` unless ``--out`` names
 another path; nothing is written into the repository except ``--update-golden``.
@@ -716,8 +722,40 @@ def identity_failures(golden, observed):
     return failures
 
 
-def gate_compare(golden, observed):
-    """(failures, notices) for one scenario: identity, exact values, gated counters."""
+def running_minor():
+    """The running interpreter's minor version, such as ``"3.12"``."""
+    return "%d.%d" % sys.version_info[:2]
+
+
+def minor_of(version):
+    """``"3.12"`` for a version string such as ``"3.12.10"``."""
+    return ".".join(str(version).split(".")[:2])
+
+
+def recorded_minor(meta):
+    """The Python minor version golden.json was recorded with, or None when it does not say."""
+    version = meta.get("python_minor") or meta.get("recorded_with_python")
+    return minor_of(version) if version else None
+
+
+def counters_gated(meta):
+    """True when the cost counters may fail the gate on the running interpreter.
+
+    The counters are only comparable on the minor version they were recorded
+    with. A golden file that names no version is treated as comparable.
+    """
+    recorded = recorded_minor(meta)
+    return recorded is None or recorded == running_minor()
+
+
+def gate_compare(golden, observed, *, gate_counters=True):
+    """(failures, notices) for one scenario: identity, exact values, gated counters.
+
+    With ``gate_counters=False`` (a Python minor version other than the one
+    the golden values were recorded with) the counter ceilings never fail: the
+    single notice names the counters above their ceiling. A counter that is
+    missing still fails, because that is structural, not a version difference.
+    """
     failures = identity_failures(golden, observed)
     if golden is None:
         return failures, []
@@ -726,17 +764,33 @@ def gate_compare(golden, observed):
         want, got = golden["exact"].get(key), observed["exact"].get(key)
         if want != got:
             failures.append(f"exact {key}: {want} -> {got}")
+    for key in GATED:
+        if golden["counters"].get(key) is None or observed["counters"].get(key) is None:
+            failures.append(f"counter {key} missing")
+    if not gate_counters:
+        return failures, [_informational_counters(golden, observed)]
     for key, allowed in GATED.items():
         want, got = golden["counters"].get(key), observed["counters"].get(key)
         if want is None or got is None:
-            failures.append(f"counter {key} missing")
-        elif got > want * (1 + allowed):
+            continue
+        if got > want * (1 + allowed):
             failures.append(f"{key}: {want} -> {got} ({_pct(want, got)}; "
                             f"ceiling +{allowed:.0%})")
         elif got < want * (1 - RATCHET):
             notices.append(f"{key}: {want} -> {got} ({_pct(want, got)}); "
                            "re-record with --update-golden")
     return failures, notices
+
+
+def _informational_counters(golden, observed):
+    over = []
+    for key, allowed in GATED.items():
+        want, got = golden["counters"].get(key), observed["counters"].get(key)
+        if want is not None and got is not None and got > want * (1 + allowed):
+            over.append(f"{key} {want} -> {got} ({_pct(want, got)})")
+    detail = "; ".join(over) if over else "none above its ceiling"
+    return (f"cost counters are informational on Python {running_minor()} (golden values "
+            f"recorded on another minor version): {detail}")
 
 
 def record_differences(first, second):
@@ -820,9 +874,16 @@ def load_golden():
     return json.loads(GOLDEN.read_text(encoding="utf-8"))["scenarios"]
 
 
+def load_golden_meta():
+    if not GOLDEN.exists():
+        return {}
+    return json.loads(GOLDEN.read_text(encoding="utf-8")).get("meta", {})
+
+
 def write_golden(entries):
     ordered = {name: entries[name] for name in SCENARIOS if name in entries}
     data = {"meta": {"recorded_with_python": platform.python_version(),
+                     "python_minor": running_minor(),
                      "hash_seeds": [0, 1], "receipts": "memory"},
             "scenarios": ordered}
     GOLDEN.write_bytes((json.dumps(data, indent=2, sort_keys=True) + "\n").encode("utf-8"))
@@ -903,12 +964,14 @@ def do_check(names, args):
 
 def do_gate(names, args):
     golden = load_golden()
+    gate_counters = counters_gated(load_golden_meta())
     records = run_children(names, parallel=args.parallel, seed=0,
                            count_receipts=args.count_receipts, reps=0, profile=True,
                            tracemalloc_run=False)
     problems = 0
     for name in names:
-        failures, notices = gate_compare(golden.get(name), records[name])
+        failures, notices = gate_compare(golden.get(name), records[name],
+                                         gate_counters=gate_counters)
         problems += len(failures)
         print(f"{name}: {'ok' if not failures else 'FAIL'}")
         for line in failures:
@@ -920,6 +983,14 @@ def do_gate(names, args):
 
 
 def do_update(names, args):
+    golden = load_golden()
+    recorded = recorded_minor(load_golden_meta())
+    kept = [name for name in golden if name not in names]
+    if recorded not in (None, running_minor()) and kept:
+        print(f"golden.json was recorded with Python {recorded}; re-recording only some "
+              f"scenarios on {running_minor()} would mix versions. Re-record every scenario "
+              f"with Python {running_minor()}, or use Python {recorded}.")
+        return 1
     first = run_children(names, parallel=args.parallel, seed=0,
                          count_receipts=args.count_receipts, reps=0, profile=True,
                          tracemalloc_run=False)
@@ -940,7 +1011,6 @@ def do_update(names, args):
             print(line)
         print("golden.json not written")
         return 1
-    golden = load_golden()
     for name in names:
         golden[name] = {k: first[name][k] for k in GOLDEN_FIELDS}
     write_golden(golden)
