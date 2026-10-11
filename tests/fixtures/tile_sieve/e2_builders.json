@@ -1,0 +1,2875 @@
+{
+ "_provenance": {
+  "answers": "plain answers as recorded in the pilot answers.jsonl, canaries included",
+  "catalog_revision": "bounded-builtins-v2",
+  "e2_decisions_note": "E2 decisions here are recomputed with those final thresholds, not the provisional values the E2 wave saw while it ran",
+  "generator": "an offline script kept outside the repository (gen_p0_fixtures.py); never shipped",
+  "harness": {
+   "name": "tsieve (Tile Sieve pilot harness)",
+   "source_sha256": "3a07325f594dca4e2ed365b88706c755559574c39dd381df6d007f5834813581",
+   "version": "unversioned pilot build; identified by the digest below"
+  },
+  "pack_sha256": "ce602fcdea0b37d25410f39f075e3470445671af7e64c8910904416b29cdd0d2",
+  "pack_version": "5.0.0",
+  "pilot_dbh_commit": "064fe8e",
+  "pilot_route_and_model": "OpenAI direct, gpt-6-luna",
+  "pilot_run_date": "2026-10-10",
+  "pilot_run_utc_windows": {
+   "E2": [
+    "2026-10-10T16:37:29Z",
+    "2026-10-10T16:43:53Z"
+   ],
+   "E4": [
+    "2026-10-10T16:44:31Z",
+    "2026-10-10T16:45:13Z"
+   ]
+  },
+  "rebuilt_on_dbh_commit": "3e703e3",
+  "thresholds": "thresholds.json written by the pilot at 2026-10-10T16:44:03Z (the values E4 used)"
+ },
+ "files": [
+  {
+   "bugs": [
+    {
+     "end": 501,
+     "id": "B11",
+     "lens": "integration",
+     "nonlocal": true,
+     "partner_lines": [
+      [
+       384,
+       385
+      ]
+     ],
+     "start": 501
+    }
+   ],
+   "bytes": 17507,
+   "focus": [
+    {
+     "E": 0.5866666666666667,
+     "K": [
+      485,
+      508
+     ],
+     "answers": {
+      "ctl_a2ed7246": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "ctl_b66d40c1": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_boundary": {
+       "noul": "0.04",
+       "type": "noul"
+      },
+      "lens_contract": {
+       "noul": "0.02",
+       "type": "noul"
+      },
+      "lens_functional": {
+       "noul": "0.7",
+       "type": "noul"
+      },
+      "lens_integration": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_state": {
+       "noul": "0.01",
+       "type": "noul"
+      },
+      "loc_a": {
+       "choice": "L501-504",
+       "confidence": "0.78",
+       "probabilities": {
+        "L485-488": "0.02",
+        "L489-492": "0.03",
+        "L493-496": "0.02",
+        "L497-500": "0.01",
+        "L501-504": "0.81",
+        "L505-508": "0.02",
+        "none": "0.08",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "loc_b": {
+       "choice": "L499-502",
+       "confidence": "0.57",
+       "probabilities": {
+        "L485-486": "0.09",
+        "L487-490": "0.08",
+        "L491-494": "0.02",
+        "L495-498": "0.01",
+        "L499-502": "0.62",
+        "L503-506": "0.02",
+        "L507-508": "0.01",
+        "none": "0.14",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "multiple": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "need_ctx": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "rel_E3f4e347349112453": {
+       "noul": "0.01",
+       "type": "noul"
+      },
+      "rel_E5b0dd70930ecebf7": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "rel_Ed746462799a30597": {
+       "noul": "0.01",
+       "type": "noul"
+      },
+      "reqm_R1-1": {
+       "noul": "0.86",
+       "type": "noul"
+      },
+      "reqm_R5-5": {
+       "noul": "0.97",
+       "type": "noul"
+      },
+      "twin": {
+       "noul": "0.12",
+       "type": "noul"
+      },
+      "verify": {
+       "noul": "0.0",
+       "type": "noul"
+      }
+     },
+     "canaries_pass": true,
+     "decision": "stage2",
+     "id": "E2/p-B11-logstats/focus/485-508",
+     "kind": "focus",
+     "lens_order": [
+      "contract",
+      "functional",
+      "state",
+      "integration",
+      "boundary"
+     ],
+     "meta": {
+      "K": [
+       485,
+       508
+      ],
+      "arm": "focus",
+      "cluster_kind": "true",
+      "core": [
+       489,
+       504
+      ],
+      "display": [
+       469,
+       524
+      ],
+      "file": "p-B11-logstats",
+      "looks": [
+       1
+      ],
+      "n": 535,
+      "name": "logstats.py",
+      "need_ctx_tile": true,
+      "partners": [
+       [
+        463,
+        465,
+        "def level_histogram"
+       ],
+       [
+        454,
+        460,
+        "def top_error_components"
+       ],
+       [
+        437,
+        451,
+        "def collect_latencies_us"
+       ],
+       [
+        384,
+        404,
+        "def detect_bursts"
+       ],
+       [
+        366,
+        372,
+        "def build_sessions"
+       ],
+       [
+        309,
+        316,
+        "def error_rate_per_minute"
+       ]
+      ],
+      "roles": {
+       "ctl_a2ed7246": {
+        "role": "must_true"
+       },
+       "ctl_b66d40c1": {
+        "role": "must_false"
+       },
+       "lens_boundary": {
+        "lens": "boundary",
+        "role": "lens"
+       },
+       "lens_contract": {
+        "lens": "contract",
+        "role": "lens"
+       },
+       "lens_functional": {
+        "lens": "functional",
+        "role": "lens"
+       },
+       "lens_integration": {
+        "lens": "integration",
+        "role": "lens"
+       },
+       "lens_state": {
+        "lens": "state",
+        "role": "lens"
+       },
+       "loc_a": {
+        "cells": [
+         [
+          485,
+          488
+         ],
+         [
+          489,
+          492
+         ],
+         [
+          493,
+          496
+         ],
+         [
+          497,
+          500
+         ],
+         [
+          501,
+          504
+         ],
+         [
+          505,
+          508
+         ]
+        ],
+        "role": "loc_a"
+       },
+       "loc_b": {
+        "cells": [
+         [
+          485,
+          486
+         ],
+         [
+          487,
+          490
+         ],
+         [
+          491,
+          494
+         ],
+         [
+          495,
+          498
+         ],
+         [
+          499,
+          502
+         ],
+         [
+          503,
+          506
+         ],
+         [
+          507,
+          508
+         ]
+        ],
+        "role": "loc_b"
+       },
+       "multiple": {
+        "role": "multiple"
+       },
+       "need_ctx": {
+        "role": "need_ctx"
+       },
+       "rel_E3f4e347349112453": {
+        "partner": [
+         463,
+         465
+        ],
+        "role": "relation"
+       },
+       "rel_E5b0dd70930ecebf7": {
+        "partner": [
+         454,
+         460
+        ],
+        "role": "relation"
+       },
+       "rel_Ed746462799a30597": {
+        "partner": [
+         437,
+         451
+        ],
+        "role": "relation"
+       },
+       "reqm_R1-1": {
+        "passage": [
+         1,
+         1
+        ],
+        "role": "requirement"
+       },
+       "reqm_R5-5": {
+        "passage": [
+         5,
+         5
+        ],
+        "role": "requirement"
+       },
+       "twin": {
+        "role": "twin"
+       },
+       "verify": {
+        "role": "verify"
+       }
+      },
+      "truncation": {
+       "halo": 16,
+       "lenses": 5,
+       "linked": false,
+       "partner_cap": null,
+       "partners": 6,
+       "relations": 3,
+       "spec": 1536
+      },
+      "truth": [
+       "B11"
+      ],
+      "wording": "base"
+     },
+     "questions": 18,
+     "request_bytes": 19534,
+     "roles": {
+      "ctl_a2ed7246": {
+       "role": "must_true"
+      },
+      "ctl_b66d40c1": {
+       "role": "must_false"
+      },
+      "lens_boundary": {
+       "lens": "boundary",
+       "role": "lens"
+      },
+      "lens_contract": {
+       "lens": "contract",
+       "role": "lens"
+      },
+      "lens_functional": {
+       "lens": "functional",
+       "role": "lens"
+      },
+      "lens_integration": {
+       "lens": "integration",
+       "role": "lens"
+      },
+      "lens_state": {
+       "lens": "state",
+       "role": "lens"
+      },
+      "loc_a": {
+       "cells": [
+        [
+         485,
+         488
+        ],
+        [
+         489,
+         492
+        ],
+        [
+         493,
+         496
+        ],
+        [
+         497,
+         500
+        ],
+        [
+         501,
+         504
+        ],
+        [
+         505,
+         508
+        ]
+       ],
+       "role": "loc_a"
+      },
+      "loc_b": {
+       "cells": [
+        [
+         485,
+         486
+        ],
+        [
+         487,
+         490
+        ],
+        [
+         491,
+         494
+        ],
+        [
+         495,
+         498
+        ],
+        [
+         499,
+         502
+        ],
+        [
+         503,
+         506
+        ],
+        [
+         507,
+         508
+        ]
+       ],
+       "role": "loc_b"
+      },
+      "multiple": {
+       "role": "multiple"
+      },
+      "need_ctx": {
+       "role": "need_ctx"
+      },
+      "rel_E3f4e347349112453": {
+       "partner": [
+        463,
+        465
+       ],
+       "role": "relation"
+      },
+      "rel_E5b0dd70930ecebf7": {
+       "partner": [
+        454,
+        460
+       ],
+       "role": "relation"
+      },
+      "rel_Ed746462799a30597": {
+       "partner": [
+        437,
+        451
+       ],
+       "role": "relation"
+      },
+      "reqm_R1-1": {
+       "passage": [
+        1,
+        1
+       ],
+       "role": "requirement"
+      },
+      "reqm_R5-5": {
+       "passage": [
+        5,
+        5
+       ],
+       "role": "requirement"
+      },
+      "twin": {
+       "role": "twin"
+      },
+      "verify": {
+       "role": "verify"
+      }
+     },
+     "runs": [
+      [
+       501,
+       502
+      ]
+     ],
+     "runs_fell_back_to_K": false,
+     "runs_with_mass": 1,
+     "scores": {
+      "lens_max": 0.7,
+      "multiple": 0.0,
+      "need_ctx": 1.0,
+      "relation_max": 0.01,
+      "requirement_max": 0.97,
+      "twin": 0.12,
+      "verify": 0.0,
+      "verify_evidence_max": 0.0
+     },
+     "sha256": "5659ca80f2a6a00f2192390cc58c81d33475d753d4a79f0251a1825277ad48ba",
+     "state_bytes": 10685,
+     "tau_rep": 0.6439,
+     "tile_ctx": {
+      "need_ctx": true
+     }
+    }
+   ],
+   "id": "p-B11-logstats",
+   "n": 535,
+   "name": "logstats.py",
+   "path": "planted/B11_logstats.py",
+   "sha256": "c86a77c3aae26936b2889cd6ee068d9535522169676c71c3d1cfae224de64ced",
+   "spec_sha256": "c1398e94911c54d1afe653010a34cce028d1e982320ea49c37c09094f8435777",
+   "spec_text": "Line: `TIMESTAMP LEVEL component [req=ID] message k=v`. TIMESTAMP: UTC `YYYY-MM-DDTHH:MM:SS`, optional 1-3 fraction digits (`.5` = 500 ms), then `Z`; before 1970 fails; parsed to epoch ms. LEVEL: TRACE DEBUG INFO WARN ERROR FATAL (WARNING is WARN). Component: `[a-z][a-z0-9_.-]*`. Optional `[req=ID]`, ID `[A-Za-z0-9_-]{1,32}`. Trailing `key=value` tokens (value may be quoted) are fields, the rest is the message. Bad lines: errors with 1-based numbers, 50 kept, rest counted.\n\nDurations: `250us`, `12ms`, `1.5s`, `2m`, `1h` give integer microseconds, rounded half up.\n\nStatistics: `percentile` is nearest rank ceil(p/100*n), 0 <= p <= 100, p=0 the minimum, empty None. An even median averages the middle two. Standard deviation: sample (n-1). Error rate: ERROR and FATAL lines per minute over the first-to-last span, at least 1 minute. Floats: 3 places.\n\nWindows: epoch aligned, half-open; level counts, gaps included.\n\nOrder: sorted by timestamp, stably; `out_of_order` counts lines earlier than a previous one.\n\nSessions: by request id (none: skipped). A gap above `idle_ms` (default 30000) starts a new session. A session fails on any ERROR or FATAL line. Sorted by start, id.\n\nBursts: an event is a trigger if [t, t+window) holds at least `threshold` events. Overlapping windows merge; a burst runs from its first trigger to its last event.\n\nBuckets: below the first edge is `under`, at or above the last `over`; bucket i is [e_i, e_i+1).\n\nTop components: ERROR plus FATAL count, ties by name.\n",
+   "stage2": [
+    {
+     "E": 0.66,
+     "K": [
+      485,
+      508
+     ],
+     "answers": {
+      "ctl_e1b52091": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "ctl_e950c326": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "lens_boundary": {
+       "noul": "0.59",
+       "type": "noul"
+      },
+      "lens_contract": {
+       "noul": "0.99",
+       "type": "noul"
+      },
+      "lens_functional": {
+       "noul": "0.99",
+       "type": "noul"
+      },
+      "lens_integration": {
+       "noul": "0.98",
+       "type": "noul"
+      },
+      "lens_state": {
+       "noul": "0.88",
+       "type": "noul"
+      },
+      "loc_a": {
+       "choice": "L501-504",
+       "confidence": "0.84",
+       "probabilities": {
+        "L485-488": "0.02",
+        "L489-492": "0.03",
+        "L493-496": "0.02",
+        "L497-500": "0.01",
+        "L501-504": "0.86",
+        "L505-508": "0.04",
+        "none": "0.02",
+        "unlocalized": "0.0"
+       },
+       "type": "choice"
+      },
+      "twin": {
+       "noul": "0.02",
+       "type": "noul"
+      },
+      "verify": {
+       "noul": "0.02",
+       "type": "noul"
+      },
+      "vwe_E2636463ea3eb0efd": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_E2edb6d31f56446ad": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_Ed746462799a30597": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_Ee8d6a8b2fd192aec": {
+       "noul": "0.02",
+       "type": "noul"
+      }
+     },
+     "canaries_pass": true,
+     "decision": "report",
+     "focus_rule_on_stage2_answer": "report",
+     "id": "E2/p-B11-logstats/stage2/485-508",
+     "kind": "stage2",
+     "lens_order": [
+      "functional",
+      "contract",
+      "boundary",
+      "state",
+      "integration"
+     ],
+     "meta": {
+      "K": [
+       485,
+       508
+      ],
+      "arm": "stage2",
+      "cluster_kind": "true",
+      "display": [
+       453,
+       535
+      ],
+      "file": "p-B11-logstats",
+      "n": 535,
+      "name": "logstats.py",
+      "need_ctx_tile": true,
+      "parent_focus": "5659ca80f2a6a00f2192390cc58c81d33475d753d4a79f0251a1825277ad48ba",
+      "partners": [
+       [
+        437,
+        451,
+        "def collect_latencies_us"
+       ],
+       [
+        384,
+        404,
+        "def detect_bursts"
+       ],
+       [
+        366,
+        372,
+        "def build_sessions"
+       ],
+       [
+        309,
+        316,
+        "def error_rate_per_minute"
+       ],
+       [
+        287,
+        306,
+        "def count_by_window"
+       ],
+       [
+        192,
+        203,
+        "def percentile"
+       ],
+       [
+        164,
+        185,
+        "def read_lines"
+       ],
+       [
+        128,
+        129,
+        "def is_error"
+       ]
+      ],
+      "roles": {
+       "ctl_e1b52091": {
+        "role": "must_false"
+       },
+       "ctl_e950c326": {
+        "role": "must_true"
+       },
+       "lens_boundary": {
+        "lens": "boundary",
+        "role": "lens"
+       },
+       "lens_contract": {
+        "lens": "contract",
+        "role": "lens"
+       },
+       "lens_functional": {
+        "lens": "functional",
+        "role": "lens"
+       },
+       "lens_integration": {
+        "lens": "integration",
+        "role": "lens"
+       },
+       "lens_state": {
+        "lens": "state",
+        "role": "lens"
+       },
+       "loc_a": {
+        "cells": [
+         [
+          485,
+          488
+         ],
+         [
+          489,
+          492
+         ],
+         [
+          493,
+          496
+         ],
+         [
+          497,
+          500
+         ],
+         [
+          501,
+          504
+         ],
+         [
+          505,
+          508
+         ]
+        ],
+        "role": "loc_a"
+       },
+       "twin": {
+        "role": "twin"
+       },
+       "verify": {
+        "role": "verify"
+       },
+       "vwe_E2636463ea3eb0efd": {
+        "partner": [
+         309,
+         316
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_E2edb6d31f56446ad": {
+        "partner": [
+         366,
+         372
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_Ed746462799a30597": {
+        "partner": [
+         437,
+         451
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_Ee8d6a8b2fd192aec": {
+        "partner": [
+         384,
+         404
+        ],
+        "role": "verify_evidence"
+       }
+      },
+      "truncation": {
+       "halo": 32,
+       "lenses": 5,
+       "linked": false,
+       "partner_cap": null,
+       "partners": 8,
+       "relations": 3,
+       "spec": 4096
+      },
+      "truth": [
+       "B11"
+      ],
+      "wording": "base"
+     },
+     "parent_focus": "5659ca80f2a6a00f2192390cc58c81d33475d753d4a79f0251a1825277ad48ba",
+     "questions": 14,
+     "report": true,
+     "request_bytes": 22323,
+     "roles": {
+      "ctl_e1b52091": {
+       "role": "must_false"
+      },
+      "ctl_e950c326": {
+       "role": "must_true"
+      },
+      "lens_boundary": {
+       "lens": "boundary",
+       "role": "lens"
+      },
+      "lens_contract": {
+       "lens": "contract",
+       "role": "lens"
+      },
+      "lens_functional": {
+       "lens": "functional",
+       "role": "lens"
+      },
+      "lens_integration": {
+       "lens": "integration",
+       "role": "lens"
+      },
+      "lens_state": {
+       "lens": "state",
+       "role": "lens"
+      },
+      "loc_a": {
+       "cells": [
+        [
+         485,
+         488
+        ],
+        [
+         489,
+         492
+        ],
+        [
+         493,
+         496
+        ],
+        [
+         497,
+         500
+        ],
+        [
+         501,
+         504
+        ],
+        [
+         505,
+         508
+        ]
+       ],
+       "role": "loc_a"
+      },
+      "twin": {
+       "role": "twin"
+      },
+      "verify": {
+       "role": "verify"
+      },
+      "vwe_E2636463ea3eb0efd": {
+       "partner": [
+        309,
+        316
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_E2edb6d31f56446ad": {
+       "partner": [
+        366,
+        372
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_Ed746462799a30597": {
+       "partner": [
+        437,
+        451
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_Ee8d6a8b2fd192aec": {
+       "partner": [
+        384,
+        404
+       ],
+       "role": "verify_evidence"
+      }
+     },
+     "runs": [
+      [
+       501,
+       504
+      ]
+     ],
+     "runs_fell_back_to_K": false,
+     "runs_with_mass": 1,
+     "scores": {
+      "lens_max": 0.99,
+      "multiple": null,
+      "need_ctx": null,
+      "relation_max": 0.0,
+      "requirement_max": 0.0,
+      "twin": 0.02,
+      "verify": 0.02,
+      "verify_evidence_max": 0.02
+     },
+     "sha256": "0e9a37179f7762fd36a97127875bdb25647571bb7378256b072ac630e307a8f3",
+     "state_bytes": 15702,
+     "tau_rep": 0.6439,
+     "tile_ctx": {
+      "need_ctx": true
+     }
+    }
+   ]
+  },
+  {
+   "bugs": [
+    {
+     "end": 452,
+     "id": "B45",
+     "lens": "requirement",
+     "nonlocal": false,
+     "partner_lines": [],
+     "start": 433
+    }
+   ],
+   "bytes": 19791,
+   "focus": [
+    {
+     "E": 0.6466666666666666,
+     "K": [
+      429,
+      460
+     ],
+     "answers": {
+      "ctl_0c30f7a7": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "ctl_3f5dd660": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "lens_boundary": {
+       "noul": "0.71",
+       "type": "noul"
+      },
+      "lens_contract": {
+       "noul": "0.99",
+       "type": "noul"
+      },
+      "lens_functional": {
+       "noul": "0.97",
+       "type": "noul"
+      },
+      "lens_integration": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_state": {
+       "noul": "0.96",
+       "type": "noul"
+      },
+      "loc_a": {
+       "choice": "L445-448",
+       "confidence": "0.72",
+       "probabilities": {
+        "L429-432": "0.03",
+        "L433-436": "0.02",
+        "L437-440": "0.04",
+        "L441-444": "0.04",
+        "L445-448": "0.75",
+        "L449-452": "0.08",
+        "L453-456": "0.0",
+        "L457-460": "0.0",
+        "none": "0.03",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "loc_b": {
+       "choice": "L447-450",
+       "confidence": "0.56",
+       "probabilities": {
+        "L429-430": "0.03",
+        "L431-434": "0.02",
+        "L435-438": "0.02",
+        "L439-442": "0.07",
+        "L443-446": "0.03",
+        "L447-450": "0.6",
+        "L451-454": "0.14",
+        "L455-458": "0.01",
+        "L459-460": "0.02",
+        "none": "0.05",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "multiple": {
+       "noul": "0.15",
+       "type": "noul"
+      },
+      "need_ctx": {
+       "noul": "0.57",
+       "type": "noul"
+      },
+      "rel_E3dfc13b429467003": {
+       "noul": "0.22",
+       "type": "noul"
+      },
+      "rel_E4b49d5ec36c85088": {
+       "noul": "0.86",
+       "type": "noul"
+      },
+      "rel_Ee10b5ba673af32d6": {
+       "noul": "0.11",
+       "type": "noul"
+      },
+      "reqm_R11-11": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "reqm_R7-7": {
+       "noul": "0.99",
+       "type": "noul"
+      },
+      "twin": {
+       "noul": "0.1",
+       "type": "noul"
+      },
+      "verify": {
+       "noul": "0.14",
+       "type": "noul"
+      }
+     },
+     "canaries_pass": true,
+     "decision": "report",
+     "id": "E2/p-B45-patchkit/focus/429-460",
+     "kind": "focus",
+     "lens_order": [
+      "functional",
+      "boundary",
+      "state",
+      "contract",
+      "integration"
+     ],
+     "meta": {
+      "K": [
+       429,
+       460
+      ],
+      "arm": "focus",
+      "cluster_kind": "true",
+      "core": [
+       433,
+       456
+      ],
+      "display": [
+       413,
+       476
+      ],
+      "file": "p-B45-patchkit",
+      "looks": [
+       0,
+       1
+      ],
+      "n": 540,
+      "name": "patchkit.py",
+      "need_ctx_tile": false,
+      "partners": [
+       [
+        408,
+        417,
+        "def _locate"
+       ],
+       [
+        525,
+        527,
+        "use apply_file_patch"
+       ],
+       [
+        105,
+        109,
+        "def join_text"
+       ],
+       [
+        94,
+        102,
+        "def split_text"
+       ],
+       [
+        76,
+        81,
+        "def FilePatch"
+       ],
+       [
+        31,
+        37,
+        "def PatchError"
+       ],
+       [
+        27,
+        27,
+        "def DEFAULT_MAX_OFFSET"
+       ]
+      ],
+      "roles": {
+       "ctl_0c30f7a7": {
+        "role": "must_false"
+       },
+       "ctl_3f5dd660": {
+        "role": "must_true"
+       },
+       "lens_boundary": {
+        "lens": "boundary",
+        "role": "lens"
+       },
+       "lens_contract": {
+        "lens": "contract",
+        "role": "lens"
+       },
+       "lens_functional": {
+        "lens": "functional",
+        "role": "lens"
+       },
+       "lens_integration": {
+        "lens": "integration",
+        "role": "lens"
+       },
+       "lens_state": {
+        "lens": "state",
+        "role": "lens"
+       },
+       "loc_a": {
+        "cells": [
+         [
+          429,
+          432
+         ],
+         [
+          433,
+          436
+         ],
+         [
+          437,
+          440
+         ],
+         [
+          441,
+          444
+         ],
+         [
+          445,
+          448
+         ],
+         [
+          449,
+          452
+         ],
+         [
+          453,
+          456
+         ],
+         [
+          457,
+          460
+         ]
+        ],
+        "role": "loc_a"
+       },
+       "loc_b": {
+        "cells": [
+         [
+          429,
+          430
+         ],
+         [
+          431,
+          434
+         ],
+         [
+          435,
+          438
+         ],
+         [
+          439,
+          442
+         ],
+         [
+          443,
+          446
+         ],
+         [
+          447,
+          450
+         ],
+         [
+          451,
+          454
+         ],
+         [
+          455,
+          458
+         ],
+         [
+          459,
+          460
+         ]
+        ],
+        "role": "loc_b"
+       },
+       "multiple": {
+        "role": "multiple"
+       },
+       "need_ctx": {
+        "role": "need_ctx"
+       },
+       "rel_E3dfc13b429467003": {
+        "partner": [
+         105,
+         109
+        ],
+        "role": "relation"
+       },
+       "rel_E4b49d5ec36c85088": {
+        "partner": [
+         408,
+         417
+        ],
+        "role": "relation"
+       },
+       "rel_Ee10b5ba673af32d6": {
+        "partner": [
+         525,
+         527
+        ],
+        "role": "relation"
+       },
+       "reqm_R11-11": {
+        "passage": [
+         11,
+         11
+        ],
+        "role": "requirement"
+       },
+       "reqm_R7-7": {
+        "passage": [
+         7,
+         7
+        ],
+        "role": "requirement"
+       },
+       "twin": {
+        "role": "twin"
+       },
+       "verify": {
+        "role": "verify"
+       }
+      },
+      "truncation": {
+       "halo": 16,
+       "lenses": 5,
+       "linked": false,
+       "partner_cap": null,
+       "partners": 7,
+       "relations": 3,
+       "spec": 1536
+      },
+      "truth": [
+       "B45"
+      ],
+      "wording": "base"
+     },
+     "questions": 18,
+     "request_bytes": 19375,
+     "roles": {
+      "ctl_0c30f7a7": {
+       "role": "must_false"
+      },
+      "ctl_3f5dd660": {
+       "role": "must_true"
+      },
+      "lens_boundary": {
+       "lens": "boundary",
+       "role": "lens"
+      },
+      "lens_contract": {
+       "lens": "contract",
+       "role": "lens"
+      },
+      "lens_functional": {
+       "lens": "functional",
+       "role": "lens"
+      },
+      "lens_integration": {
+       "lens": "integration",
+       "role": "lens"
+      },
+      "lens_state": {
+       "lens": "state",
+       "role": "lens"
+      },
+      "loc_a": {
+       "cells": [
+        [
+         429,
+         432
+        ],
+        [
+         433,
+         436
+        ],
+        [
+         437,
+         440
+        ],
+        [
+         441,
+         444
+        ],
+        [
+         445,
+         448
+        ],
+        [
+         449,
+         452
+        ],
+        [
+         453,
+         456
+        ],
+        [
+         457,
+         460
+        ]
+       ],
+       "role": "loc_a"
+      },
+      "loc_b": {
+       "cells": [
+        [
+         429,
+         430
+        ],
+        [
+         431,
+         434
+        ],
+        [
+         435,
+         438
+        ],
+        [
+         439,
+         442
+        ],
+        [
+         443,
+         446
+        ],
+        [
+         447,
+         450
+        ],
+        [
+         451,
+         454
+        ],
+        [
+         455,
+         458
+        ],
+        [
+         459,
+         460
+        ]
+       ],
+       "role": "loc_b"
+      },
+      "multiple": {
+       "role": "multiple"
+      },
+      "need_ctx": {
+       "role": "need_ctx"
+      },
+      "rel_E3dfc13b429467003": {
+       "partner": [
+        105,
+        109
+       ],
+       "role": "relation"
+      },
+      "rel_E4b49d5ec36c85088": {
+       "partner": [
+        408,
+        417
+       ],
+       "role": "relation"
+      },
+      "rel_Ee10b5ba673af32d6": {
+       "partner": [
+        525,
+        527
+       ],
+       "role": "relation"
+      },
+      "reqm_R11-11": {
+       "passage": [
+        11,
+        11
+       ],
+       "role": "requirement"
+      },
+      "reqm_R7-7": {
+       "passage": [
+        7,
+        7
+       ],
+       "role": "requirement"
+      },
+      "twin": {
+       "role": "twin"
+      },
+      "verify": {
+       "role": "verify"
+      }
+     },
+     "runs": [
+      [
+       447,
+       448
+      ]
+     ],
+     "runs_fell_back_to_K": false,
+     "runs_with_mass": 1,
+     "scores": {
+      "lens_max": 0.99,
+      "multiple": 0.15,
+      "need_ctx": 0.57,
+      "relation_max": 0.86,
+      "requirement_max": 1.0,
+      "twin": 0.1,
+      "verify": 0.14,
+      "verify_evidence_max": 0.0
+     },
+     "sha256": "1c48448134698d29dad2ed761fc2f5b1363b79706e383094a07ee2a6da9e62b4",
+     "state_bytes": 10260,
+     "tau_rep": 0.6449,
+     "tile_ctx": {
+      "need_ctx": false
+     }
+    }
+   ],
+   "id": "p-B45-patchkit",
+   "n": 540,
+   "name": "patchkit.py",
+   "path": "planted/B45_patchkit.py",
+   "sha256": "7fcce5c18d82bad288409028a224f186dec628f4d033fca0c9ea91ee44537652",
+   "spec_sha256": "0d649dc998b7192094c48de83de558846a24d578201126911202fb00401b335f",
+   "spec_text": "# patchkit: requirements\n\n**Text.** Lines split on `\\n` only (`\\r` stays in the line). `split_text` also reports a final newline; empty text has no lines.\n\n**Diff.** Shortest line edits. `unified_diff` returns \"\" for equal texts. Default context 3; negative errors. Changes whose gap is at most twice the context share a hunk. `ignore_space` ignores blank runs and edge blanks.\n\n**Header.** `@@ -S,L +S,L @@`; `,L` is omitted when L is 1. When L is 0, S is the line before the hunk (0 at file start). A last line without newline is followed by `\\ No newline at end of file`; a change of final-newline state changes that line.\n\n**Parse.** `parse_unified` skips text outside file sections, drops tab suffixes from paths, reads an empty body line as blank context, and checks the body against the header counts. `PatchError.line` is 1-based.\n\n**Apply.** Hunks must ascend. Context and removed lines must match exactly, at the expected position or the nearest match within `max_offset` (earlier wins a tie), never before the previous hunk's end. The offset found carries to later hunks. A hunk reaching end of file must agree with the file's final-newline state. Failure raises `PatchError` with a 1-based `hunk`.\n\n**Tree.** `apply_to_tree` strips `strip` leading components, refuses absolute, `..`, `\\` or `:` paths and a path patched twice, creates (old side `/dev/null`), deletes (new side `/dev/null`, content must end empty) or modifies. Nothing is written if any file fails, or on `dry_run`.\n",
+   "stage2": [
+    {
+     "E": 0.6666666666666666,
+     "K": [
+      429,
+      460
+     ],
+     "answers": {
+      "ctl_0075b4cf": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "ctl_736b3ae6": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_boundary": {
+       "noul": "0.38",
+       "type": "noul"
+      },
+      "lens_contract": {
+       "noul": "0.74",
+       "type": "noul"
+      },
+      "lens_functional": {
+       "noul": "0.91",
+       "type": "noul"
+      },
+      "lens_integration": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_state": {
+       "noul": "0.92",
+       "type": "noul"
+      },
+      "loc_a": {
+       "choice": "L445-448",
+       "confidence": "0.37",
+       "probabilities": {
+        "L429-432": "0.08",
+        "L433-436": "0.02",
+        "L437-440": "0.02",
+        "L441-444": "0.03",
+        "L445-448": "0.43",
+        "L449-452": "0.29",
+        "L453-456": "0.01",
+        "L457-460": "0.01",
+        "none": "0.1",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "twin": {
+       "noul": "0.05",
+       "type": "noul"
+      },
+      "verify": {
+       "noul": "0.1",
+       "type": "noul"
+      },
+      "vwe_E3dfc13b429467003": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_Ec47384adee5b4017": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_Ed5a960248e9fe031": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_Ee10b5ba673af32d6": {
+       "noul": "0.0",
+       "type": "noul"
+      }
+     },
+     "canaries_pass": true,
+     "decision": "report",
+     "focus_rule_on_stage2_answer": "report",
+     "id": "E2/p-B45-patchkit/stage2/429-460",
+     "kind": "stage2",
+     "lens_order": [
+      "functional",
+      "contract",
+      "boundary",
+      "state",
+      "integration"
+     ],
+     "meta": {
+      "K": [
+       429,
+       460
+      ],
+      "arm": "stage2",
+      "cluster_kind": "true",
+      "display": [
+       397,
+       492
+      ],
+      "file": "p-B45-patchkit",
+      "n": 540,
+      "name": "patchkit.py",
+      "need_ctx_tile": false,
+      "parent_focus": "1c48448134698d29dad2ed761fc2f5b1363b79706e383094a07ee2a6da9e62b4",
+      "partners": [
+       [
+        525,
+        527,
+        "use apply_file_patch"
+       ],
+       [
+        105,
+        109,
+        "def join_text"
+       ],
+       [
+        94,
+        102,
+        "def split_text"
+       ],
+       [
+        76,
+        81,
+        "def FilePatch"
+       ],
+       [
+        31,
+        37,
+        "def PatchError"
+       ],
+       [
+        27,
+        27,
+        "def DEFAULT_MAX_OFFSET"
+       ]
+      ],
+      "roles": {
+       "ctl_0075b4cf": {
+        "role": "must_true"
+       },
+       "ctl_736b3ae6": {
+        "role": "must_false"
+       },
+       "lens_boundary": {
+        "lens": "boundary",
+        "role": "lens"
+       },
+       "lens_contract": {
+        "lens": "contract",
+        "role": "lens"
+       },
+       "lens_functional": {
+        "lens": "functional",
+        "role": "lens"
+       },
+       "lens_integration": {
+        "lens": "integration",
+        "role": "lens"
+       },
+       "lens_state": {
+        "lens": "state",
+        "role": "lens"
+       },
+       "loc_a": {
+        "cells": [
+         [
+          429,
+          432
+         ],
+         [
+          433,
+          436
+         ],
+         [
+          437,
+          440
+         ],
+         [
+          441,
+          444
+         ],
+         [
+          445,
+          448
+         ],
+         [
+          449,
+          452
+         ],
+         [
+          453,
+          456
+         ],
+         [
+          457,
+          460
+         ]
+        ],
+        "role": "loc_a"
+       },
+       "twin": {
+        "role": "twin"
+       },
+       "verify": {
+        "role": "verify"
+       },
+       "vwe_E3dfc13b429467003": {
+        "partner": [
+         105,
+         109
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_Ec47384adee5b4017": {
+        "partner": [
+         94,
+         102
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_Ed5a960248e9fe031": {
+        "partner": [
+         76,
+         81
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_Ee10b5ba673af32d6": {
+        "partner": [
+         525,
+         527
+        ],
+        "role": "verify_evidence"
+       }
+      },
+      "truncation": {
+       "halo": 32,
+       "lenses": 5,
+       "linked": false,
+       "partner_cap": null,
+       "partners": 6,
+       "relations": 3,
+       "spec": 4096
+      },
+      "truth": [
+       "B45"
+      ],
+      "wording": "base"
+     },
+     "parent_focus": "1c48448134698d29dad2ed761fc2f5b1363b79706e383094a07ee2a6da9e62b4",
+     "questions": 14,
+     "report": true,
+     "request_bytes": 18740,
+     "roles": {
+      "ctl_0075b4cf": {
+       "role": "must_true"
+      },
+      "ctl_736b3ae6": {
+       "role": "must_false"
+      },
+      "lens_boundary": {
+       "lens": "boundary",
+       "role": "lens"
+      },
+      "lens_contract": {
+       "lens": "contract",
+       "role": "lens"
+      },
+      "lens_functional": {
+       "lens": "functional",
+       "role": "lens"
+      },
+      "lens_integration": {
+       "lens": "integration",
+       "role": "lens"
+      },
+      "lens_state": {
+       "lens": "state",
+       "role": "lens"
+      },
+      "loc_a": {
+       "cells": [
+        [
+         429,
+         432
+        ],
+        [
+         433,
+         436
+        ],
+        [
+         437,
+         440
+        ],
+        [
+         441,
+         444
+        ],
+        [
+         445,
+         448
+        ],
+        [
+         449,
+         452
+        ],
+        [
+         453,
+         456
+        ],
+        [
+         457,
+         460
+        ]
+       ],
+       "role": "loc_a"
+      },
+      "twin": {
+       "role": "twin"
+      },
+      "verify": {
+       "role": "verify"
+      },
+      "vwe_E3dfc13b429467003": {
+       "partner": [
+        105,
+        109
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_Ec47384adee5b4017": {
+       "partner": [
+        94,
+        102
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_Ed5a960248e9fe031": {
+       "partner": [
+        76,
+        81
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_Ee10b5ba673af32d6": {
+       "partner": [
+        525,
+        527
+       ],
+       "role": "verify_evidence"
+      }
+     },
+     "runs": [],
+     "runs_fell_back_to_K": true,
+     "runs_with_mass": 0,
+     "scores": {
+      "lens_max": 0.92,
+      "multiple": null,
+      "need_ctx": null,
+      "relation_max": 0.0,
+      "requirement_max": 0.0,
+      "twin": 0.05,
+      "verify": 0.1,
+      "verify_evidence_max": 0.0
+     },
+     "sha256": "46d539b8c59669160ac1dc53b6e6758bbb9f42341cfffd3c812eb7b8e721469c",
+     "state_bytes": 11992,
+     "tau_rep": 0.6449,
+     "tile_ctx": {
+      "need_ctx": false
+     }
+    }
+   ]
+  },
+  {
+   "bugs": [
+    {
+     "end": 300,
+     "id": "B47",
+     "lens": "state",
+     "nonlocal": false,
+     "partner_lines": [],
+     "start": 293
+    }
+   ],
+   "bytes": 19811,
+   "focus": [
+    {
+     "E": 0.54,
+     "K": [
+      285,
+      316
+     ],
+     "answers": {
+      "ctl_3059a29b": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "ctl_a9f588f4": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_boundary": {
+       "noul": "0.95",
+       "type": "noul"
+      },
+      "lens_contract": {
+       "noul": "0.22",
+       "type": "noul"
+      },
+      "lens_functional": {
+       "noul": "0.99",
+       "type": "noul"
+      },
+      "lens_integration": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_state": {
+       "noul": "0.45",
+       "type": "noul"
+      },
+      "loc_a": {
+       "choice": "L293-296",
+       "confidence": "0.76",
+       "probabilities": {
+        "L285-288": "0.02",
+        "L289-292": "0.05",
+        "L293-296": "0.78",
+        "L297-300": "0.04",
+        "L301-304": "0.03",
+        "L305-308": "0.01",
+        "L309-312": "0.0",
+        "L313-316": "0.01",
+        "none": "0.05",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "loc_b": {
+       "choice": "L299-302",
+       "confidence": "0.2",
+       "probabilities": {
+        "L285-286": "0.03",
+        "L287-290": "0.03",
+        "L291-294": "0.23",
+        "L295-298": "0.22",
+        "L299-302": "0.27",
+        "L303-306": "0.03",
+        "L307-310": "0.01",
+        "L311-314": "0.01",
+        "L315-316": "0.04",
+        "none": "0.12",
+        "unlocalized": "0.01"
+       },
+       "type": "choice"
+      },
+      "multiple": {
+       "noul": "0.83",
+       "type": "noul"
+      },
+      "need_ctx": {
+       "noul": "0.04",
+       "type": "noul"
+      },
+      "rel_E3ed80cb4ddcac0b4": {
+       "noul": "0.93",
+       "type": "noul"
+      },
+      "rel_E9719a5b1eb18dace": {
+       "noul": "0.49",
+       "type": "noul"
+      },
+      "rel_Ed440b76e30cc1ccb": {
+       "noul": "0.68",
+       "type": "noul"
+      },
+      "reqm_R11-11": {
+       "noul": "0.06",
+       "type": "noul"
+      },
+      "reqm_R9-9": {
+       "noul": "0.14",
+       "type": "noul"
+      },
+      "twin": {
+       "noul": "0.2",
+       "type": "noul"
+      },
+      "verify": {
+       "noul": "0.02",
+       "type": "noul"
+      }
+     },
+     "canaries_pass": true,
+     "decision": "report",
+     "id": "E2/p-B47-patchkit/focus/285-316",
+     "kind": "focus",
+     "lens_order": [
+      "state",
+      "integration",
+      "boundary",
+      "functional",
+      "contract"
+     ],
+     "meta": {
+      "K": [
+       285,
+       316
+      ],
+      "arm": "focus",
+      "cluster_kind": "true",
+      "core": [
+       289,
+       312
+      ],
+      "display": [
+       269,
+       332
+      ],
+      "file": "p-B47-patchkit",
+      "looks": [
+       0,
+       1
+      ],
+      "n": 540,
+      "name": "patchkit.py",
+      "need_ctx_tile": false,
+      "partners": [
+       [
+        228,
+        249,
+        "def _build_hunk"
+       ],
+       [
+        200,
+        225,
+        "def group_opcodes"
+       ],
+       [
+        161,
+        189,
+        "def compute_opcodes"
+       ]
+      ],
+      "roles": {
+       "ctl_3059a29b": {
+        "role": "must_true"
+       },
+       "ctl_a9f588f4": {
+        "role": "must_false"
+       },
+       "lens_boundary": {
+        "lens": "boundary",
+        "role": "lens"
+       },
+       "lens_contract": {
+        "lens": "contract",
+        "role": "lens"
+       },
+       "lens_functional": {
+        "lens": "functional",
+        "role": "lens"
+       },
+       "lens_integration": {
+        "lens": "integration",
+        "role": "lens"
+       },
+       "lens_state": {
+        "lens": "state",
+        "role": "lens"
+       },
+       "loc_a": {
+        "cells": [
+         [
+          285,
+          288
+         ],
+         [
+          289,
+          292
+         ],
+         [
+          293,
+          296
+         ],
+         [
+          297,
+          300
+         ],
+         [
+          301,
+          304
+         ],
+         [
+          305,
+          308
+         ],
+         [
+          309,
+          312
+         ],
+         [
+          313,
+          316
+         ]
+        ],
+        "role": "loc_a"
+       },
+       "loc_b": {
+        "cells": [
+         [
+          285,
+          286
+         ],
+         [
+          287,
+          290
+         ],
+         [
+          291,
+          294
+         ],
+         [
+          295,
+          298
+         ],
+         [
+          299,
+          302
+         ],
+         [
+          303,
+          306
+         ],
+         [
+          307,
+          310
+         ],
+         [
+          311,
+          314
+         ],
+         [
+          315,
+          316
+         ]
+        ],
+        "role": "loc_b"
+       },
+       "multiple": {
+        "role": "multiple"
+       },
+       "need_ctx": {
+        "role": "need_ctx"
+       },
+       "rel_E3ed80cb4ddcac0b4": {
+        "partner": [
+         161,
+         189
+        ],
+        "role": "relation"
+       },
+       "rel_E9719a5b1eb18dace": {
+        "partner": [
+         200,
+         225
+        ],
+        "role": "relation"
+       },
+       "rel_Ed440b76e30cc1ccb": {
+        "partner": [
+         228,
+         249
+        ],
+        "role": "relation"
+       },
+       "reqm_R11-11": {
+        "passage": [
+         11,
+         11
+        ],
+        "role": "requirement"
+       },
+       "reqm_R9-9": {
+        "passage": [
+         9,
+         9
+        ],
+        "role": "requirement"
+       },
+       "twin": {
+        "role": "twin"
+       },
+       "verify": {
+        "role": "verify"
+       }
+      },
+      "truncation": {
+       "halo": 16,
+       "lenses": 5,
+       "linked": false,
+       "partner_cap": null,
+       "partners": 3,
+       "relations": 3,
+       "spec": 1536
+      },
+      "truth": [
+       "B47"
+      ],
+      "wording": "base"
+     },
+     "questions": 18,
+     "request_bytes": 20857,
+     "roles": {
+      "ctl_3059a29b": {
+       "role": "must_true"
+      },
+      "ctl_a9f588f4": {
+       "role": "must_false"
+      },
+      "lens_boundary": {
+       "lens": "boundary",
+       "role": "lens"
+      },
+      "lens_contract": {
+       "lens": "contract",
+       "role": "lens"
+      },
+      "lens_functional": {
+       "lens": "functional",
+       "role": "lens"
+      },
+      "lens_integration": {
+       "lens": "integration",
+       "role": "lens"
+      },
+      "lens_state": {
+       "lens": "state",
+       "role": "lens"
+      },
+      "loc_a": {
+       "cells": [
+        [
+         285,
+         288
+        ],
+        [
+         289,
+         292
+        ],
+        [
+         293,
+         296
+        ],
+        [
+         297,
+         300
+        ],
+        [
+         301,
+         304
+        ],
+        [
+         305,
+         308
+        ],
+        [
+         309,
+         312
+        ],
+        [
+         313,
+         316
+        ]
+       ],
+       "role": "loc_a"
+      },
+      "loc_b": {
+       "cells": [
+        [
+         285,
+         286
+        ],
+        [
+         287,
+         290
+        ],
+        [
+         291,
+         294
+        ],
+        [
+         295,
+         298
+        ],
+        [
+         299,
+         302
+        ],
+        [
+         303,
+         306
+        ],
+        [
+         307,
+         310
+        ],
+        [
+         311,
+         314
+        ],
+        [
+         315,
+         316
+        ]
+       ],
+       "role": "loc_b"
+      },
+      "multiple": {
+       "role": "multiple"
+      },
+      "need_ctx": {
+       "role": "need_ctx"
+      },
+      "rel_E3ed80cb4ddcac0b4": {
+       "partner": [
+        161,
+        189
+       ],
+       "role": "relation"
+      },
+      "rel_E9719a5b1eb18dace": {
+       "partner": [
+        200,
+        225
+       ],
+       "role": "relation"
+      },
+      "rel_Ed440b76e30cc1ccb": {
+       "partner": [
+        228,
+        249
+       ],
+       "role": "relation"
+      },
+      "reqm_R11-11": {
+       "passage": [
+        11,
+        11
+       ],
+       "role": "requirement"
+      },
+      "reqm_R9-9": {
+       "passage": [
+        9,
+        9
+       ],
+       "role": "requirement"
+      },
+      "twin": {
+       "role": "twin"
+      },
+      "verify": {
+       "role": "verify"
+      }
+     },
+     "runs": [
+      [
+       293,
+       296
+      ]
+     ],
+     "runs_fell_back_to_K": false,
+     "runs_with_mass": 1,
+     "scores": {
+      "lens_max": 0.99,
+      "multiple": 0.83,
+      "need_ctx": 0.04,
+      "relation_max": 0.93,
+      "requirement_max": 0.14,
+      "twin": 0.2,
+      "verify": 0.02,
+      "verify_evidence_max": 0.0
+     },
+     "sha256": "6f72501324aa06f6ba3f2a495425ca78f29553c63dd6c9a58bb6efef79a4ebd6",
+     "state_bytes": 11742,
+     "tau_rep": 0.6449,
+     "tile_ctx": {
+      "need_ctx": false
+     }
+    }
+   ],
+   "id": "p-B47-patchkit",
+   "n": 540,
+   "name": "patchkit.py",
+   "path": "planted/B47_patchkit.py",
+   "sha256": "e71364fe182ccd7344939c0e5222fe7663d3e6639c848d3057f64e8e94633204",
+   "spec_sha256": "0d649dc998b7192094c48de83de558846a24d578201126911202fb00401b335f",
+   "spec_text": "# patchkit: requirements\n\n**Text.** Lines split on `\\n` only (`\\r` stays in the line). `split_text` also reports a final newline; empty text has no lines.\n\n**Diff.** Shortest line edits. `unified_diff` returns \"\" for equal texts. Default context 3; negative errors. Changes whose gap is at most twice the context share a hunk. `ignore_space` ignores blank runs and edge blanks.\n\n**Header.** `@@ -S,L +S,L @@`; `,L` is omitted when L is 1. When L is 0, S is the line before the hunk (0 at file start). A last line without newline is followed by `\\ No newline at end of file`; a change of final-newline state changes that line.\n\n**Parse.** `parse_unified` skips text outside file sections, drops tab suffixes from paths, reads an empty body line as blank context, and checks the body against the header counts. `PatchError.line` is 1-based.\n\n**Apply.** Hunks must ascend. Context and removed lines must match exactly, at the expected position or the nearest match within `max_offset` (earlier wins a tie), never before the previous hunk's end. The offset found carries to later hunks. A hunk reaching end of file must agree with the file's final-newline state. Failure raises `PatchError` with a 1-based `hunk`.\n\n**Tree.** `apply_to_tree` strips `strip` leading components, refuses absolute, `..`, `\\` or `:` paths and a path patched twice, creates (old side `/dev/null`), deletes (new side `/dev/null`, content must end empty) or modifies. Nothing is written if any file fails, or on `dry_run`.\n",
+   "stage2": [
+    {
+     "E": 0.4366666666666667,
+     "K": [
+      285,
+      316
+     ],
+     "answers": {
+      "ctl_69499a6b": {
+       "noul": "1.0",
+       "type": "noul"
+      },
+      "ctl_9e19d264": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_boundary": {
+       "noul": "0.35",
+       "type": "noul"
+      },
+      "lens_contract": {
+       "noul": "0.75",
+       "type": "noul"
+      },
+      "lens_functional": {
+       "noul": "0.97",
+       "type": "noul"
+      },
+      "lens_integration": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "lens_state": {
+       "noul": "0.8",
+       "type": "noul"
+      },
+      "loc_a": {
+       "choice": "L293-296",
+       "confidence": "0.49",
+       "probabilities": {
+        "L285-288": "0.04",
+        "L289-292": "0.08",
+        "L293-296": "0.54",
+        "L297-300": "0.13",
+        "L301-304": "0.05",
+        "L305-308": "0.02",
+        "L309-312": "0.02",
+        "L313-316": "0.03",
+        "none": "0.07",
+        "unlocalized": "0.02"
+       },
+       "type": "choice"
+      },
+      "twin": {
+       "noul": "0.36",
+       "type": "noul"
+      },
+      "verify": {
+       "noul": "0.03",
+       "type": "noul"
+      },
+      "vwe_E3ed80cb4ddcac0b4": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_E5fcf421c85b6436f": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_E9719a5b1eb18dace": {
+       "noul": "0.0",
+       "type": "noul"
+      },
+      "vwe_Ed440b76e30cc1ccb": {
+       "noul": "0.0",
+       "type": "noul"
+      }
+     },
+     "canaries_pass": true,
+     "decision": "clear",
+     "focus_rule_on_stage2_answer": "stage2",
+     "id": "E2/p-B47-patchkit/stage2/285-316",
+     "kind": "stage2",
+     "lens_order": [
+      "functional",
+      "contract",
+      "boundary",
+      "state",
+      "integration"
+     ],
+     "meta": {
+      "K": [
+       285,
+       316
+      ],
+      "arm": "stage2",
+      "cluster_kind": "true",
+      "display": [
+       253,
+       348
+      ],
+      "file": "p-B47-patchkit",
+      "n": 540,
+      "name": "patchkit.py",
+      "need_ctx_tile": false,
+      "parent_focus": "6f72501324aa06f6ba3f2a495425ca78f29553c63dd6c9a58bb6efef79a4ebd6",
+      "partners": [
+       [
+        228,
+        249,
+        "def _build_hunk"
+       ],
+       [
+        200,
+        225,
+        "def group_opcodes"
+       ],
+       [
+        161,
+        189,
+        "def compute_opcodes"
+       ],
+       [
+        94,
+        102,
+        "def split_text"
+       ],
+       [
+        76,
+        81,
+        "def FilePatch"
+       ],
+       [
+        529,
+        531,
+        "use diff_stats"
+       ]
+      ],
+      "roles": {
+       "ctl_69499a6b": {
+        "role": "must_true"
+       },
+       "ctl_9e19d264": {
+        "role": "must_false"
+       },
+       "lens_boundary": {
+        "lens": "boundary",
+        "role": "lens"
+       },
+       "lens_contract": {
+        "lens": "contract",
+        "role": "lens"
+       },
+       "lens_functional": {
+        "lens": "functional",
+        "role": "lens"
+       },
+       "lens_integration": {
+        "lens": "integration",
+        "role": "lens"
+       },
+       "lens_state": {
+        "lens": "state",
+        "role": "lens"
+       },
+       "loc_a": {
+        "cells": [
+         [
+          285,
+          288
+         ],
+         [
+          289,
+          292
+         ],
+         [
+          293,
+          296
+         ],
+         [
+          297,
+          300
+         ],
+         [
+          301,
+          304
+         ],
+         [
+          305,
+          308
+         ],
+         [
+          309,
+          312
+         ],
+         [
+          313,
+          316
+         ]
+        ],
+        "role": "loc_a"
+       },
+       "twin": {
+        "role": "twin"
+       },
+       "verify": {
+        "role": "verify"
+       },
+       "vwe_E3ed80cb4ddcac0b4": {
+        "partner": [
+         161,
+         189
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_E5fcf421c85b6436f": {
+        "partner": [
+         94,
+         102
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_E9719a5b1eb18dace": {
+        "partner": [
+         200,
+         225
+        ],
+        "role": "verify_evidence"
+       },
+       "vwe_Ed440b76e30cc1ccb": {
+        "partner": [
+         228,
+         249
+        ],
+        "role": "verify_evidence"
+       }
+      },
+      "truncation": {
+       "halo": 32,
+       "lenses": 5,
+       "linked": false,
+       "partner_cap": null,
+       "partners": 6,
+       "relations": 3,
+       "spec": 4096
+      },
+      "truth": [
+       "B47"
+      ],
+      "wording": "base"
+     },
+     "parent_focus": "6f72501324aa06f6ba3f2a495425ca78f29553c63dd6c9a58bb6efef79a4ebd6",
+     "questions": 14,
+     "report": false,
+     "request_bytes": 22523,
+     "roles": {
+      "ctl_69499a6b": {
+       "role": "must_true"
+      },
+      "ctl_9e19d264": {
+       "role": "must_false"
+      },
+      "lens_boundary": {
+       "lens": "boundary",
+       "role": "lens"
+      },
+      "lens_contract": {
+       "lens": "contract",
+       "role": "lens"
+      },
+      "lens_functional": {
+       "lens": "functional",
+       "role": "lens"
+      },
+      "lens_integration": {
+       "lens": "integration",
+       "role": "lens"
+      },
+      "lens_state": {
+       "lens": "state",
+       "role": "lens"
+      },
+      "loc_a": {
+       "cells": [
+        [
+         285,
+         288
+        ],
+        [
+         289,
+         292
+        ],
+        [
+         293,
+         296
+        ],
+        [
+         297,
+         300
+        ],
+        [
+         301,
+         304
+        ],
+        [
+         305,
+         308
+        ],
+        [
+         309,
+         312
+        ],
+        [
+         313,
+         316
+        ]
+       ],
+       "role": "loc_a"
+      },
+      "twin": {
+       "role": "twin"
+      },
+      "verify": {
+       "role": "verify"
+      },
+      "vwe_E3ed80cb4ddcac0b4": {
+       "partner": [
+        161,
+        189
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_E5fcf421c85b6436f": {
+       "partner": [
+        94,
+        102
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_E9719a5b1eb18dace": {
+       "partner": [
+        200,
+        225
+       ],
+       "role": "verify_evidence"
+      },
+      "vwe_Ed440b76e30cc1ccb": {
+       "partner": [
+        228,
+        249
+       ],
+       "role": "verify_evidence"
+      }
+     },
+     "runs": [
+      [
+       293,
+       296
+      ]
+     ],
+     "runs_fell_back_to_K": false,
+     "runs_with_mass": 1,
+     "scores": {
+      "lens_max": 0.97,
+      "multiple": null,
+      "need_ctx": null,
+      "relation_max": 0.0,
+      "requirement_max": 0.0,
+      "twin": 0.36,
+      "verify": 0.03,
+      "verify_evidence_max": 0.0
+     },
+     "sha256": "7ee2f3d0c46ab4139fa1e0c19af45f734aff2023d96d5094a46b39fedcb62243",
+     "state_bytes": 15773,
+     "tau_rep": 0.6449,
+     "tile_ctx": {
+      "need_ctx": false
+     }
+    }
+   ]
+  }
+ ],
+ "thresholds": {
+  "_fit": {
+   "e_weights": {
+    "auc": 0.8031746031746032,
+    "weights": [
+     1.0,
+     2.0,
+     0.0
+    ]
+   },
+   "focus": {
+    "dprime_logit": 1.1594082943708293,
+    "mu0": -1.0231662945255677,
+    "mu1": 0.1934262322570076,
+    "n_clean": 15,
+    "n_true": 21,
+    "per_n": {
+     "1000": {
+      "method": "binormal-tail extrapolation",
+      "tau_rep": 0.71,
+      "tau_rep_ci": [
+       0.5447500000000001,
+       0.8
+      ],
+      "tau_rep_empirical": 0.59,
+      "tau_rep_parametric": 0.71,
+      "u_required": 0.021052631578947368,
+      "v1_empirical": 0.2631578947368421,
+      "v1_parametric": 0.2722243981468593
+     },
+     "200": {
+      "method": "binormal-tail extrapolation",
+      "tau_rep": 0.54,
+      "tau_rep_ci": [
+       0.4,
+       0.6152499999999999
+      ],
+      "tau_rep_empirical": 0.54,
+      "tau_rep_parametric": 0.54,
+      "u_required": 0.10526315789473684,
+      "v1_empirical": 0.6842105263157895,
+      "v1_parametric": 0.5113945275415452
+     },
+     "5000": {
+      "method": "binormal-tail extrapolation",
+      "tau_rep": 0.81,
+      "tau_rep_ci": [
+       0.6595000000000001,
+       0.8952499999999999
+      ],
+      "tau_rep_empirical": 0.59,
+      "tau_rep_parametric": 0.81,
+      "u_required": 0.004210526315789474,
+      "v1_empirical": 0.2631578947368421,
+      "v1_parametric": 0.1389638384938563
+     }
+    },
+    "sd0": 0.9278074733485184,
+    "sd1": 1.158156395801923,
+    "stage2_unmeasured": {
+     "clean": 1,
+     "true": 2
+    },
+    "tau_gray": 0.39,
+    "tau_gray_ci": [
+     0.2585,
+     0.4804999999999998
+    ],
+    "tau_rel": 0.75,
+    "tau_rel_ci": [
+     0.5,
+     0.75
+    ]
+   },
+   "focus_fitted": true,
+   "screening": {
+    "candidates": 80,
+    "f_observed": 0.01616161616161616,
+    "q_fit": 0.4479166666666667,
+    "t": 0.96,
+    "t_ci": [
+     0.51,
+     0.72
+    ],
+    "tau_s": 0.96,
+    "weights": [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "screening_fitted": true
+  },
+  "e_weights": [
+   1.0,
+   2.0,
+   0.0
+  ],
+  "focus_fitted": true,
+  "provisional": false,
+  "screening_fitted": true,
+  "tau_block": 0.96,
+  "tau_c": 0.96,
+  "tau_ctx": 0.5,
+  "tau_gray": 0.39,
+  "tau_lens": 0.96,
+  "tau_mult": 0.5,
+  "tau_none": 0.04,
+  "tau_rel": 0.75,
+  "tau_rep_points": [
+   [
+    200,
+    0.54
+   ],
+   [
+    1000,
+    0.71
+   ],
+   [
+    5000,
+    0.81
+   ]
+  ],
+  "tau_s": 0.96,
+  "weights": [
+   1.0,
+   0.0,
+   0.0,
+   0.0
+  ]
+ }
+}
