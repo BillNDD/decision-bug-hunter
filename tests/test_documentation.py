@@ -188,8 +188,13 @@ class DocumentationTests(unittest.TestCase):
                 self.assertIsNone(re.search(r"commit `[0-9a-f]{7,40}`", read(name)))
 
     def test_openai_direct_route_is_documented_as_live_verified(self):
-        for name in ("README.md", "docs/PROVIDER_CONTRACT.md", "docs/VALIDATION.md",
-                     "tools/smoke/README.md"):
+        # tools/smoke is repository-only and pruned from the sdist (MANIFEST.in).
+        smoke_readme = "tools/smoke/README.md"
+        smoke_present = ROOT.joinpath(smoke_readme).is_file()
+        names = ["README.md", "docs/PROVIDER_CONTRACT.md", "docs/VALIDATION.md"]
+        if smoke_present:
+            names.append(smoke_readme)
+        for name in names:
             text = flat(read(name))
             with self.subTest(name):
                 for stale in ("has not been exercised live", "No live request has been made",
@@ -207,7 +212,8 @@ class DocumentationTests(unittest.TestCase):
                        "`http_rejected`"):
             with self.subTest(needle):
                 self.assertIn(needle, validation)
-        self.assertIn("about $0.002", flat(read("tools/smoke/README.md")))
+        if smoke_present:
+            self.assertIn("about $0.002", flat(read(smoke_readme)))
 
     def test_readme_cost_bounds_match_the_code(self):
         from decision_bug_hunter import openrouter
