@@ -37,7 +37,8 @@ decision-bug-hunter = "decision_bug_hunter.__main__:main"
 include = ["decision_bug_hunter*"]
 
 [tool.setuptools.package-data]
-decision_bug_hunter = ["question_pack.json", "tile_sieve_pack.json"]
+decision_bug_hunter = ["question_pack.json", "tile_sieve_pack.json",
+                       "tile_sieve_thresholds.json"]
 
 [tool.setuptools.dynamic]
 version = {attr = "decision_bug_hunter.__version__"}

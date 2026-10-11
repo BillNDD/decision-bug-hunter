@@ -1,0 +1,26 @@
+{
+  "version": "tile-sieve-thresholds/1",
+  "judges": {
+    "openai": {
+      "basis": "pilot 2026-10-10 (OpenAI direct, gpt-6-luna): screening fit E1+E1clean at f*=0.02; focus fit E2; 8C report rule (strong floor, no stage 2); checked on the 34-case catalog (not used for fitting); tau_rep above n=200 extrapolated",
+      "screening_rule": "pilot-full",
+      "pilot_full": {
+        "weights": ["1.0", "0.0", "0.0", "0.0"],
+        "tau_s": "0.96",
+        "tau_c": "0.96",
+        "tau_block": "0.96",
+        "tau_lens": "0.96",
+        "tau_none": "0.04"
+      },
+      "leaf_only": {"tau_leaf": "0.85"},
+      "strong_cell": "0.96",
+      "tau_ctx": "0.5",
+      "tau_mult": "0.5",
+      "e_weights": ["1.0", "2.0", "0.0"],
+      "tau_strong": "0.39",
+      "tau_gray": "0.39",
+      "tau_rel": "0.75",
+      "tau_rep_points": [[200, "0.54"], [1000, "0.71"], [5000, "0.81"]]
+    }
+  }
+}

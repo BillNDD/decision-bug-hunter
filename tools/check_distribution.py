@@ -18,7 +18,8 @@ WHEEL_RESOURCES = ("decision_bug_hunter/providers.py", "decision_bug_hunter/deci
                    "decision_bug_hunter/secret_scan.py",
                    "decision_bug_hunter/injection_markers.py",
                    "decision_bug_hunter/question_pack.json",
-                   "decision_bug_hunter/tile_sieve_pack.json")
+                   "decision_bug_hunter/tile_sieve_pack.json",
+                   "decision_bug_hunter/tile_sieve_thresholds.json")
 #: Files the sdist's own test suite reads; their absence used to make tests
 #: error or skip silently.
 SDIST_REQUIRED = ("LICENSE", "README.md", "SECURITY.md", "pyproject.toml", "tests/support.py",
@@ -115,6 +116,7 @@ def main():
                 "from decision_bug_hunter.protocol import ProviderError; "
                 "assert files('decision_bug_hunter').joinpath('question_pack.json').is_file(); "
                 "assert files('decision_bug_hunter').joinpath('tile_sieve_pack.json').is_file(); "
+                "assert files('decision_bug_hunter').joinpath('tile_sieve_thresholds.json').is_file(); "
                 "print(json.dumps({'version':p.__version__,'package':p.__file__}))")
         installed = json.loads(run([str(python), "-I", "-c", code], root).stdout)
         if root / "venv" not in Path(installed["package"]).parents:
