@@ -11,6 +11,14 @@ import tempfile
 import zipfile
 
 
+#: Runtime resources the wheel must carry.
+WHEEL_RESOURCES = ("decision_bug_hunter/providers.py", "decision_bug_hunter/decisions.py",
+                   "decision_bug_hunter/openrouter.py", "decision_bug_hunter/hosted.py",
+                   "decision_bug_hunter/exchange.py", "decision_bug_hunter/protocol.py",
+                   "decision_bug_hunter/secret_scan.py",
+                   "decision_bug_hunter/injection_markers.py",
+                   "decision_bug_hunter/question_pack.json",
+                   "decision_bug_hunter/tile_sieve_pack.json")
 #: Files the sdist's own test suite reads; their absence used to make tests
 #: error or skip silently.
 SDIST_REQUIRED = ("LICENSE", "README.md", "SECURITY.md", "pyproject.toml", "tests/support.py",
@@ -62,12 +70,7 @@ def main():
     with zipfile.ZipFile(wheels[0]) as wheel:
         names = wheel.namelist()
         safe_names(names)
-        for name in ("decision_bug_hunter/providers.py", "decision_bug_hunter/decisions.py",
-                     "decision_bug_hunter/openrouter.py", "decision_bug_hunter/hosted.py",
-                     "decision_bug_hunter/exchange.py", "decision_bug_hunter/protocol.py",
-                     "decision_bug_hunter/secret_scan.py",
-                     "decision_bug_hunter/injection_markers.py",
-                     "decision_bug_hunter/question_pack.json"):
+        for name in WHEEL_RESOURCES:
             if name not in names:
                 raise RuntimeError("missing_runtime_resource")
         if not any(name.endswith("/LICENSE") for name in names):
@@ -111,6 +114,7 @@ def main():
                 "from decision_bug_hunter.decisions import DecisionsProvider; "
                 "from decision_bug_hunter.protocol import ProviderError; "
                 "assert files('decision_bug_hunter').joinpath('question_pack.json').is_file(); "
+                "assert files('decision_bug_hunter').joinpath('tile_sieve_pack.json').is_file(); "
                 "print(json.dumps({'version':p.__version__,'package':p.__file__}))")
         installed = json.loads(run([str(python), "-I", "-c", code], root).stdout)
         if root / "venv" not in Path(installed["package"]).parents:
