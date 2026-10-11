@@ -1,0 +1,654 @@
+{
+ "_provenance": {
+  "generator": "an offline script kept outside the repository (gen_e2_decisions.py); never shipped",
+  "pilot_route_and_model": "OpenAI direct, gpt-6-luna",
+  "pilot_run_date": "2026-10-10",
+  "rule": "8C with the OpenAI values: strong_cell 0.96, tau_strong 0.39, tau_gray 0.39, tau_rel 0.75, tau_rep(200) 0.54, e_weights (1, 2, 0); a refused twin decides on verify alone; every cluster is decided at n = 200 (the study's convention), not at its file's own n",
+  "source": "report/e2_table.json (one row per E2 focus request) cross-checked against the pilot's recorded answers (answers.jsonl)",
+  "strong": "a member leaf-look z >= 0.96 or an overlapping granule >= 0.96 in the cluster",
+  "study": "Tile Sieve report-rule study (offline, recorded answers only): E2 focus requests, 36 answered (21 true, 15 clean) and 6 with a refused twin"
+ },
+ "clusters": [
+  {
+   "E": 0.39333333333333337,
+   "K": [
+    365,
+    388
+   ],
+   "file": "c1-linediff",
+   "label": "clean",
+   "n": 417,
+   "relation_max": 0.6,
+   "strong": true,
+   "twin": 0.42,
+   "twin_refused": false,
+   "verify": 0.02
+  },
+  {
+   "E": 0.05333333333333331,
+   "K": [
+    181,
+    220
+   ],
+   "file": "c2-circuit_breaker",
+   "label": "clean",
+   "n": 449,
+   "relation_max": 0.01,
+   "strong": false,
+   "twin": 0.92,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.11333333333333336,
+   "K": [
+    93,
+    116
+   ],
+   "file": "c2-dag_planner",
+   "label": "clean",
+   "n": 444,
+   "relation_max": 0.02,
+   "strong": false,
+   "twin": 0.83,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.20000000000000004,
+   "K": [
+    125,
+    148
+   ],
+   "file": "c2-dag_planner",
+   "label": "clean",
+   "n": 444,
+   "relation_max": 0.02,
+   "strong": false,
+   "twin": 0.7,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.4466666666666667,
+   "K": [
+    325,
+    372
+   ],
+   "file": "c2-rate_limiter",
+   "label": "clean",
+   "n": 474,
+   "relation_max": 0.09,
+   "strong": false,
+   "twin": 0.35,
+   "twin_refused": false,
+   "verify": 0.04
+  },
+  {
+   "E": 0.3133333333333333,
+   "K": [
+    453,
+    474
+   ],
+   "file": "c2-rate_limiter",
+   "label": "clean",
+   "n": 474,
+   "relation_max": 0.01,
+   "strong": false,
+   "twin": 0.53,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.20000000000000004,
+   "K": [
+    269,
+    292
+   ],
+   "file": "c4-argspec",
+   "label": "clean",
+   "n": 544,
+   "relation_max": 0.23,
+   "strong": false,
+   "twin": 0.7,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.39333333333333337,
+   "K": [
+    413,
+    452
+   ],
+   "file": "c4-argspec",
+   "label": "clean",
+   "n": 544,
+   "relation_max": 0.07,
+   "strong": false,
+   "twin": 0.42,
+   "twin_refused": false,
+   "verify": 0.02
+  },
+  {
+   "E": 0.35333333333333333,
+   "K": [
+    149,
+    188
+   ],
+   "file": "c4-globmatch",
+   "label": "clean",
+   "n": 435,
+   "relation_max": 0.13,
+   "strong": false,
+   "twin": 0.47,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.3233333333333333,
+   "K": [
+    365,
+    388
+   ],
+   "file": "c4-globmatch",
+   "label": "clean",
+   "n": 435,
+   "relation_max": 0.26,
+   "strong": false,
+   "twin": 0.52,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.5366666666666666,
+   "K": [
+    413,
+    435
+   ],
+   "file": "c4-globmatch",
+   "label": "clean",
+   "n": 435,
+   "relation_max": 0.74,
+   "strong": false,
+   "twin": 0.28,
+   "twin_refused": false,
+   "verify": 0.17
+  },
+  {
+   "E": 0.5833333333333334,
+   "K": [
+    413,
+    436
+   ],
+   "file": "c4-textfmt",
+   "label": "clean",
+   "n": 516,
+   "relation_max": 0.13,
+   "strong": false,
+   "twin": 0.13,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.4566666666666666,
+   "K": [
+    549,
+    588
+   ],
+   "file": "p-B01-recordset",
+   "label": "true",
+   "n": 678,
+   "relation_max": 0.38,
+   "strong": true,
+   "twin": 0.34,
+   "twin_refused": false,
+   "verify": 0.05
+  },
+  {
+   "E": 0.81,
+   "K": [
+    557,
+    580
+   ],
+   "file": "p-B02-recordset",
+   "label": "true",
+   "n": 678,
+   "relation_max": 0.37,
+   "strong": true,
+   "twin": 0.21,
+   "twin_refused": false,
+   "verify": 0.85
+  },
+  {
+   "E": 0.5866666666666668,
+   "K": [
+    549,
+    588
+   ],
+   "file": "p-B03-recordset",
+   "label": "true",
+   "n": 678,
+   "relation_max": 0.69,
+   "strong": false,
+   "twin": 0.18,
+   "twin_refused": false,
+   "verify": 0.12
+  },
+  {
+   "E": 0.4833333333333334,
+   "K": [
+    381,
+    436
+   ],
+   "file": "p-B05-recordset",
+   "label": "true",
+   "n": 678,
+   "relation_max": 0.32,
+   "strong": false,
+   "twin": 0.43,
+   "twin_refused": false,
+   "verify": 0.31
+  },
+  {
+   "E": 0.19333333333333336,
+   "K": [
+    613,
+    652
+   ],
+   "file": "p-B06-recordset",
+   "label": "true",
+   "n": 678,
+   "relation_max": 0.07,
+   "strong": true,
+   "twin": 0.71,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.4366666666666667,
+   "K": [
+    165,
+    188
+   ],
+   "file": "p-B07-logstats",
+   "label": "true",
+   "n": 535,
+   "relation_max": 0.64,
+   "strong": true,
+   "twin": 0.35,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.63,
+   "K": [
+    381,
+    412
+   ],
+   "file": "p-B08-logstats",
+   "label": "true",
+   "n": 535,
+   "relation_max": 0.19,
+   "strong": true,
+   "twin": 0.11,
+   "twin_refused": false,
+   "verify": 0.11
+  },
+  {
+   "E": 0.5933333333333334,
+   "K": [
+    381,
+    412
+   ],
+   "file": "p-B09-logstats",
+   "label": "true",
+   "n": 535,
+   "relation_max": 0.19,
+   "strong": true,
+   "twin": 0.13,
+   "twin_refused": false,
+   "verify": 0.04
+  },
+  {
+   "E": 0.5866666666666667,
+   "K": [
+    485,
+    508
+   ],
+   "file": "p-B11-logstats",
+   "label": "true",
+   "n": 535,
+   "relation_max": 0.01,
+   "strong": true,
+   "twin": 0.12,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.6466666666666666,
+   "K": [
+    213,
+    268
+   ],
+   "file": "p-B12-logstats",
+   "label": "true",
+   "n": 535,
+   "relation_max": 0.14,
+   "strong": true,
+   "twin": 0.11,
+   "twin_refused": false,
+   "verify": 0.16
+  },
+  {
+   "E": 0.6566666666666666,
+   "K": [
+    557,
+    596
+   ],
+   "file": "p-B14-job_scheduler",
+   "label": "true",
+   "n": 697,
+   "relation_max": 0.17,
+   "strong": true,
+   "twin": 0.02,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.19666666666666668,
+   "K": [
+    445,
+    468
+   ],
+   "file": "p-B18-job_scheduler",
+   "label": "true",
+   "n": 697,
+   "relation_max": 0.3,
+   "strong": false,
+   "twin": 0.71,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.39000000000000007,
+   "K": [
+    565,
+    596
+   ],
+   "file": "p-B20-workflow_engine",
+   "label": "true",
+   "n": 680,
+   "relation_max": 0.46,
+   "strong": true,
+   "twin": 0.42,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.6699999999999999,
+   "K": [
+    621,
+    676
+   ],
+   "file": "p-B24-workflow_engine",
+   "label": "true",
+   "n": 680,
+   "relation_max": 0.13,
+   "strong": true,
+   "twin": 0.03,
+   "twin_refused": false,
+   "verify": 0.07
+  },
+  {
+   "E": 0.3333333333333333,
+   "K": [
+    373,
+    412
+   ],
+   "file": "p-B26-loanlib",
+   "label": "true",
+   "n": 657,
+   "relation_max": 0.03,
+   "strong": true,
+   "twin": 0.5,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.07666666666666666,
+   "K": [
+    485,
+    508
+   ],
+   "file": "p-B26-loanlib",
+   "label": "clean",
+   "n": 657,
+   "relation_max": 0.16,
+   "strong": true,
+   "twin": 0.89,
+   "twin_refused": false,
+   "verify": 0.01
+  },
+  {
+   "E": 0.18000000000000002,
+   "K": [
+    141,
+    164
+   ],
+   "file": "p-B28-loanlib",
+   "label": "clean",
+   "n": 657,
+   "relation_max": 0.02,
+   "strong": false,
+   "twin": 0.73,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.2866666666666667,
+   "K": [
+    421,
+    460
+   ],
+   "file": "p-B29-loanlib",
+   "label": "clean",
+   "n": 657,
+   "relation_max": 0.72,
+   "strong": false,
+   "twin": 0.57,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.9566666666666667,
+   "K": [
+    165,
+    200
+   ],
+   "file": "p-B31-polygeom",
+   "label": "true",
+   "n": 691,
+   "relation_max": 0.33,
+   "strong": true,
+   "twin": 0.03,
+   "twin_refused": false,
+   "verify": 0.93
+  },
+  {
+   "E": 0.9066666666666667,
+   "K": [
+    653,
+    691
+   ],
+   "file": "p-B36-polygeom",
+   "label": "true",
+   "n": 691,
+   "relation_max": 0.1,
+   "strong": true,
+   "twin": 0.1,
+   "twin_refused": false,
+   "verify": 0.92
+  },
+  {
+   "E": 0.26666666666666666,
+   "K": [
+    565,
+    604
+   ],
+   "file": "p-B38-layered_config",
+   "label": "true",
+   "n": 687,
+   "relation_max": 0.02,
+   "strong": true,
+   "twin": 0.6,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.16666666666666666,
+   "K": [
+    365,
+    388
+   ],
+   "file": "p-B41-layered_config",
+   "label": "true",
+   "n": 687,
+   "relation_max": 0.13,
+   "strong": true,
+   "twin": 0.75,
+   "twin_refused": false,
+   "verify": 0.0
+  },
+  {
+   "E": 0.6466666666666666,
+   "K": [
+    429,
+    460
+   ],
+   "file": "p-B45-patchkit",
+   "label": "true",
+   "n": 540,
+   "relation_max": 0.86,
+   "strong": true,
+   "twin": 0.1,
+   "twin_refused": false,
+   "verify": 0.14
+  },
+  {
+   "E": 0.54,
+   "K": [
+    285,
+    316
+   ],
+   "file": "p-B47-patchkit",
+   "label": "true",
+   "n": 540,
+   "relation_max": 0.93,
+   "strong": true,
+   "twin": 0.2,
+   "twin_refused": false,
+   "verify": 0.02
+  }
+ ],
+ "expected_8c_openai": {
+  "clean_reported": 2,
+  "clean_total": 15,
+  "decision_n": 200,
+  "refused_twins_cleared": 6,
+  "true_reported": 15,
+  "true_total": 21,
+  "unmeasured": 0
+ },
+ "twin_refused_clusters": [
+  {
+   "E": 0.0,
+   "K": [
+    133,
+    172
+   ],
+   "file": "c1-exprcalc",
+   "label": "clean",
+   "n": 569,
+   "relation_max": 0.11,
+   "strong": false,
+   "twin": null,
+   "twin_refused": true,
+   "verify": 0.0
+  },
+  {
+   "E": 0.0,
+   "K": [
+    197,
+    220
+   ],
+   "file": "c1-exprcalc",
+   "label": "clean",
+   "n": 569,
+   "relation_max": 0.12,
+   "strong": false,
+   "twin": null,
+   "twin_refused": true,
+   "verify": 0.0
+  },
+  {
+   "E": 0.0,
+   "K": [
+    117,
+    156
+   ],
+   "file": "c4-globmatch",
+   "label": "clean",
+   "n": 435,
+   "relation_max": 0.25,
+   "strong": false,
+   "twin": null,
+   "twin_refused": true,
+   "verify": 0.0
+  },
+  {
+   "E": 0.02,
+   "K": [
+    509,
+    532
+   ],
+   "file": "p-B14-job_scheduler",
+   "label": "clean",
+   "n": 697,
+   "relation_max": 0.08,
+   "strong": false,
+   "twin": null,
+   "twin_refused": true,
+   "verify": 0.02
+  },
+  {
+   "E": 0.0,
+   "K": [
+    229,
+    260
+   ],
+   "file": "p-B28-loanlib",
+   "label": "true",
+   "n": 657,
+   "relation_max": 0.14,
+   "strong": true,
+   "twin": null,
+   "twin_refused": true,
+   "verify": 0.0
+  },
+  {
+   "E": 0.0,
+   "K": [
+    389,
+    428
+   ],
+   "file": "p-B29-loanlib",
+   "label": "clean",
+   "n": 657,
+   "relation_max": 0.01,
+   "strong": false,
+   "twin": null,
+   "twin_refused": true,
+   "verify": 0.0
+  }
+ ]
+}
