@@ -160,6 +160,9 @@ LEGACY_OMITTED_OPTIONS = {**LEGACY_CHOICE_OPTIONS, "canaries": "off",
                           "polarity_twin": False,
                           "policy_placement": DEFAULT_POLICY_PLACEMENT,
                           "require_verification": False}
+#: Search policies. ``tile-sieve-beta`` is opt-in and reads a file that fits one
+#: request in two whole-file looks; any other file is scanned by ``legacy-v1``.
+SEARCH_POLICIES = ("legacy-v1", "scoped-v2-beta", "tile-sieve-beta")
 #: Most requests a run may have in flight (``Config.concurrency``).
 MAX_CONCURRENCY = 8
 #: Support paths that count as a second look under ``require_verification``
@@ -296,8 +299,16 @@ class Config:
             raise ValueError("invalid_require_verification_flag")
         if self.drill_threshold > self.report_threshold:
             raise ValueError("drill_threshold_exceeds_report_threshold")
-        if self.search_policy not in ("legacy-v1", "scoped-v2-beta"):
+        if self.search_policy not in SEARCH_POLICIES:
             raise ValueError("invalid_search_policy")
+        if self.search_policy == "tile-sieve-beta" and (
+                self.canaries != "on" or self.state_layout != "v1"
+                or self.policy_placement != DEFAULT_POLICY_PLACEMENT
+                or self.polarity_twin or self.require_verification):
+            # Its thresholds were measured with canaries on and layout v1, its
+            # wire places the policy in state under its own caps, and the
+            # polarity twin and verification gating have no meaning there.
+            raise ValueError("invalid_search_configuration")
         if type(self.state_layout) is not str or self.state_layout not in STATE_LAYOUTS:
             raise ValueError("invalid_state_layout")
         if type(self.whole_file) is not bool:

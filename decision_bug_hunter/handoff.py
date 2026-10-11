@@ -17,6 +17,8 @@ from .protocol import ANSWER_SCOPED_CODES
 from .questions import noul, target_text
 
 DISPLAY_REFS = 2
+#: Report schema version -> handoff schema version.
+HANDOFF_VERSIONS = {7: 4, 8: 5, 9: 6}
 
 
 def assessment(search, target):
@@ -27,6 +29,9 @@ def assessment(search, target):
     """
     if getattr(search, "scoped", None):
         return search.scoped.assessment(target)
+    tile = getattr(search, "tile_sieve", None)
+    if tile is not None and tile.active:
+        return tile.assessment(target)
     bounds = [target.start, target.end]
     values = [Decimal(row["judgments"]["screen"]) for row in search.observations
               if [row["start_line"], row["end_line"]] == bounds
@@ -411,8 +416,9 @@ def compact_report(report):
         if f["limitations"]:
             row["limitations"] = f["limitations"]
         rows.append(row)
-    # b1 shape (WP-08): scoped report 8 -> handoff 5, legacy 7 -> 4.
-    handoff = {"schema_version": 5 if report["schema_version"] == 8 else 4,
+    # b1 shape (WP-08): scoped report 8 -> handoff 5, legacy 7 -> 4,
+    # tile-sieve 9 -> 6.
+    handoff = {"schema_version": HANDOFF_VERSIONS.get(report["schema_version"], 4),
                "source": report["source"],
                "specification": report["specification"],
                "specification_mode": report["specification_mode"],
@@ -422,7 +428,14 @@ def compact_report(report):
                # A fixed DBH code or None (ADR-8(5)); never provider text.
                "stop_reason": report.get("stop_reason"),
                "basis": "static-model-assessment-only",
-               "line_numbering": "one-based-inclusive", "findings": rows}
+               "line_numbering": "one-based-inclusive"}
+    block = report.get("tile_sieve")
+    if block is not None:
+        # Handoff 6 names the policy that ran and, after a fallback, why.
+        handoff["search"] = {"policy": "tile-sieve-beta", "mode": block["mode"],
+                             "policy_run": block["policy_run"],
+                             **({"reason": block["reason"]} if "reason" in block else {})}
+    handoff["findings"] = rows
     if "unverified_suspicions" in report:
         # Verification gating (WP-17): present only when the run asked for
         # it; coordinates and assessment only, never scores. Not findings.
@@ -470,6 +483,11 @@ def format_handoff(handoff):
         lines.append(f"SPEC: {label} [sha256:{spec['sha256']}; {spec['hash_basis']}]")
     lines.append(f"SCAN: {handoff['scan_status']} | HANDOFF: {handoff['handoff_status']}"
                  " | static assessment only | lines: 1-based inclusive")
+    search = handoff.get("search")
+    if search is not None:
+        lines.append("SEARCH: " + search["policy"] + (
+            " " + search["mode"] if search["policy_run"] == search["policy"]
+            else f" -> {search['policy_run']} ({search['reason']})"))
     if not handoff["findings"]:
         lines.append("\nNo suspected ranges reported; not a correctness certificate.")
     for f in handoff["findings"]:

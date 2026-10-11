@@ -463,6 +463,12 @@ class Search:
         if config.search_policy == "scoped-v2-beta":
             from .claim_search import ScopedClaims
             self.scoped = ScopedClaims(self)
+        # tile-sieve-beta picks its threshold set here, so a judge without a
+        # calibrated set is refused before any call is made.
+        self.tile_sieve = None
+        if config.search_policy == "tile-sieve-beta":
+            from .tile_sieve import TileSieve
+            self.tile_sieve = TileSieve(self)
         self.usage = {"input_tokens": 0, "output_tokens": 0,
                       "attempts_with_known_usage": 0, "attempts_with_unknown_usage": 0}
         # Gateway counters are lifetime totals; a gateway shared by several
@@ -2162,8 +2168,19 @@ class Search:
         # Policy placement and request caps (WP-13) are fixed for the scan
         # too; under "instructions" the envelope is the b1 one.
         with using_state_layout(self.cfg.state_layout):
+            if self.tile_sieve is not None:
+                # tile-sieve-beta reads a file that fits one request in two
+                # looks; any other file is scanned by legacy-v1 below, and
+                # the report says why.
+                plan = self.tile_sieve.plan()
+                if self.tile_sieve.fits(plan):
+                    return self.tile_sieve.run(plan)
+                self.tile_sieve.fallback = plan
             with using_request_envelope(self.request_envelope()):
-                return self._run()
+                result = self._run()
+            if self.tile_sieve is not None:
+                result = self.tile_sieve.wrap_fallback(result)
+            return result
 
     def _run(self):
         ready = True
@@ -2205,7 +2222,7 @@ class Search:
         complete = coverage["all_lines_assessed"] and not any(
             issue["affects_completion"] for issue in self.issues)
         scan_status = "complete" if complete else "incomplete"
-        from .handoff import annotate_findings, assessment, compact_report
+        from .handoff import annotate_findings, assessment
         annotations = annotate_findings(self, selected)
         complete = complete and not any(i["affects_completion"] for i in self.issues)
         findings = [{"window_id": s.id, "start_line": s.start, "end_line": s.end,
@@ -2224,6 +2241,29 @@ class Search:
              "support": self.support[s],
              "support_paths": sorted({row["origin"] for row in self.support[s]})}
             for s in unverified]} if self.cfg.require_verification else {})
+        result = self._result(
+            schema_version=8 if self.scoped else 7, scan_status=scan_status, complete=complete,
+            handoff_incomplete=any(a["handoff_incomplete"] for a in annotations.values()),
+            findings=findings, gating=gating, coverage=coverage)
+        if self.scoped:
+            result["scoped_verification"] = self.scoped.report()
+            result["policy_sha256"] = identity({"configuration": self.cfg.as_dict(),
+                                               "contract": result["scoped_verification"]["contract_version"]})
+            result["execution_status"] = "incomplete" if (not coverage["all_lines_assessed"] or
+                any(i["affects_completion"] and not i["code"].startswith("claim_")
+                    for i in self.issues)) else "complete"
+            result["assessment_status"] = "unresolved" if any(
+                i["affects_completion"] and (i["code"].startswith("claim_") or
+                i["code"] == "context_unresolved") for i in self.issues) else "assessed"
+        return result
+
+    def _result(self, *, schema_version, scan_status, complete, handoff_incomplete,
+                findings, gating, coverage, tile_sieve=None):
+        """The report envelope shared by every search policy.
+
+        *tile_sieve* is the report's ``tile_sieve`` block (tile-sieve-beta only);
+        the handoff is compacted from the finished report."""
+        from .handoff import compact_report
         totals = _gateway_counters(self.gw)
         base = self.gateway_baseline
         counters = {name: _count_delta(totals[name], base[name])
@@ -2232,8 +2272,8 @@ class Search:
         # A gateway shared with earlier scans also reports its lifetime totals.
         gateway_totals = {"gateway_totals": totals} if counters != totals else {}
         judge = getattr(self.gw, "judge", None)
-        # b1 report shape (WP-08): legacy 7, scoped 8; handoff 4 / 5.
-        result = {"schema_version": 8 if self.scoped else 7, "tool_version": __version__, "contract": CONTRACT_VERSION,
+        # b1 report shape (WP-08): legacy 7, scoped 8, tile-sieve 9; handoff 4 / 5 / 6.
+        result = {"schema_version": schema_version, "tool_version": __version__, "contract": CONTRACT_VERSION,
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
                 "model": getattr(self.gw, "model_id", None),
                 # Named only for a judge other than OpenAI: absent means OpenAI.
@@ -2269,8 +2309,7 @@ class Search:
                                    else "utf8-supplied-text")}
                     if self.spec_source else None),
                 "scan_status": scan_status,
-                "handoff_status": ("incomplete" if any(
-                    a["handoff_incomplete"] for a in annotations.values()) else "complete"),
+                "handoff_status": "incomplete" if handoff_incomplete else "complete",
                 "status": "complete" if complete else "incomplete",
                 "calls_attempted": self.calls, "questions_attempted": self.questions,
                 # Attempts, retries and spend come from the gateway (ADR-2(10),
@@ -2316,16 +2355,7 @@ class Search:
                               "deadline_exceeded": self.project.deadline_exceeded,
                               "skipped_cache_dirs": self.project.skipped_cache_dirs,
                               "skipped_secret_content": self.project.skipped_secret_content}
-                             if self.project is not None else None)}
+                             if self.project is not None else None),
+                **({"tile_sieve": tile_sieve} if tile_sieve is not None else {})}
         result["handoff"] = compact_report(result)
-        if self.scoped:
-            result["scoped_verification"] = self.scoped.report()
-            result["policy_sha256"] = identity({"configuration": self.cfg.as_dict(),
-                                               "contract": result["scoped_verification"]["contract_version"]})
-            result["execution_status"] = "incomplete" if (not coverage["all_lines_assessed"] or
-                any(i["affects_completion"] and not i["code"].startswith("claim_")
-                    for i in self.issues)) else "complete"
-            result["assessment_status"] = "unresolved" if any(
-                i["affects_completion"] and (i["code"].startswith("claim_") or
-                i["code"] == "context_unresolved") for i in self.issues) else "assessed"
         return result
