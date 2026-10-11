@@ -1,4 +1,5 @@
-"""OpenRouter route to the same Decisions judge (``openai/gpt-6-luna-decisions``).
+"""OpenRouter route to the Decisions judges (``openai/gpt-6-luna-decisions`` and
+``microsoft/microsoft-decision-1``), which share one endpoint and request shape.
 
 OpenRouter's ``POST /api/alpha/decisions`` accepts DBH's local envelope
 almost as is, so the request is a byte splice of the local envelope rather
@@ -47,6 +48,7 @@ from .providers import ProviderResponse
 
 PROVIDER_NAME = "openrouter-decisions"
 MODEL = "openai/gpt-6-luna-decisions"
+MICROSOFT_MODEL = "microsoft/microsoft-decision-1"
 HOST = "openrouter.ai"
 PORT = 443
 #: Pinned: the alpha path may move, and a move must be a reviewed change.
@@ -74,7 +76,20 @@ ROUTE = RouteSpec(
                       # geometry moved no answer; raised for policy-in-state
                       # requests only (ADR-5(5)).
                       state_placement_max_questions=STATE_PLACEMENT_MAX_QUESTIONS,
-                      state_placement_max_envelope_bytes=STATE_PLACEMENT_MAX_REQUEST_BYTES),),
+                      state_placement_max_envelope_bytes=STATE_PLACEMENT_MAX_REQUEST_BYTES),
+            # The second judge on the same endpoint and request shape, verified
+            # live 2026-10-11. No raised state-placement caps (owner decision
+            # 5A): 64 questions and 24 KiB under either policy placement.
+            # Probabilities are full-precision floats; the upstream is journaled
+            # and not flagged until one has been observed.
+            ModelSpec(MICROSOFT_MODEL, price_in_per_mtok=Decimal("0.042"),
+                      price_out_upper_per_mtok=Decimal("0"),
+                      confidence_identity="chance_normalized_p1",
+                      expected_upstream=None, judge="microsoft",
+                      probability_precision="full",
+                      # The price was read live on this date; the shared table
+                      # date (2026-10-06) predates the model.
+                      price_table_date="2026-10-11")),
     default_model=MODEL, port=PORT)
 
 

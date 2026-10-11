@@ -20,6 +20,7 @@ from .claims import select_exploration, identity
 from .core import Config, Source, Span, _coverage, windows, multiscale
 from .core import contiguous_candidates, _window_count, _window_at, VERIFICATION_SUPPORT_PATHS
 from .evidence import EvidenceRef, evidence_label, fitting_pair_state, excerpt
+from .judges import JUDGE_CHOICES
 from .protocol import (ProviderError, encode_request, plain, validate_answer_objects, validate_usage,
                   CONTRACT_VERSION, MAX_QUESTIONS, MAX_REQUEST_BYTES, MAX_STATE_BYTES,
                   DEFAULT_CHOICE_ROUNDING_PLACES, ANSWER_SCOPED_CODES, RequestEnvelope,
@@ -54,6 +55,12 @@ _WINDOW_QUESTION = re.compile(
 ARGMAX_BANNER_RATE = Fraction(2, 100)
 ARGMAX_BANNER_MIN_ANSWERS = 50
 IDENTITY_BANNER_VIOLATIONS = 3
+#: Places of the confidence-identity tolerance for a model that writes
+#: full-precision probabilities: float error in its own arithmetic (about
+#: 1e-16) never counts. The tolerance is h * (1 + 1 / (1 - 1 / k)) with
+#: h = 5e-7 for k options, so a deviation of about 1.5e-6 (k = 2) or about
+#: 1.1e-6 (large k) and more counts.
+IDENTITY_FULL_PRECISION_PLACES = 6
 #: The b1 report's calibration record (ADR-7(1)); no profile exists yet.
 CALIBRATION = {"status": "uncalibrated", "profile_id": None}
 
@@ -889,6 +896,8 @@ class Search:
             places = getattr(self.gw, "display_places", None)
             if type(places) is not int:
                 places = None
+            if getattr(self.gw, "full_precision", False) is True:
+                places = IDENTITY_FULL_PRECISION_PLACES
             for answer in answers.values():
                 if answer["type"] == "choice":
                     self.identity_checked += 1
@@ -946,12 +955,18 @@ class Search:
         return choice_option_cap(places)
 
     def gate_half_quantum(self, answer):
-        """h for the mass gate: the rounding profile, else the declared display
+        """h for the mass gate: the rounding profile, else zero for a model
+        that writes full-precision probabilities, else the declared display
         precision, else the places shown in *answer* (a lower bound on the
         true precision, so h is never understated)."""
         places = getattr(self.gw, "rounding_places", None)
-        if type(places) is not int:
-            places = getattr(self.gw, "display_places", None)
+        if type(places) is int:
+            return half_quantum(places)
+        if getattr(self.gw, "full_precision", False) is True:
+            # Full-precision probabilities are not rounded: the value shown
+            # is the value, so the quantum is zero.
+            return Fraction(0)
+        places = getattr(self.gw, "display_places", None)
         if type(places) is not int:
             places = answer_places(answer)
         return half_quantum(places)
@@ -2216,10 +2231,14 @@ class Search:
         counters["spend"] = _spend_delta(totals["spend"], base["spend"])
         # A gateway shared with earlier scans also reports its lifetime totals.
         gateway_totals = {"gateway_totals": totals} if counters != totals else {}
+        judge = getattr(self.gw, "judge", None)
         # b1 report shape (WP-08): legacy 7, scoped 8; handoff 4 / 5.
         result = {"schema_version": 8 if self.scoped else 7, "tool_version": __version__, "contract": CONTRACT_VERSION,
                 "provider": getattr(self.gw, "provider_id", "custom-unverified"),
                 "model": getattr(self.gw, "model_id", None),
+                # Named only for a judge other than OpenAI: absent means OpenAI.
+                **({"judge": judge} if type(judge) is str and judge in JUDGE_CHOICES
+                   and judge != "openai" else {}),
                 "synthetic": getattr(self.gw, "synthetic", None),
                 # Route provenance (ADR-1(6)): identifiers only, never ids of
                 # individual generations, which stay in receipts.

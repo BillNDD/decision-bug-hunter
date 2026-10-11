@@ -1,9 +1,10 @@
-"""Shared base for the two hosted Decisions routes (ADR-1).
+"""Shared base for the hosted Decisions routes (ADR-1).
 
 A route is one fixed HTTPS origin, path and credential variable with an
-allow-list of models. Both routes serve the same judge: the OpenAI Decisions
-model, directly (``openai-decisions``) or through OpenRouter
-(``openrouter-decisions``). ``HostedProvider`` owns what they share: reading
+allow-list of models. Each model belongs to one judge (``judges``): the OpenAI
+Decisions model, directly (``openai-decisions``) or through OpenRouter
+(``openrouter-decisions``), or Microsoft-Decision-1 through OpenRouter or
+Foundry. ``HostedProvider`` owns what they share: reading
 the credential once, the per-instance identity, credential checks over every
 configured provider key, the deadline-bounded exchange, and the mapping of
 transport failures to fixed codes and submission classes. Subclasses supply
@@ -28,9 +29,10 @@ import re
 import ssl
 import threading
 import time
-from typing import Any, ClassVar
+from typing import Any
 
 from .exchange import Clock, Deadline, ExchangeError, HttpsExchange, Outcome, _kind
+from .judges import JUDGE_CHOICES
 from .protocol import (DEFAULT_POLICY_PLACEMENT, MAX_QUESTIONS, POLICY_PLACEMENTS,
                        POLICY_STATE_KEY, ProviderError, _REQUEST_PREFIX, _json, _pairs,
                        _secret_in)
@@ -39,7 +41,8 @@ from .providers import (Classification, ProviderIdentity, ProviderRequest,
 
 
 #: Every provider credential DBH knows; all configured values are checked.
-CREDENTIAL_VARIABLES = ("OPENAI_API_KEY", "OPENROUTER_API_KEY")
+CREDENTIAL_VARIABLES = ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "AZURE_API_KEY",
+                        "AZURE_ENTRA_TOKEN")
 #: Credentials and routing identifiers are single-line printable ASCII tokens.
 _HEADER_TOKEN = re.compile(r"[!-~]{1,4096}\Z")
 #: An inactive key shorter than this is not treated as a credential, so a
@@ -59,6 +62,8 @@ PRICE_TABLE_DATE = "2026-10-06"
 _PLACED_PAYLOAD = _REQUEST_PREFIX + b"{" + _json(POLICY_STATE_KEY) + b":"
 #: Most exchanges a provider may hold open at once (``max_connections``).
 MAX_CONNECTIONS = 8
+#: How a model's probabilities are written: rounded to ``display_places``, or in full.
+PROBABILITY_PRECISIONS = ("display", "full")
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,11 @@ class ModelSpec:
     ``max_questions`` and ``max_envelope_bytes`` bound every request; a
     request whose policy sits in state may instead use the
     ``state_placement_*`` caps when both are set (ADR-5(5)).
+
+    ``judge`` names the decision model (see ``judges``). Under
+    ``probability_precision`` ``"display"`` answers arrive rounded to
+    ``display_places``; under ``"full"`` they are full-precision floats and
+    ``display_places`` is not used.
     """
 
     id: str
@@ -84,6 +94,13 @@ class ModelSpec:
     price_table_date: str = PRICE_TABLE_DATE
     state_placement_max_questions: int | None = None
     state_placement_max_envelope_bytes: int | None = None
+    judge: str = "openai"
+    probability_precision: str = "display"
+
+    def __post_init__(self) -> None:
+        if (self.judge not in JUDGE_CHOICES
+                or self.probability_precision not in PROBABILITY_PRECISIONS):
+            raise ProviderError("invalid_metadata")
 
     def limits(self, placement: str = DEFAULT_POLICY_PLACEMENT) -> tuple[int, int]:
         """(max questions, max local envelope bytes) under *placement*."""
@@ -398,7 +415,8 @@ class HostedProvider:
     raises ``TypeError`` instead.
     """
 
-    route: ClassVar[RouteSpec]
+    #: The fixed route of the class; an instance may carry its own.
+    route: RouteSpec
 
     def __init__(self, api_key: str | None = None, *,
                  environ: Mapping[str, str] | None = None,
@@ -505,6 +523,11 @@ class HostedProvider:
                max_questions: int = MAX_QUESTIONS) -> tuple[bytes, dict[str, Any]]:
         """Local envelope bytes -> (wire body, expected questions)."""
         raise NotImplementedError
+
+    def auth_headers(self) -> dict[str, str]:
+        """The credential header(s); the default is a bearer token."""
+        assert self._api_key is not None
+        return {"Authorization": "Bearer " + self._api_key}
 
     def extra_headers(self) -> dict[str, str]:
         return {}
@@ -638,7 +661,7 @@ class HostedProvider:
             raise ProviderError("request_too_large")
         if any(_secret_in(credential, [body]) for credential in self._credentials):
             raise ProviderError("sensitive_input")
-        headers = {"Authorization": "Bearer " + self._api_key,
+        headers = {**self.auth_headers(),
                    "Content-Type": "application/json", "Accept": "application/json",
                    "Accept-Encoding": "identity", **self.extra_headers()}
         return body, questions, headers, float(timeout)

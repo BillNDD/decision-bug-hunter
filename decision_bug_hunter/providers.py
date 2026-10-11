@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from decimal import (ROUND_CEILING, ROUND_HALF_EVEN, Context, Decimal, DivisionByZero,
                      InvalidOperation, Overflow)
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -21,6 +22,7 @@ import time
 from typing import Any, NamedTuple, Protocol, TextIO
 import uuid
 
+from .judges import JUDGES, judge_route
 from .protocol import (ERROR_CODES, ProviderError, _metadata, encode_request,
                        plain, validate_answer_objects_scoped, validate_usage,
                        _rounding_profile)
@@ -422,29 +424,56 @@ def validate_call_deadline(deadline_seconds: Any) -> float:
     return float(deadline_seconds)
 
 
-#: ``--provider`` selector -> route name.
+#: ``--provider`` selector -> route name, for the routes the command line offers.
 ROUTES = {"openai": "openai-decisions", "openrouter": "openrouter-decisions"}
+#: Every route ``make_provider`` can build: ``ROUTES`` plus Microsoft Foundry,
+#: which the command line offers only once it selects routes through a judge.
+ALL_ROUTES = {**ROUTES, "foundry": "foundry-decisions"}
 
 
 def make_provider(route: str, *, model: str | None = None, api_key: str | None = None,
                   environ: Mapping[str, str] | None = None, routing: str | None = None,
                   zdr: bool = False, exchange: Any = None,
                   policy_placement: str = "instructions",
-                  max_connections: int = 1) -> DecisionProvider:
+                  max_connections: int = 1, judge: str | None = None,
+                  foundry_endpoint: str | None = None,
+                  foundry_deployment: str | None = None,
+                  foundry_auth: str | None = None) -> DecisionProvider:
     """Library entry point: the hosted adapter for ``route``.
 
-    ``route`` is a selector (``openai``, ``openrouter``) or a route name.
-    ``model`` must be on the route's allow-list (default: its one model),
-    otherwise ``invalid_request``; an unknown route is ``invalid_provider``.
-    ``routing`` (``deny`` by default, or ``account-default``) and ``zdr``
-    apply to OpenRouter only. ``policy_placement`` (``instructions`` or
-    ``state``) sets the caps a policy-in-state request may use: OpenRouter
-    raises them to 200 questions and 48 KiB, OpenAI direct keeps 64 and
+    ``route`` is a selector (``openai``, ``openrouter``, ``foundry``) or a
+    route name. ``model`` must be on the route's allow-list (default: its one
+    model), otherwise ``invalid_request``; an unknown route is
+    ``invalid_provider``. ``judge`` (``openai`` or ``microsoft``) is optional:
+    without it the model id alone decides, as before. With it, the route must
+    be one of that judge's routes and the model (or the judge's model on the
+    route) must be that judge's, otherwise ``invalid_request``. ``routing``
+    (``deny`` by default, or ``account-default``) and ``zdr`` apply to
+    OpenRouter only. ``policy_placement`` (``instructions`` or ``state``) sets
+    the caps a policy-in-state request may use: OpenRouter raises them to 200
+    questions and 48 KiB for the OpenAI model, every other model keeps 64 and
     24 KiB. ``max_connections`` (1 to 8) is how many exchanges the provider
     may use at once, for a gateway built with ``max_in_flight`` above 1.
-    Nothing is read from disk or the network.
+    ``foundry_*`` apply to the ``foundry`` route only: the deployment name is
+    its model, so ``model`` is not used there. Nothing is read from disk or
+    the network.
     """
-    name = ROUTES.get(route, route) if type(route) is str else None
+    name = ALL_ROUTES.get(route, route) if type(route) is str else None
+    if name not in ALL_ROUTES.values():
+        raise ProviderError("invalid_provider")
+    if judge is not None:
+        selector = next(key for key, value in ALL_ROUTES.items() if value == name)
+        entry = judge_route(judge, selector)
+        if name == "foundry-decisions":
+            if model is not None:
+                raise ProviderError("invalid_request")
+        elif model is None:
+            model = entry.model
+        elif model != entry.model:
+            raise ProviderError("invalid_request")
+    foundry_options = (foundry_endpoint, foundry_deployment, foundry_auth)
+    if name != "foundry-decisions" and any(item is not None for item in foundry_options):
+        raise ProviderError("invalid_request")
     if name == "openai-decisions":
         if routing is not None or zdr:
             raise ProviderError("invalid_request")
@@ -458,7 +487,20 @@ def make_provider(route: str, *, model: str | None = None, api_key: str | None =
                                   routing="deny" if routing is None else routing, zdr=zdr,
                                   policy_placement=policy_placement,
                                   max_connections=max_connections)
-    raise ProviderError("invalid_provider")
+    # Microsoft Foundry: the adapter lives in its own module, imported only here.
+    if model is not None or routing is not None or zdr:
+        raise ProviderError("invalid_request")
+    try:
+        module = importlib.import_module(".foundry", __package__)
+    except ModuleNotFoundError as exc:
+        if exc.name != f"{__package__}.foundry":
+            raise
+        raise ProviderError("invalid_provider") from None
+    provider: DecisionProvider = module.FoundryProvider(
+        api_key, environ=environ, exchange=exchange, endpoint=foundry_endpoint,
+        deployment=foundry_deployment, auth=foundry_auth,
+        policy_placement=policy_placement, max_connections=max_connections)
+    return provider
 
 
 #: Where an attempt's counted cost came from (ADR-9(1)).
@@ -1163,10 +1205,29 @@ class ValidatedGateway:
 
     @property
     def display_places(self) -> int | None:
-        """The model's declared display precision in decimal places, if known."""
+        """The model's declared display precision in decimal places, if known;
+        None for a model that writes full-precision probabilities, which have
+        no display precision."""
+        if self.full_precision:
+            return None
         spec = getattr(self.provider, "model_spec", None)
         value = getattr(spec, "display_places", None)
         return value if type(value) is int and 0 <= value <= 8 else None
+
+    @property
+    def judge(self) -> str | None:
+        """The decision model behind the route (``openai`` or ``microsoft``),
+        or None for a provider that declares no model spec."""
+        spec = getattr(self.provider, "model_spec", None)
+        value = getattr(spec, "judge", None)
+        return value if type(value) is str and value in JUDGES else None
+
+    @property
+    def full_precision(self) -> bool:
+        """Whether the model writes full-precision probabilities, not
+        probabilities rounded to ``display_places``."""
+        spec = getattr(self.provider, "model_spec", None)
+        return getattr(spec, "probability_precision", None) == "full"
 
     @property
     def request_limits(self) -> tuple[int, int] | None:
@@ -1484,6 +1545,8 @@ class ValidatedGateway:
             "schema_version": 2, "provider": self.provider_id, "model": self.model_id,
             "synthetic": self.synthetic, "metadata": meta, "request_sha256": key,
             "route": self.provider_id, "model_requested": self.model_id,
+            # Named only for a judge other than OpenAI: absent means OpenAI.
+            **self._judge_field(),
             "model_returned": None, "upstream_provider": None, "generation_id": None,
             "request_id": None, "wire_sha256": None, "answer_order_mismatch": False,
             "question_count": count, "rounding_places": self.rounding_places,
@@ -1495,6 +1558,12 @@ class ValidatedGateway:
             "scoped": None, "provider_error": None,
             "cost_usd": None, "cost_source": "none", "cost_bound_usd": self._zero_bound(),
         }
+
+    def _judge_field(self) -> dict[str, str]:
+        judge = self.judge
+        if judge is None or judge == "openai":
+            return {}
+        return {"judge": judge}
 
     def _logical(self, call: CallHandle, wire: bytes, expected: dict[str, Any], key: str,
                  meta: dict[str, Any]) -> dict[str, Any]:
