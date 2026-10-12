@@ -89,6 +89,12 @@ class DocumentationTests(unittest.TestCase):
             with self.subTest(flag):
                 self.assertTrue(default_matches(action, rows[flag]), rows[flag])
 
+    def test_readme_says_a_fitting_file_gets_one_or_two_whole_file_looks(self):
+        # A file of 8 lines or fewer, or whose two looks come out identical, gets one look.
+        text = flat(read("README.md"))
+        self.assertIn("is read in one or two whole-file looks, then each flagged region", text)
+        self.assertNotIn("read in two looks", text)
+
     def test_readme_quotes_the_microsoft_notice_and_the_judge_choice_text(self):
         readme = read("README.md")
         section = readme.split("## Choosing a judge", 1)[1].split("\n## ", 1)[0]

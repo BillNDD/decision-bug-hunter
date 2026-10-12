@@ -73,12 +73,14 @@ class HelpTests(unittest.TestCase):
     def test_help_describes_the_beta(self):
         text = self.help_text()
         for phrase in ("opt-in whole-file beta calibrated for the OpenAI judge only",
+                       "is read in one or two whole-file looks, then each flagged region",
                        "(no stage 2)", "strong regions report at a lower bar",
                        "A larger file is scanned with legacy-v1",
                        "--canaries on, --state-layout v1 and --policy-placement instructions"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
         self.assertNotIn("second request", text)
+        self.assertNotIn("read in two looks", text)
 
     def test_the_default_policy_is_unchanged(self):
         args = cli.parser().parse_args(["target.py"])
