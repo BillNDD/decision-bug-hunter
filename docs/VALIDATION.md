@@ -4,18 +4,18 @@ What has been checked for `0.1.0b1`, offline and live, and what has not.
 
 ## Offline checks
 
-Environment: Windows 11; Python 3.12.10 (project environment) and Python
-3.13.14 (second interpreter, suite only); Ruff 0.16.10, mypy 1.20.2, build
-1.6.1, setuptools 84.0.0.
+Environment: Windows 11; Python 3.12.10 (project environment), Python
+3.13.14 and Python 3.11.16 (second and third interpreters, suite only); Ruff
+0.16.10, mypy 1.20.2, build 1.6.1, setuptools 84.0.0.
 
 | Check | Result |
 |---|---|
-| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`) | 693 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 3.5 minutes on an idle machine |
-| Same suite, Python 3.13 | 688 tests, OK, same 2 skips (last run before the choice-gate default change, which added 5 tests) |
-| Same suite, Python 3.12, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set (as in CI) | 688 tests, OK, same 2 skips (same note) |
+| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set as in CI) | 1,486 tests, OK, 2 skipped (POSIX directory fsync, POSIX symlink creation); about 9 minutes on a loaded machine |
+| Same suite, Python 3.13 | 1,486 tests, OK, same 2 skips |
+| Same suite, Python 3.11 | 1,486 tests, OK, same 2 skips |
 | Ruff (configured fatal-error rules) | clean |
 | mypy (strict definitions for `providers`, `decisions`, `exchange`, `hosted`, `openrouter`, `secret_scan`, `injection_markers`) | clean; the inherited engine is not fully typed |
-| `python -m build` and `tools/check_distribution.py` | pass: archive contents, fresh wheel install without keys, exit-3 route selection and exit-2 `provider_unavailable` gates for both routes, and the unpacked sdist's own test suite (about 2.5 minutes) |
+| `python -m build` and `tools/check_distribution.py` | pass: archive contents, fresh wheel install without keys, exit-3 judge and route selection and exit-2 `provider_unavailable` gates for both OpenAI routes, and the unpacked sdist's own test suite |
 | GitHub Actions matrix (Ubuntu and Windows, Python 3.11 to 3.13) | configured; not yet run for this tree |
 
 The suite refuses real sockets: `tests/__init__.py` installs a guard that
