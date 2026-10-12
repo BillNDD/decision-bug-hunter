@@ -9,6 +9,7 @@ import unittest
 from decision_bug_hunter import __version__
 from decision_bug_hunter.__main__ import parser
 from decision_bug_hunter.core import Source
+from decision_bug_hunter.hosted import CREDENTIAL_VARIABLES
 from decision_bug_hunter.judges import JUDGES
 from decision_bug_hunter.protocol import ERROR_CODES
 from tests.support import FixtureProvider
@@ -167,6 +168,23 @@ class DocumentationTests(unittest.TestCase):
             with self.subTest(needle):
                 self.assertIn(needle, readme)
         self.assertNotIn("no automatic retry", readme.lower())
+
+    def test_env_example_lists_every_variable_the_cli_reads_with_empty_values(self):
+        values = {}
+        for line in read(".env.example").splitlines():
+            if line and not line.startswith("#"):
+                name, _, value = line.partition("=")
+                values[name] = value
+        self.assertEqual(
+            set(values),
+            {"DBH_JUDGE", "DBH_PROVIDER", "DBH_FOUNDRY_ENDPOINT", "DBH_FOUNDRY_DEPLOYMENT",
+             *CREDENTIAL_VARIABLES, "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"})
+        self.assertEqual(set(values.values()), {""})
+        text = flat(read(".env.example"))
+        for needle in ("not yet verified live", "microsoft/microsoft-decision-1",
+                       "openai/gpt-6-luna-decisions", "NEED_USER_INPUT judge"):
+            with self.subTest(needle):
+                self.assertIn(needle, text)
 
     def test_public_docs_are_decisions_only_and_standalone(self):
         for name in PUBLIC_DOCS:

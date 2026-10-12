@@ -517,7 +517,7 @@ class RequestTests(unittest.TestCase):
                    body=json.dumps({
                        "answers": json.loads(fixture("response_ok.json"))["answers"],
                        "id": "gen-offline-0001", "model": "microsoft/microsoft-decision-1-20261009",
-                       "provider": "Microsoft",
+                       "provider": "Azure",
                        "usage": {"input_tokens": 96, "output_tokens": 0, "cost": 4e-06}}).encode())],
             clock=FakeClock(), host=openrouter.HOST)
         router = make_provider("openrouter", model="microsoft/microsoft-decision-1",

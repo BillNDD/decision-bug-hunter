@@ -1,12 +1,15 @@
 """The engine of the ``tile-sieve-beta`` search policy (whole-file mode).
 
-A file that fits in one request is read in two looks (one look for a file of at
-most 8 lines). Each look asks line, block and granule questions over the whole
-file. Flagged regions are merged into clusters, and each cluster gets one focus
-request: the owner's rule 8C then reports it at ``tau_strong`` when it is strong
-and at ``tau_rep(n)`` otherwise, and the localization answers of the reported
-clusters become the findings. There is no second stage, and no extra call is
-made for the handoff: findings are annotated from the evidence already in hand.
+A file that fits in one request is read in one or two whole-file looks: one for
+a file of at most 8 lines or when both looks' requests come out identical, two
+otherwise. Each look asks leaf (16-line), block (48-line) and granule (8-line)
+cell questions over the whole file, the second look on a grid shifted against
+the first. Flagged regions are merged into clusters, and each cluster gets one
+focus request: the owner's rule 8C then reports it at ``tau_strong`` when it is
+strong and at ``tau_rep(n)`` otherwise, and the localization answers of the
+reported clusters become the findings. There is no second stage, and no extra
+call is made for the handoff: findings are annotated from the evidence already
+in hand.
 
 Every request goes through ``Search.ask``, so the cache, the budgets, the judge
 controls, the receipts and the trace rows are the legacy engine's own. The

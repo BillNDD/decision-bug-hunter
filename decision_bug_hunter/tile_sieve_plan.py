@@ -1,10 +1,10 @@
 """The request planner of the ``tile-sieve-beta`` search policy (whole-file mode).
 
-A file that fits in one request is read in two looks. Each look asks line, block
-and granule questions over the whole file, and a flagged region then gets one
-focus request. This module builds those requests, byte for byte, and decides
-whether the file fits. Nothing is sent from here and nothing reads a clock or a
-network.
+A file that fits in one request is read in one or two whole-file looks. Each look
+asks leaf (16-line), block (48-line) and granule (8-line) cell questions over
+the whole file, and a flagged region then gets one focus request. This module
+builds those requests, byte for byte, and decides whether the file fits.
+Nothing is sent from here and nothing reads a clock or a network.
 
 Every request is assembled by ``assemble``, which asserts the OpenAI-direct caps
 on any route and for any judge: at most 64 questions (the two canaries
@@ -14,8 +14,10 @@ that does not fit raises ``Overflow``; ``plan_whole_file`` turns that into a
 ``Fallback`` and the scan then runs ``legacy-v1``. Nothing is ever returned that
 exceeds a cap, and nothing is split or tiled.
 
-Look 1 is planned only for files of more than 8 lines. A file of 8 lines or
-fewer is read once, and that one request records that it serves both looks.
+Look 1 is planned only for files of more than 8 lines, and it is kept only when
+its request differs from look 0's. A file of 8 lines or fewer, or one whose two
+looks come out identical, is read once, and that one request records that it
+serves both looks.
 """
 from __future__ import annotations
 
@@ -600,7 +602,7 @@ class Planner:
 
 
 def plan_whole_file(source, spec_source=None, project_entries=(), context_scope="declared_standalone"):
-    """Plan the two whole-file looks of *source*: a ``WholeFilePlan`` or a ``Fallback``."""
+    """Plan the one or two whole-file looks of *source*: a ``WholeFilePlan`` or a ``Fallback``."""
     return Planner(source, spec_source, project_entries, context_scope).plan()
 
 
