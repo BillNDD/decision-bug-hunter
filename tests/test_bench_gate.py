@@ -316,6 +316,184 @@ class GoldenFileTests(unittest.TestCase):
             self.assertIsInstance(entry["exact"]["provider_calls"], int, name)
 
 
+def golden_scenarios():
+    import json
+    return json.loads(GOLDEN.read_text(encoding="utf-8"))["scenarios"]
+
+
+class TileSieveScenarioTests(unittest.TestCase):
+    """The recorded values of the whole-file Tile Sieve scenarios (OpenAI judge)."""
+
+    def test_the_four_scenarios_are_recorded(self):
+        golden = golden_scenarios()
+        for name in ("catalog-4-tile-sieve", "catalog-tile-sieve", "synth-200-tile-sieve",
+                     "synth-1000-tile-sieve"):
+            with self.subTest(name=name):
+                self.assertIn(name, golden)
+                self.assertEqual(golden[name]["config"], {"search_policy": "tile-sieve-beta"})
+                self.assertEqual(bench.SCENARIOS[name]["config"], golden[name]["config"])
+                self.assertNotIn("model", bench.SCENARIOS[name])
+
+    def test_the_oversize_file_falls_back_to_exactly_the_legacy_requests(self):
+        golden = golden_scenarios()
+        legacy, sieve = golden["synth-1000"], golden["synth-1000-tile-sieve"]
+        self.assertEqual(sieve["exact"], legacy["exact"])
+        self.assertEqual(sieve["request_envelopes_sha256"], legacy["request_envelopes_sha256"])
+        # Only the report differs: it names the policy and the fallback.
+        self.assertNotEqual(sieve["fingerprint"], legacy["fingerprint"])
+
+    def test_the_catalog_asks_36_distinct_tile_requests_then_the_focus_requests(self):
+        exact = golden_scenarios()["catalog-tile-sieve"]["exact"]
+        phases = exact["rounds_by_phase"]
+        self.assertLessEqual(set(phases), {"ts-screen-l0", "ts-screen-l1", "ts-focus"})
+        self.assertEqual(phases["ts-screen-l0"] + phases["ts-screen-l1"], 36)
+        self.assertEqual(exact["provider_calls"], 36 + phases["ts-focus"])
+        self.assertEqual(exact["unique_requests"], exact["provider_calls"])
+
+    def test_a_file_that_fits_asks_its_two_looks_and_one_focus_request(self):
+        exact = golden_scenarios()["synth-200-tile-sieve"]["exact"]
+        self.assertEqual(exact["rounds_by_phase"],
+                         {"ts-focus": 1, "ts-screen-l0": 1, "ts-screen-l1": 1})
+        self.assertEqual(exact["provider_calls"], 3)
+
+    def test_the_short_catalog_subset_skips_the_second_look(self):
+        phases = golden_scenarios()["catalog-4-tile-sieve"]["exact"]["rounds_by_phase"]
+        self.assertLessEqual(set(phases), {"ts-screen-l0", "ts-focus"})
+
+
+class FullPrecisionJudgeTests(unittest.TestCase):
+    """The offline Microsoft judge writes full-precision, identity-consistent answers."""
+
+    SEED = b"seed"
+
+    def test_a_noul_value_moves_by_under_a_tenth_of_a_nanounit(self):
+        moved = set()
+        for index in range(50):
+            answer = bench.full_precision_answer(self.SEED, f"q{index}",
+                                                 {"type": "noul", "noul": 0.95})
+            self.assertEqual(answer["type"], "noul")
+            self.assertLessEqual(abs(answer["noul"] - 0.95), 1.0001e-10)
+            moved.add(answer["noul"])
+        self.assertGreater(len(moved), 40)
+        self.assertNotEqual(round(min(moved), 2), min(moved))
+
+    def test_a_noul_value_stays_a_probability(self):
+        for value in (0, 1, 0.0, 1.0):
+            answer = bench.full_precision_answer(self.SEED, "q", {"type": "noul", "noul": value})
+            self.assertTrue(0.0 <= answer["noul"] <= 1.0, answer)
+
+    def test_a_choice_keeps_its_argmax_mass_and_confidence_identity(self):
+        for options in (["a", "b"], ["L1-1", "L2-2", "L3-3", "none", "unlocalized"]):
+            for chosen in options:
+                with self.subTest(options=len(options), chosen=chosen):
+                    given = {"type": "choice", "choice": chosen, "confidence": 1,
+                             "probabilities": {k: int(k == chosen) for k in options}}
+                    answer = bench.full_precision_answer(self.SEED, "where", given)
+                    values = answer["probabilities"]
+                    self.assertEqual(list(values), options)
+                    self.assertEqual(answer["choice"], chosen)
+                    self.assertEqual(max(values, key=values.get), chosen)
+                    self.assertLess(abs(sum(values.values()) - 1), 1e-12)
+                    self.assertTrue(all(0.0 <= v <= 1.0 for v in values.values()))
+                    k = len(options)
+                    expected = (values[chosen] - 1 / k) / (1 - 1 / k)
+                    self.assertAlmostEqual(answer["confidence"], expected, delta=1e-15)
+                    self.assertNotEqual(values[chosen], 1)
+
+    def test_the_answer_is_deterministic_and_depends_on_the_request(self):
+        given = {"type": "noul", "noul": 0.05}
+        first = bench.full_precision_answer(self.SEED, "q", given)
+        self.assertEqual(first, bench.full_precision_answer(self.SEED, "q", given))
+        self.assertNotEqual(first, bench.full_precision_answer(b"other", "q", given))
+
+    def test_the_fake_exchange_answers_in_the_microsoft_shape(self):
+        from decimal import Decimal
+        import json
+        bench._import_code()
+
+        class Judge:
+            def answer(self, qid, question, state):
+                if question["type"] == "choice":
+                    return {"type": "choice", "choice": "none", "confidence": 1,
+                            "probabilities": {"a": 0, "none": 1}}
+                return {"type": "noul", "noul": 0.05}
+
+        body = json.dumps({"model": "microsoft/microsoft-decision-1", "state": {},
+                           "questions": {"p": {"type": "noul"}, "c": {"type": "choice"}}}
+                          ).encode()
+        model = "microsoft/microsoft-decision-1"
+        fake = bench.FakeExchange(Judge(), bench.JudgeClock(), None, model, True)
+        data = json.loads(fake.post(body, {}, 1.0).body)
+        self.assertEqual(data["model"], model + "-20261009")
+        self.assertEqual(data["provider"], "Microsoft")
+        tokens = max(1, len(body) // 4)
+        self.assertEqual(data["usage"], {"input_tokens": tokens, "output_tokens": 0,
+                                         "cost": float(Decimal(tokens) * Decimal("4.2e-8"))})
+        self.assertNotEqual(data["answers"]["p"]["noul"], 0.05)
+        self.assertNotEqual(data["answers"]["c"]["probabilities"]["none"], 1)
+        plain = bench.FakeExchange(Judge(), bench.JudgeClock(), None)
+        data = json.loads(plain.post(body, {}, 1.0).body)
+        self.assertEqual(data["model"], "openai/gpt-6-luna-decisions-20261006")
+        self.assertEqual(data["answers"]["p"]["noul"], 0.05)
+
+    def test_the_offline_provider_selects_the_model(self):
+        bench._import_code()
+        judge = bench.make_judge([])
+        provider = bench.offline_provider(judge, bench.JudgeClock(), None,
+                                          model="microsoft/microsoft-decision-1",
+                                          full_precision=True)
+        self.addCleanup(provider.close)
+        self.assertEqual(provider.model_spec.id, "microsoft/microsoft-decision-1")
+        self.assertEqual(provider.model_spec.judge, "microsoft")
+        default = bench.offline_provider(judge, bench.JudgeClock(), None)
+        self.addCleanup(default.close)
+        self.assertEqual(default.model_spec.judge, "openai")
+
+
+class MicrosoftScenarioTests(unittest.TestCase):
+    """catalog-4-microsoft: legacy-v1 through the real OpenRouter adapter, full precision."""
+
+    @staticmethod
+    def record(name):
+        return bench.run_child(name, seed=0, count_receipts="memory", reps=0, profile=False,
+                               tracemalloc_run=False)
+
+    def test_the_scenario_asks_the_microsoft_model_with_full_precision(self):
+        spec = bench.SCENARIOS["catalog-4-microsoft"]
+        self.assertEqual(spec["model"], "microsoft/microsoft-decision-1")
+        self.assertEqual(spec["precision"], "full")
+        self.assertEqual(spec["config"], {})
+        self.assertIn("catalog-4-microsoft", golden_scenarios())
+        self.assertEqual(bench.route_options(spec),
+                         {"model": "microsoft/microsoft-decision-1", "full_precision": True})
+        self.assertEqual(bench.route_options(bench.SCENARIOS["catalog-4"]),
+                         {"model": None, "full_precision": False})
+
+    def test_the_report_names_the_judge_and_the_mass_gate_has_no_rounding_allowance(self):
+        record = self.record("catalog-4-microsoft")
+        self.assertEqual(record["info"]["judges"], ["microsoft"])
+        halves = record["info"]["gate_half_quanta"]
+        self.assertGreater(sum(halves.values()), 0)
+        self.assertEqual(set(halves), {"0"})
+        golden = golden_scenarios()["catalog-4-microsoft"]
+        self.assertEqual(record["fingerprint"], golden["fingerprint"])
+        self.assertEqual(record["exact"], golden["exact"])
+
+    def test_the_openai_scenario_names_no_judge_and_keeps_its_display_quantum(self):
+        record = self.record("catalog-4")
+        self.assertEqual(record["info"]["judges"], ["openai"])
+        self.assertEqual(set(record["info"]["gate_half_quanta"]), {"1/200"})
+
+    def test_the_microsoft_run_differs_from_the_openai_run_only_in_its_answers(self):
+        golden = golden_scenarios()
+        self.assertNotEqual(golden["catalog-4-microsoft"]["fingerprint"],
+                            golden["catalog-4"]["fingerprint"])
+        self.assertEqual(golden["catalog-4-microsoft"]["exact"]["rounds_by_phase"],
+                         golden["catalog-4"]["exact"]["rounds_by_phase"])
+        self.assertEqual(golden["catalog-4-microsoft"]["request_envelopes_sha256"],
+                         golden["catalog-4"]["request_envelopes_sha256"])
+
+
 class GateRunTests(unittest.TestCase):
     def test_gate_passes_on_two_fast_scenarios(self):
         result = subprocess.run(

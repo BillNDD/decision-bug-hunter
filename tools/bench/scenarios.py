@@ -5,6 +5,9 @@ real ``ValidatedGateway``) or ``cli`` (``__main__.main`` with its
 ``make_provider`` seam replaced). ``jobs`` is a synthetic line count, or
 ``catalog`` (every labeled case of ``tools/eval/catalog.py``) or
 ``catalog-4`` (its first four cases). ``config`` holds Config overrides.
+``model`` names an allow-listed OpenRouter model when a scenario asks a judge
+other than the default; ``precision`` is ``full`` when that judge writes
+full-precision probabilities.
 """
 from __future__ import annotations
 
@@ -13,6 +16,9 @@ import sys
 
 #: The labeled catalog lives beside the eval tooling.
 EVAL_DIR = Path(__file__).resolve().parents[1] / "eval"
+
+#: The Microsoft judge's OpenRouter model id (the scenario's ``model``).
+MICROSOFT_MODEL = "microsoft/microsoft-decision-1"
 
 SYNTH_SPEC = ("Every function returns the documented value for all valid inputs. "
               "Counters are inclusive of their upper bound. "
@@ -42,6 +48,22 @@ SCENARIOS = {
                  "doc": "1000 lines through the CLI entry point, defaults"},
     "catalog-4": {"kind": "engine", "jobs": "catalog-4", "config": {},
                   "doc": "the first four catalog cases, legacy-v1 (fast unit-test subset)"},
+    "catalog-4-tile-sieve": {"kind": "engine", "jobs": "catalog-4",
+                             "config": {"search_policy": "tile-sieve-beta"},
+                             "doc": "the first four catalog cases, whole-file Tile Sieve"},
+    "catalog-tile-sieve": {"kind": "engine", "jobs": "catalog",
+                           "config": {"search_policy": "tile-sieve-beta"},
+                           "doc": "every labeled catalog case, whole-file Tile Sieve"},
+    "synth-200-tile-sieve": {"kind": "engine", "jobs": 200,
+                             "config": {"search_policy": "tile-sieve-beta"},
+                             "doc": "200 synthetic lines, the largest whole-file case"},
+    "synth-1000-tile-sieve": {"kind": "engine", "jobs": 1000,
+                              "config": {"search_policy": "tile-sieve-beta"},
+                              "doc": "1000 lines; does not fit one request, legacy-v1 fallback"},
+    "catalog-4-microsoft": {"kind": "engine", "jobs": "catalog-4", "config": {},
+                            "model": MICROSOFT_MODEL, "precision": "full",
+                            "doc": "the first four catalog cases, legacy-v1, Microsoft judge "
+                                   "(full-precision probabilities)"},
 }
 
 

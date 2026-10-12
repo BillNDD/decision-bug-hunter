@@ -20,8 +20,9 @@ Per scenario (see ``scenarios.py``) it records:
   ``decision_bug_hunter`` package, copy.deepcopy, json.dumps and json.loads
   calls and sizes, sha256 calls and bytes, protocol._snapshot and _secret_in
   calls, and Path.mkdir calls made by the package.
-* informational only: total cProfile calls, process_time and the tracemalloc
-  peak. Timings are indicative and never gated.
+* informational only: total cProfile calls, process_time, the tracemalloc
+  peak, the judges the reports name and the mass gate's half quanta. Timings
+  are indicative and never gated.
 
     python tools/bench/bench.py                  # measure; writes --out
     python tools/bench/bench.py --check          # fingerprints against golden.json
@@ -64,6 +65,7 @@ import tempfile
 import time
 import tracemalloc
 from collections import Counter, defaultdict
+from decimal import Decimal
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
@@ -142,6 +144,43 @@ def make_judge(bugs):
 IN_FAKE = [False]
 
 
+#: The dated model echo, price per input token and the probability jitter of the
+#: offline Microsoft judge (live: the dated echo of 2026-10-09, $0.042 per million
+#: input tokens, answers that differ by about 1e-10 between identical requests).
+MODEL_DATE_SUFFIX = "-20261009"
+MODEL_PRICE_PER_TOKEN = Decimal("4.2e-8")
+JITTER = 1e-10
+
+
+def _unit(seed: bytes, qid: str) -> float:
+    """A deterministic number in [0, 1) from the request digest and the question name."""
+    digest = _REAL_SHA256(seed + qid.encode()).digest()
+    return int.from_bytes(digest[:8], "big") / 2.0 ** 64
+
+
+def full_precision_answer(seed: bytes, qid: str, answer):
+    """One answer written the way a full-precision judge writes it.
+
+    A noul value moves by under 1e-10. A choice vector is mixed with the uniform
+    vector, p' = p * (1 - e) + e / k with e between 1e-10 and 2e-10, so the mass
+    still sums to one and the argmax is kept, and its confidence follows the
+    chance-normalized identity c = (p1 - 1/k) / (1 - 1/k). Nothing is rounded.
+    """
+    unit = _unit(seed, qid)
+    if answer["type"] == "noul":
+        return {"type": "noul",
+                "noul": min(1.0, max(0.0, answer["noul"] + (2 * unit - 1) * JITTER))}
+    if answer["type"] != "choice" or len(answer["probabilities"]) < 2:
+        return answer
+    probabilities = answer["probabilities"]
+    k = len(probabilities)
+    e = JITTER * (1 + unit)
+    mixed = {key: value * (1 - e) + e / k for key, value in probabilities.items()}
+    confidence = (max(mixed.values()) - 1 / k) / (1 - 1 / k)
+    return {"type": "choice", "choice": answer["choice"], "probabilities": mixed,
+            "confidence": confidence}
+
+
 class JudgeClock:
     """CPU seconds spent inside the fake judge and transport (not DBH work)."""
 
@@ -156,8 +195,9 @@ class FakeExchange:
     returns an OpenRouter-shaped 200 ``Outcome``.
     """
 
-    def __init__(self, judge, clock: JudgeClock, recorder):
+    def __init__(self, judge, clock: JudgeClock, recorder, model=None, full_precision=False):
         self.judge, self.clock, self.recorder = judge, clock, recorder
+        self.model, self.full_precision = model, full_precision
         self.posts = 0
 
     def deadline(self, seconds):
@@ -175,7 +215,18 @@ class FakeExchange:
         data = json.loads(body)
         state, questions = data["state"], data["questions"]
         answers = {qid: self.judge.answer(qid, q, state) for qid, q in questions.items()}
-        raw = support.openrouter_body(answers, input_tokens=max(1, len(body) // 4))
+        tokens = max(1, len(body) // 4)
+        if self.model is None:
+            raw = support.openrouter_body(answers, input_tokens=tokens)
+        else:
+            if self.full_precision:
+                seed = _REAL_SHA256(body).digest()
+                answers = {qid: full_precision_answer(seed, qid, answer)
+                           for qid, answer in answers.items()}
+            raw = support.openrouter_body(
+                answers, model=self.model + MODEL_DATE_SUFFIX, provider="Microsoft",
+                input_tokens=tokens,
+                cost=float(Decimal(tokens) * MODEL_PRICE_PER_TOKEN))
         self.posts += 1
         outcome = exchange.Outcome(
             status=200, headers=(("content-type", "application/json"),
@@ -194,11 +245,18 @@ class FakeExchange:
 KEY = "offline-synthetic-key-not-a-real-credential"
 
 
-def offline_provider(judge, clock, recorder, policy_placement="instructions"):
-    """The real OpenRouter adapter over the fake exchange (never env, never net)."""
-    ex = FakeExchange(judge, clock, recorder)
+def offline_provider(judge, clock, recorder, policy_placement="instructions", model=None,
+                     full_precision=False):
+    """The real OpenRouter adapter over the fake exchange (never env, never net).
+
+    ``model`` is an allow-listed OpenRouter model id (default: the adapter's
+    default model); ``full_precision`` makes the fake write full-precision
+    probabilities, as the Microsoft judge does.
+    """
+    ex = FakeExchange(judge, clock, recorder, model, full_precision)
+    options = {} if model is None else {"model": model}
     provider = openrouter.OpenRouterProvider(KEY, environ={}, exchange=ex,
-                                             policy_placement=policy_placement)
+                                             policy_placement=policy_placement, **options)
     if recorder is not None:
         recorder.attach(provider)
     return provider
@@ -211,6 +269,7 @@ class Recorder:
         self.calls = []          # one row per provider decide()
         self.asks = []           # one row per Search.ask() that was entered
         self.envelope_hash = _REAL_SHA256()
+        self.half_quanta = Counter()   # the mass gate's h per localization answer
         self.current = None
         self.case = None
 
@@ -243,8 +302,9 @@ class Recorder:
 
 @contextlib.contextmanager
 def ask_tracking(recorder):
-    """Wrap Search.ask for the counting run only."""
+    """Wrap Search.ask and Search.gate_half_quantum for the counting run only."""
     original = engine.Search.ask
+    original_half = engine.Search.gate_half_quantum
 
     def ask(self, state, questions, region, phase, *, origins=None):
         row = {"case": recorder.case, "index": len(recorder.asks), "phase": phase,
@@ -260,11 +320,18 @@ def ask_tracking(recorder):
             row["questions_sent"] = self.questions - before_q
             recorder.current = outer
 
+    def gate_half_quantum(self, answer):
+        half = original_half(self, answer)
+        recorder.half_quanta[str(half)] += 1
+        return half
+
     engine.Search.ask = ask
+    engine.Search.gate_half_quantum = gate_half_quantum
     try:
         yield
     finally:
         engine.Search.ask = original
+        engine.Search.gate_half_quantum = original_half
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +517,12 @@ def combine(hashes):
 # One scenario run
 # ---------------------------------------------------------------------------
 
-def run_engine_job(job, scenario_config, out: Path, recorder, clock):
+def route_options(spec):
+    """The offline provider options of one scenario: its model and probability precision."""
+    return {"model": spec.get("model"), "full_precision": spec.get("precision") == "full"}
+
+
+def run_engine_job(job, scenario_config, out: Path, recorder, clock, route):
     """Timed pipeline for one engine job: read inputs, index, scan, close."""
     config = Config(**{**job["config"], **scenario_config})
     source = Source.read(job["file"])
@@ -459,7 +531,7 @@ def run_engine_job(job, scenario_config, out: Path, recorder, clock):
     if job["project_root"] is not None:
         project = repository.ProjectIndex.read(job["project_root"], primary_path=job["file"])
     judge = make_judge(job["bugs"])
-    provider = offline_provider(judge, clock, recorder, config.policy_placement)
+    provider = offline_provider(judge, clock, recorder, config.policy_placement, **route)
     receipts = out / "receipts"
     gateway = providers.ValidatedGateway(provider, receipts, rounding_places=None,
                                          retry_policy=providers.RetryPolicy())
@@ -472,7 +544,7 @@ def run_engine_job(job, scenario_config, out: Path, recorder, clock):
     return result, receipts
 
 
-def run_cli_job(job, scenario_config, out: Path, recorder, clock):
+def run_cli_job(job, scenario_config, out: Path, recorder, clock, route):
     argv = [str(job["file"]), "--scope", job["scope"], "--spec-file", str(job["spec"]),
             "--output-dir", str(out / "results"), "--output-format", "json",
             "--provider", "openrouter"]
@@ -482,7 +554,7 @@ def run_cli_job(job, scenario_config, out: Path, recorder, clock):
 
     def make(args):
         return offline_provider(judge, clock, recorder,
-                                getattr(args, "policy_placement", "instructions"))
+                                getattr(args, "policy_placement", "instructions"), **route)
 
     stdout, stderr = io.StringIO(), io.StringIO()
     with patch.object(cli, "make_provider", side_effect=make), \
@@ -524,7 +596,8 @@ def execute(name, jobs, base: Path, *, receipts, recorder=None, counters=None, p
             if profiler is not None:
                 profiler.enable()
             started = time.process_time()
-            result, receipt_dir = runner(job, spec["config"], out, recorder, clock)
+            result, receipt_dir = runner(job, spec["config"], out, recorder, clock,
+                                         route_options(spec))
             cpu += time.process_time() - started
             if profiler is not None:
                 profiler.disable()
@@ -532,6 +605,7 @@ def execute(name, jobs, base: Path, *, receipts, recorder=None, counters=None, p
         receipt_info = receipts_fingerprint(receipt_dir, store)
         issues = result.get("issues", [])
         per_case.append({"id": job["id"], "status": result.get("status"),
+                         "judge": result.get("judge", "openai"),
                          "findings": [[f["start_line"], f["end_line"]]
                                       for f in result.get("findings", [])],
                          "calls_attempted": result.get("calls_attempted"),
@@ -675,6 +749,8 @@ def measure(name, *, count_receipts, reps, profile, tracemalloc_run):
         "deterministic": len(set(runs.values())) == 1,
         "timing_affected": timing,
         "info": {"process_time_s": _stats(cpu), "dbh_process_time_s": _stats(dbh_cpu),
+                 "judges": sorted({c["judge"] for c in counted["cases"]}),
+                 "gate_half_quanta": dict(sorted(recorder.half_quanta.items())),
                  "total_ncalls": total_ncalls, "total_primitive_calls": total_primitive,
                  "tracemalloc_peak_bytes": peak,
                  "receipt_bytes": sum(c["receipt_bytes"] for c in counted["cases"]),
