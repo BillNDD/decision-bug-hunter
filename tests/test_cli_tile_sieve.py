@@ -306,7 +306,11 @@ class Untouched(unittest.TestCase):
         self.out = self.root / "out"
         self.read = self.enterContext(mock.patch.object(cli.Source, "read"))
         self.build = self.enterContext(mock.patch.object(cli.providers, "make_provider"))
-        self.decisions = self.enterContext(mock.patch.object(cli, "DecisionsProvider"))
+        # A spy on the class itself: the CLI's provider name is never replaced
+        # (test_offline_harness), and an OpenAI provider still builds for real.
+        self.decisions = self.enterContext(mock.patch.object(
+            DecisionsProvider, "__init__", autospec=True,
+            side_effect=DecisionsProvider.__init__))
 
     def argv(self, *extra):
         return [str(self.target), "--scope", "standalone", "--output-dir", str(self.out),
