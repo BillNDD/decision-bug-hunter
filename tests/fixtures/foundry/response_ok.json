@@ -1,0 +1,1 @@
+{"answers":{"screen":{"type":"noul","noul":0.8123456789012345},"where":{"type":"choice","choice":"L1-1","confidence":0.4469038246913578,"probabilities":{"L1-1":0.7234519123456789,"none":0.2765480876543211}}},"model":"microsoft-decision-1","usage":{"input_tokens":96,"output_tokens":0}}

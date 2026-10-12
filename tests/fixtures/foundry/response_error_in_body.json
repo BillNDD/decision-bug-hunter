@@ -1,0 +1,1 @@
+{"error":{"code":"InternalServerError","type":"server_error","message":"private-error-message"},"model":"microsoft-decision-1","usage":{"input_tokens":40,"output_tokens":0}}
