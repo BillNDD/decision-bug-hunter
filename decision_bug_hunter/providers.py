@@ -363,6 +363,7 @@ ERROR_FIELDS: dict[str, Any] = {
     "retry_after_seconds": lambda value: (type(value) in (int, float)
                                           and math.isfinite(value) and 0 <= value <= 60),
     "cost_error": lambda value: value == "invalid",
+    "usage_shape": lambda value: value == "unrecognized",
 }
 
 

@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from decision_bug_hunter import foundry, hosted, judges, openrouter, protocol, providers
+from decision_bug_hunter import foundry, hosted, judges, openrouter, protocol
 from decision_bug_hunter.core import Config
 from decision_bug_hunter.foundry import FoundryProvider, decode_response
 from decision_bug_hunter.protocol import QUESTION, ProviderError, _json
@@ -45,29 +45,9 @@ METADATA = {"sequence": 1, "phase": "test"}
 KEY_ENV = {"AZURE_API_KEY": API_KEY}
 TOKEN_ENV = {"AZURE_ENTRA_TOKEN": TOKEN}
 REQUEST_ID = "req-foundry-offline-0001"
-#: The receipt and report fields this package relies on that other packages
-#: register: ``endpoint_invalid`` (protocol.ERROR_CODES) and ``usage_shape``
-#: (providers.ERROR_FIELDS). Added here only while those entries are absent, so
-#: this module passes before and after they land.
-MISSING_CODES = frozenset({"endpoint_invalid"}) - protocol.ERROR_CODES
 ALL_ENV = {**KEY_ENV, **TOKEN_ENV, "OPENAI_API_KEY": OPENAI_KEY,
            "OPENROUTER_API_KEY": OPENROUTER_KEY}
 ALL_KEYS = (API_KEY, TOKEN, OPENAI_KEY, OPENROUTER_KEY)
-USAGE_SHAPE = {"usage_shape": lambda value: value == "unrecognized"}
-
-
-def setUpModule():
-    global _patches
-    _patches = [mock.patch.object(protocol, "ERROR_CODES", protocol.ERROR_CODES | MISSING_CODES)]
-    if "usage_shape" not in providers.ERROR_FIELDS:
-        _patches.append(mock.patch.dict(providers.ERROR_FIELDS, USAGE_SHAPE))
-    for patch in _patches:
-        patch.start()
-
-
-def tearDownModule():
-    for patch in reversed(_patches):
-        patch.stop()
 
 
 def fixture(name):
