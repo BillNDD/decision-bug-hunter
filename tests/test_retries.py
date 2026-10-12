@@ -291,8 +291,9 @@ class StaleConnectionTests(Base):
             for flags, expected in ((["--no-retry"], RetryPolicy.none()), ([], RetryPolicy())):
                 with patch.object(cli, "make_gateway", side_effect=make_gateway), \
                         redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-                    cli.main([str(target), "--scope", "isolate", "--provider", "openai",
-                              "--output-dir", str(Path(td) / "out"), *flags])
+                    cli.main([str(target), "--scope", "isolate", "--judge", "openai",
+                              "--provider", "openai", "--output-dir", str(Path(td) / "out"),
+                              *flags])
                 self.assertEqual(captured[-1]["retry_policy"], expected)
         self.assertEqual(cli.parser().parse_args(["x"]).run_deadline_seconds, 1800.0)
         self.assertEqual(Config().run_deadline_seconds, 1800.0)

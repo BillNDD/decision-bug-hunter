@@ -7,6 +7,7 @@ import unittest
 from decision_bug_hunter import __version__
 from decision_bug_hunter.__main__ import parser
 from decision_bug_hunter.core import Source
+from decision_bug_hunter.judges import JUDGES
 from decision_bug_hunter.protocol import ERROR_CODES
 from tests.support import FixtureProvider
 
@@ -73,7 +74,8 @@ class DocumentationTests(unittest.TestCase):
         self.assertGreaterEqual(len(commands), 5)
         for command in commands:
             with self.subTest(command):
-                self.assertRegex(command, r"--provider (openai|openrouter)\b")
+                self.assertRegex(command, r"--judge (openai|microsoft)\b")
+                self.assertRegex(command, r"--provider (openai|openrouter|foundry)\b")
                 self.assertIn("--scope ", command)
 
     def test_readme_flag_table_lists_every_option_with_its_default(self):
@@ -87,9 +89,30 @@ class DocumentationTests(unittest.TestCase):
             with self.subTest(flag):
                 self.assertTrue(default_matches(action, rows[flag]), rows[flag])
 
+    def test_readme_quotes_the_microsoft_notice_and_the_judge_choice_text(self):
+        readme = read("README.md")
+        section = readme.split("## Choosing a judge", 1)[1].split("\n## ", 1)[0]
+        self.assertIn(JUDGES["microsoft"].notice, section)
+        self.assertIsNone(JUDGES["openai"].notice)
+        self.assertIn("experimental", section)
+        self.assertIn("(judge microsoft)", section)
+        # The first NEED_USER_INPUT judge text, with the README's line wraps joined.
+        text = flat(readme)
+        for judge in JUDGES.values():
+            route_names = " | ".join(route.selector for route in judge.routes)
+            self.assertIn(f"routes {route_names})", text)
+        self.assertIn("NEED_USER_INPUT judge_route: microsoft routes: openrouter | foundry",
+                      text)
+
     def test_readme_covers_routes_failure_and_cost_controls(self):
         readme = flat(read("README.md"))
         for needle in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "DBH_PROVIDER",
+                       "DBH_JUDGE", "AZURE_API_KEY", "AZURE_ENTRA_TOKEN",
+                       "DBH_FOUNDRY_ENDPOINT", "DBH_FOUNDRY_DEPLOYMENT",
+                       "NEED_USER_INPUT judge:", "NEED_USER_INPUT judge_route",
+                       "NEED_USER_INPUT foundry_endpoint", "NEED_USER_INPUT foundry_auth",
+                       "invalid_judge", "endpoint_invalid", "not yet verified live",
+                       "## Choosing a judge",
                        "NEED_USER_INPUT provider", "provider_unavailable",
                        '"data_collection":"deny"', "--no-retry", "--max-cost",
                        "cost_budget_exhausted", "question_refused", "response_refused",

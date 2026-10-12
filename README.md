@@ -44,21 +44,39 @@ decision-bug-hunter --help
 Pin a full commit SHA in place of the tag if you want an immutable install.
 From a source checkout, run `python -m pip install .` in the repository root.
 
-## Choose a route and set a key
+## Choose a judge, a route and set a key
 
-Every scan names its route with `--provider` (or the `DBH_PROVIDER`
-variable). DBH never picks a route because a key happens to be set:
+Every scan names its judge, the decision model, with `--judge` (or the
+`DBH_JUDGE` variable), and the route to it with `--provider` (or the
+`DBH_PROVIDER` variable). Neither has a default, and DBH never picks either
+because a key happens to be set; the flag wins over the variable.
 
-| `--provider` | Endpoint | Model sent | Key variable |
-|---|---|---|---|
-| `openai` | `POST https://api.openai.com/v1/decisions` | `gpt-6-luna` | `OPENAI_API_KEY` |
-| `openrouter` | `POST https://openrouter.ai/api/alpha/decisions` | `openai/gpt-6-luna-decisions` | `OPENROUTER_API_KEY` |
+| `--judge` | `--provider` | Endpoint | Model sent | Key variable |
+|---|---|---|---|---|
+| `openai` | `openai` | `POST https://api.openai.com/v1/decisions` | `gpt-6-luna` | `OPENAI_API_KEY` |
+| `openai` | `openrouter` | `POST https://openrouter.ai/api/alpha/decisions` | `openai/gpt-6-luna-decisions` | `OPENROUTER_API_KEY` |
+| `microsoft` (experimental) | `openrouter` | `POST https://openrouter.ai/api/alpha/decisions` | `microsoft/microsoft-decision-1` | `OPENROUTER_API_KEY` |
+| `microsoft` (experimental) | `foundry` (not yet verified live) | `POST <your resource endpoint>/providers/microsoft/v1/systemone` | your deployment name | `AZURE_API_KEY` or `AZURE_ENTRA_TOKEN` |
 
-With neither `--provider` nor `DBH_PROVIDER`, the CLI prints
-`NEED_USER_INPUT provider: openai | openrouter (set: <names of key variables
-that are set>)` and exits `3` before reading the source. With a route but no
-usable key it exits `2` with `provider_unavailable`, also before any source
-read, output or network use.
+The checks run in this order, each before the source is read, any output
+exists or the network is used: scope, judge, route, that the route is one of
+that judge's, `--model` against the pair's allow-list, the route's own options,
+then availability.
+
+- With no judge, the CLI prints `NEED_USER_INPUT judge: openai (OpenAI
+  Decisions gpt-6-luna; routes openai | openrouter) | microsoft
+  (Microsoft-Decision-1; routes openrouter | foundry)` and exits `3`. An
+  unknown `DBH_JUDGE` exits `2` with `invalid_judge`.
+- With a judge but neither `--provider` nor `DBH_PROVIDER`, it prints
+  `NEED_USER_INPUT provider: openai | openrouter (set: <names of key variables
+  that are set>)` for the OpenAI judge, or `openrouter | foundry` for the
+  Microsoft judge, and exits `3`. Only the key variables of that judge's
+  routes are listed; a key of the other judge never selects anything.
+- A judge and a route that do not go together, such as `--judge microsoft
+  --provider openai`, print `NEED_USER_INPUT judge_route: microsoft routes:
+  openrouter | foundry` and exit `3`.
+- A model of the other judge is `invalid_request` (exit `2`).
+- With a route but no usable key it exits `2` with `provider_unavailable`.
 
 Credential handling:
 
@@ -66,12 +84,17 @@ Credential handling:
   never accepted as a flag and the CLI never loads it from a file; DBH does
   not read `.env` files. [.env.example](.env.example) lists the variable
   names.
-- Every configured provider key (both variables, selected or not) is checked
-  against the file, the specification, project files and the output path
-  before anything is sent; a match stops the scan with `sensitive_input`. A
-  response that echoes a key is rejected as `response_sensitive`.
-- Keys never appear in requests other than the `Authorization` header, nor in
-  receipts, reports, error text or progress lines.
+- Every configured provider key (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
+  `AZURE_API_KEY` and `AZURE_ENTRA_TOKEN`, selected or not, whichever judge) is
+  checked against the file, the specification, project files and the output
+  path before anything is sent; a match stops the scan with
+  `sensitive_input`. A response that echoes a key is rejected as
+  `response_sensitive`. The credential-shaped text scanner recognizes an Entra
+  token but has no pattern for an Azure resource key, which is covered only by
+  this exact-value check.
+- Keys never appear in requests other than the `Authorization` header (or
+  the `api-key` header of a Foundry resource key), nor in receipts, reports,
+  error text or progress lines.
 - On the `openai` route, optional `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID`
   become the `OpenAI-Organization` and `OpenAI-Project` headers; a malformed
   value stops the scan with `routing_invalid` (the value is never printed).
@@ -93,7 +116,7 @@ PowerShell:
 $secret = Read-Host "OpenRouter API key" -AsSecureString
 $env:OPENROUTER_API_KEY = [System.Net.NetworkCredential]::new("", $secret).Password
 Remove-Variable secret
-decision-bug-hunter target.py --provider openrouter --scope standalone --spec-file requirements.txt
+decision-bug-hunter target.py --judge openai --provider openrouter --scope standalone --spec-file requirements.txt
 Remove-Item Env:OPENROUTER_API_KEY
 ```
 
@@ -102,10 +125,58 @@ POSIX shell:
 ```sh
 read -rs OPENAI_API_KEY && export OPENAI_API_KEY
 trap 'unset OPENAI_API_KEY' EXIT
-decision-bug-hunter target.py --provider openai --scope standalone --spec-file requirements.txt
+decision-bug-hunter target.py --judge openai --provider openai --scope standalone --spec-file requirements.txt
 ```
 
 A key with a small credit limit reduces the cost of a leak or a runaway run.
+
+### Microsoft Foundry
+
+The `foundry` route reaches Microsoft-Decision-1 directly through your own
+Microsoft Foundry resource. It is built from Microsoft's documentation and is
+**not yet verified live**: the response fields, the error bodies and the
+service's real limits have not been observed against a deployment.
+
+| Setting | Flag | Variable |
+|---|---|---|
+| Resource endpoint, `https://<resource>.services.ai.azure.com` (or `.cognitiveservices.azure.com`, `.openai.azure.com`) | `--foundry-endpoint` | `DBH_FOUNDRY_ENDPOINT` |
+| Deployment name, sent as the model | `--foundry-deployment` | `DBH_FOUNDRY_DEPLOYMENT` |
+| Resource key, sent as the `api-key` header | `--foundry-auth api-key` | `AZURE_API_KEY` |
+| Pre-acquired Microsoft Entra token, sent as a bearer token | `--foundry-auth entra-token` | `AZURE_ENTRA_TOKEN` |
+
+- A missing endpoint or deployment prints `NEED_USER_INPUT foundry_endpoint`
+  or `NEED_USER_INPUT foundry_deployment` and exits `3`. With both credential
+  variables set and no `--foundry-auth`, it prints `NEED_USER_INPUT
+  foundry_auth: ...` and exits `3`; with one set, that one is used.
+- The endpoint must be `https` on port 443 with no path, query or user
+  information; anything else, including a Foundry project URL, is
+  `endpoint_invalid` (exit `2`). The endpoint names your resource: it is never
+  printed or written to a report, receipt or message.
+- DBH never acquires or refreshes an Entra token. One that expires during a run
+  is a `401` (`http_unauthorized`), the run stops, and stderr says to refresh
+  `AZURE_ENTRA_TOKEN`.
+- `--model` and the OpenRouter options do not apply to Foundry (`invalid_request`),
+  and the Foundry flags do not apply to any other route.
+
+## Choosing a judge
+
+OpenAI Decisions is the judge DBH was built, tuned and validated on; choose it
+unless you have a reason not to. Microsoft-Decision-1 is **experimental** in
+this beta, and the CLI prints a one-line note to stderr, once, before each run
+with it:
+
+```text
+Note: Microsoft-Decision-1 support is experimental: in DBH's validation it finds fewer bugs than OpenAI Decisions (README: Choosing a judge).
+```
+
+On the 34-case development catalog with the default `legacy-v1` search,
+Microsoft-Decision-1 located 27 of 34 cases (it found 12 of 16 planted defects
+and cleared 14 of 16 clean files), against 32 of 34 for OpenAI Decisions. A
+live tuning study did not bring it to the bar DBH sets for a judge, so it is
+offered for the default `legacy-v1` search only. A report, receipt or handoff
+names the judge only when it is not OpenAI (a `judge` field; absent means
+OpenAI), and the stderr summary line gains `(judge microsoft)` before its final
+period.
 
 ## Scope
 
@@ -114,13 +185,13 @@ Scope is mandatory in both the CLI and library.
 
 ```sh
 # related files may be searched; a project root is required
-decision-bug-hunter target.py --provider openrouter --scope project --project-root ./repo
+decision-bug-hunter target.py --judge openai --provider openrouter --scope project --project-root ./repo
 
 # the owner declares there is no related project
-decision-bug-hunter target.py --provider openrouter --scope standalone
+decision-bug-hunter target.py --judge openai --provider openrouter --scope standalone
 
 # related files may exist; judge this file only
-decision-bug-hunter target.py --provider openrouter --scope isolate
+decision-bug-hunter target.py --judge openai --provider openrouter --scope isolate
 ```
 
 Missing or conflicting scope information fails clearly and machine-readably,
@@ -155,12 +226,16 @@ before turning one on.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--provider` | required | `openai` or `openrouter`; or set `DBH_PROVIDER`. |
+| `--judge` | required | `openai` (OpenAI Decisions) or `microsoft` (Microsoft-Decision-1, experimental); or set `DBH_JUDGE`. |
+| `--provider` | required | A route of the judge: `openai` or `openrouter` for `--judge openai`; `openrouter` or `foundry` (not yet verified live) for `--judge microsoft`; or set `DBH_PROVIDER`. |
 | `--scope` | required | `project`, `standalone` or `isolate`. |
 | `--project-root` | unset | Related directory; required with `--scope project`, forbidden otherwise. |
 | `--spec-file` | unset | Requirements text (at most 8 KiB and 2,000 lines). Without it, intent is inferred from the file. |
 | `--encoding` | `utf-8-sig` | Encoding of the file, specification and project files. |
-| `--model` | unset | Model id; when unset, the route's model is used (`gpt-6-luna` for `openai`, `openai/gpt-6-luna-decisions` for `openrouter`). If given, it must be that model. |
+| `--model` | unset | Model id; when unset, the judge's model on the route is used (`gpt-6-luna` for `openai`; `openai/gpt-6-luna-decisions` or `microsoft/microsoft-decision-1` for `openrouter`, by judge). If given, it must be that model. Not used with `foundry`. |
+| `--foundry-endpoint` | unset | Foundry resource endpoint, `https://<resource>.services.ai.azure.com`; or set `DBH_FOUNDRY_ENDPOINT`. `foundry` only. |
+| `--foundry-deployment` | unset | Foundry deployment name, sent as the model; or set `DBH_FOUNDRY_DEPLOYMENT`. `foundry` only. |
+| `--foundry-auth` | unset | `api-key` (`AZURE_API_KEY`) or `entra-token` (`AZURE_ENTRA_TOKEN`); needed only when both variables are set. `foundry` only. |
 | `--openrouter-routing` | `deny` | `deny` sends `allow_fallbacks: false` and `data_collection: deny`; `account-default` omits them. OpenRouter only. |
 | `--openrouter-zdr` | off | Also request zero-data-retention endpoints. OpenRouter only. |
 | `--search-policy` | `legacy-v1` | `scoped-v2-beta` adds scoped verification, explicit refutation and exploratory beams. |
@@ -214,7 +289,8 @@ before turning one on.
 | `--output-dir` | `dbh_runs` | Parent of the private run directories. |
 | `--output-format` | `compact` | What is printed on stdout: `compact`, `ranges` or `json`. All formats are saved. |
 
-OpenRouter-only options combined with `--provider openai` stop the scan with
+OpenRouter-only options combined with `--provider openai` or `--provider
+foundry`, and Foundry-only options with any other route, stop the scan with
 `invalid_request`.
 
 ## Cost and limits

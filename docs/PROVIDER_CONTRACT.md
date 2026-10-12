@@ -363,6 +363,7 @@ Every code in `protocol.ERROR_CODES`:
 | `connect_failed` | No connection could be opened |
 | `cost_budget_exhausted` | `--max-cost` refused the next attempt |
 | `deadline_exceeded` | The call deadline expired |
+| `endpoint_invalid` | The Foundry endpoint is not an accepted resource endpoint (the value is never echoed) |
 | `http_forbidden` | HTTP 403 without moderation metadata |
 | `http_overloaded` | Overloaded (OpenAI 503 `server_is_overloaded`, OpenRouter 529) |
 | `http_payment_required` | OpenRouter 402 |
@@ -378,6 +379,7 @@ Every code in `protocol.ERROR_CODES`:
 | `internal_error` | Unexpected adapter or gateway defect |
 | `interrupted` | Interrupted during a call or journal write |
 | `invalid_deadline` | Deadline out of range |
+| `invalid_judge` | Unknown judge name (`DBH_JUDGE`; the value is never echoed) |
 | `invalid_metadata` | Invalid provider identity or request metadata |
 | `invalid_probability_profile` | Invalid `--choice-rounding-places` |
 | `invalid_provider` | Unknown route name (also `DBH_PROVIDER`) |

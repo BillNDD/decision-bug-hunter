@@ -105,7 +105,10 @@ class EnvironmentTests(unittest.TestCase):
         "OPENAI_API_KEY": "dummy-openai", "OPENAI_ORG_ID": "org-dummy",
         "OPENAI_PROJECT_ID": "proj-dummy", "OPENAI_BASE_URL": "https://192.0.2.1",
         "OPENROUTER_API_KEY": "dummy-openrouter", "OPENROUTER_REFERER": "x",
-        "ANTHROPIC_API_KEY": "dummy-other", "DBH_PROVIDER": "openrouter",
+        "ANTHROPIC_API_KEY": "dummy-other", "DBH_JUDGE": "microsoft",
+        "DBH_PROVIDER": "openrouter", "AZURE_API_KEY": "dummy-azure",
+        "AZURE_ENTRA_TOKEN": "dummy-entra", "DBH_FOUNDRY_ENDPOINT": "https://192.0.2.1",
+        "DBH_FOUNDRY_DEPLOYMENT": "dummy-deployment",
         "SSLKEYLOGFILE": "keylog.txt", "HTTP_PROXY": "http://192.0.2.1:9",
         "HTTPS_PROXY": "http://192.0.2.1:9", "ALL_PROXY": "socks5://192.0.2.1:9",
         "DBH_TEST_SECRET": "scrub-on-request", "DBH_UNRELATED_SETTING": "kept",
@@ -139,7 +142,7 @@ class EnvironmentTests(unittest.TestCase):
         before = len(network_guard.attempts)
         dummies = {"OPENAI_API_KEY": "dbh-dummy-openai-key-not-a-credential",
                    "OPENROUTER_API_KEY": "dbh-dummy-openrouter-key-not-a-credential",
-                   "DBH_PROVIDER": "openrouter",
+                   "DBH_JUDGE": "openai", "DBH_PROVIDER": "openrouter",
                    "HTTPS_PROXY": "http://192.0.2.1:9", "HTTP_PROXY": "http://192.0.2.1:9"}
         suite = unittest.defaultTestLoader.loadTestsFromNames(ENVIRONMENT_SENSITIVE)
         result = unittest.TestResult()
@@ -309,7 +312,7 @@ class FakeTimeTests(unittest.TestCase):
 class ProviderSeamTests(unittest.TestCase):
     def test_make_provider_returns_the_hosted_adapter(self):
         with clean_provider_env():
-            provider = cli.make_provider(argparse.Namespace(provider="openai"))
+            provider = cli.make_provider(argparse.Namespace(judge="openai", provider="openai"))
         self.assertIsInstance(provider, DecisionsProvider)
         with self.assertRaises(ProviderError) as caught:
             provider.require_available()

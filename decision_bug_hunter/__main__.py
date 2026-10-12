@@ -19,21 +19,37 @@ from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
 from .handoff import compact_report, format_handoff
 from .protocol import (ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES, POLICY_PLACEMENTS,
                        DEFAULT_POLICY_PLACEMENT)
-from .providers import (ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
+from .providers import (ALL_ROUTES, RetryPolicy, ValidatedGateway, validate_call_deadline,
                         validate_max_cost)
 from . import providers
 from .decisions import (CREDENTIAL_VARIABLE, ORGANIZATION_VARIABLE, PROJECT_VARIABLE,
                         DecisionsProvider)
+from .foundry import (API_KEY_VARIABLE as FOUNDRY_API_KEY_VARIABLE, AUTH_MODES,
+                      DEPLOYMENT_VARIABLE as FOUNDRY_DEPLOYMENT_VARIABLE,
+                      ENDPOINT_VARIABLE as FOUNDRY_ENDPOINT_VARIABLE,
+                      TOKEN_VARIABLE as FOUNDRY_TOKEN_VARIABLE)
 from .hosted import CREDENTIAL_VARIABLES
+from .judges import JUDGE_CHOICES, JUDGES, judge_route
 from .openrouter import (CREDENTIAL_VARIABLE as OPENROUTER_CREDENTIAL_VARIABLE,
                          DEFAULT_ROUTING, ROUTING_CHOICES)
 from .repository import CACHEDIR_SIGNATURE, ProjectIndex
 from . import secret_scan
 
+#: Explicit judge selection; never implied by the route or by which key is set.
+JUDGE_VARIABLE = "DBH_JUDGE"
 #: Explicit route selection; never inferred from which key happens to be set.
 PROVIDER_VARIABLE = "DBH_PROVIDER"
-PROVIDER_CHOICES = tuple(ROUTES)
+PROVIDER_CHOICES = tuple(ALL_ROUTES)
 _CREDENTIALS = {"openai": CREDENTIAL_VARIABLE, "openrouter": OPENROUTER_CREDENTIAL_VARIABLE}
+#: The key variables each route reads, for the NEED_USER_INPUT provider hint.
+_ROUTE_VARIABLES = {"openai": (CREDENTIAL_VARIABLE,),
+                    "openrouter": (OPENROUTER_CREDENTIAL_VARIABLE,),
+                    "foundry": (FOUNDRY_API_KEY_VARIABLE, FOUNDRY_TOKEN_VARIABLE)}
+_FOUNDRY_VARIABLES = {"api-key": FOUNDRY_API_KEY_VARIABLE,
+                      "entra-token": FOUNDRY_TOKEN_VARIABLE}
+JUDGE_CHOICE_HINT = (
+    "openai (OpenAI Decisions gpt-6-luna; routes openai | openrouter) | "
+    "microsoft (Microsoft-Decision-1; routes openrouter | foundry)")
 ACCOUNT_DEFAULT_DISCLOSURE = (
     "OpenRouter routing: account default. The request carries no data_collection "
     "deny and no fallback restriction; your OpenRouter account settings decide "
@@ -180,13 +196,34 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--no-whole-file", action="store_true")
     result.add_argument("--output-dir", type=Path,
                         default=Path("dbh_runs"))
+    result.add_argument("--judge", choices=JUDGE_CHOICES, default=None,
+                        help="Required decision model: openai (OpenAI Decisions gpt-6-luna; "
+                             "routes openai | openrouter) or microsoft (Microsoft-Decision-1, "
+                             "experimental; routes openrouter | foundry); "
+                             f"or set {JUDGE_VARIABLE}. Never inferred.")
     result.add_argument("--provider", choices=PROVIDER_CHOICES, default=None,
-                        help="Required route: openai (OPENAI_API_KEY, api.openai.com) or "
-                             "openrouter (OPENROUTER_API_KEY, openrouter.ai); "
-                             f"or set {PROVIDER_VARIABLE}. Never inferred.")
+                        help="Required route of the judge: openai (OPENAI_API_KEY, "
+                             "api.openai.com), openrouter (OPENROUTER_API_KEY, openrouter.ai) "
+                             "or foundry (Microsoft Foundry, Microsoft judge only; "
+                             f"{FOUNDRY_API_KEY_VARIABLE} or {FOUNDRY_TOKEN_VARIABLE}; not yet "
+                             f"verified live); or set {PROVIDER_VARIABLE}. Never inferred.")
     result.add_argument("--model", default=None,
-                        help="Allow-listed model id for the route (default: gpt-6-luna "
-                             "for openai, openai/gpt-6-luna-decisions for openrouter).")
+                        help="Allow-listed model id for the judge's route (default: gpt-6-luna "
+                             "for openai, openai/gpt-6-luna-decisions or "
+                             "microsoft/microsoft-decision-1 for openrouter, by judge). Not "
+                             "used with foundry: the deployment names the model there.")
+    result.add_argument("--foundry-endpoint", default=None, metavar="URL",
+                        help="Microsoft Foundry resource endpoint, https://<resource>."
+                             "services.ai.azure.com (foundry only; or set "
+                             f"{FOUNDRY_ENDPOINT_VARIABLE}). Not yet verified live.")
+    result.add_argument("--foundry-deployment", default=None, metavar="NAME",
+                        help="Microsoft Foundry deployment name, sent as the model (foundry "
+                             f"only; or set {FOUNDRY_DEPLOYMENT_VARIABLE}). Not yet verified "
+                             "live.")
+    result.add_argument("--foundry-auth", choices=AUTH_MODES, default=None,
+                        help=f"Foundry credential: api-key ({FOUNDRY_API_KEY_VARIABLE}) or "
+                             f"entra-token ({FOUNDRY_TOKEN_VARIABLE}, a pre-acquired token that "
+                             "DBH never refreshes). Needed only when both variables are set.")
     result.add_argument("--openrouter-routing", choices=ROUTING_CHOICES,
                         default=DEFAULT_ROUTING,
                         help="deny (default) sends allow_fallbacks false and "
@@ -259,10 +296,15 @@ def make_output_parent(parent: Path) -> bool:
     return True
 
 
-def failure(code: str, provider: str | None = None) -> int:
+def failure(code: str, provider: str | None = None, judge: str | None = None,
+            auth: str | None = None) -> int:
     print(f"Scan failed ({code}).", file=sys.stderr)
     if code == "provider_unavailable":
-        if provider in _CREDENTIALS:
+        if provider == "foundry":
+            print(f"Set {FOUNDRY_API_KEY_VARIABLE} (--foundry-auth api-key) or "
+                  f"{FOUNDRY_TOKEN_VARIABLE} (--foundry-auth entra-token) in the "
+                  "environment to enable the foundry route; see README.md.", file=sys.stderr)
+        elif provider in _CREDENTIALS:
             print(f"Set {_CREDENTIALS[provider]} in the environment to enable the "
                   f"{provider} route; see README.md.", file=sys.stderr)
         else:
@@ -270,9 +312,20 @@ def failure(code: str, provider: str | None = None) -> int:
                   f"{OPENROUTER_CREDENTIAL_VARIABLE} (--provider openrouter) in the "
                   "environment; see README.md.", file=sys.stderr)
     elif code == "invalid_provider":
+        # The value is never echoed; the routes are those of the chosen judge.
+        print(f"{PROVIDER_VARIABLE} must be one of: "
+              f"{', '.join(judge_selectors(judge))}.", file=sys.stderr)
+    elif code == "invalid_judge":
         # The value is never echoed.
-        print(f"{PROVIDER_VARIABLE} must be one of: {', '.join(PROVIDER_CHOICES)}.",
+        print(f"{JUDGE_VARIABLE} must be one of: {', '.join(JUDGE_CHOICES)}.",
               file=sys.stderr)
+    elif code == "endpoint_invalid":
+        # The value is never echoed: it names the owner's resource.
+        print("The Foundry endpoint must be https://<resource>.services.ai.azure.com "
+              "(or .cognitiveservices.azure.com or .openai.azure.com) with no path, "
+              "query or port; see README.md.", file=sys.stderr)
+    elif code == "http_unauthorized" and auth == "entra-token":
+        print(unauthorized_hint(), file=sys.stderr)
     elif code == "secret_detected":
         print("Remove the credential-shaped text, or pass --allow-secrets if it is "
               "not a live credential; nothing was sent.", file=sys.stderr)
@@ -283,14 +336,65 @@ def failure(code: str, provider: str | None = None) -> int:
     return 2
 
 
+def unauthorized_hint() -> str:
+    """What to do when a pre-acquired Entra token was refused (it may have expired)."""
+    return (f"The {FOUNDRY_TOKEN_VARIABLE} token was refused; it may have expired. "
+            "DBH never refreshes it: acquire a new one and run again.")
+
+
 def need_user_input(field: str, hint: str) -> int:
     """Machine-readable scope contract for human and AI callers."""
     print(f"NEED_USER_INPUT {field}: {hint}", file=sys.stderr)
     return 3
 
 
+class JudgeChoiceNeeded(Exception):
+    """No judge was selected; the caller must choose the decision model."""
+
+
 class ProviderChoiceNeeded(Exception):
     """No route was selected; the caller must choose the data processor."""
+
+
+class JudgeRouteMismatch(Exception):
+    """The route is not one of the selected judge's routes."""
+
+
+class FoundryInputNeeded(Exception):
+    """A Foundry setting the caller must supply: its field name and a hint."""
+
+    def __init__(self, field: str, hint: str) -> None:
+        super().__init__(field)
+        self.field = field
+        self.hint = hint
+
+
+def judge_selectors(judge: str | None) -> tuple[str, ...]:
+    """The ``--provider`` values of *judge*; every route when no judge is known."""
+    if judge is None or judge not in JUDGES:
+        return PROVIDER_CHOICES
+    return tuple(route.selector for route in JUDGES[judge].routes)
+
+
+def selected_judge(args: argparse.Namespace,
+                   environ: dict[str, str] | None = None) -> str:
+    """``--judge``, else ``DBH_JUDGE``; never inferred from the route or a key.
+
+    An unknown ``DBH_JUDGE`` raises ``invalid_judge`` (the value is never
+    echoed); neither source raises ``JudgeChoiceNeeded``. The flag wins.
+    """
+    choice = getattr(args, "judge", None)
+    if choice is not None:
+        if type(choice) is not str or choice not in JUDGE_CHOICES:
+            raise ProviderError("invalid_judge")
+        return choice
+    env = os.environ if environ is None else environ
+    value = env.get(JUDGE_VARIABLE, "")
+    if not value:
+        raise JudgeChoiceNeeded()
+    if value not in JUDGE_CHOICES:
+        raise ProviderError("invalid_judge")
+    return value
 
 
 def selected_provider(args: argparse.Namespace,
@@ -314,27 +418,95 @@ def selected_provider(args: argparse.Namespace,
     return value
 
 
-def provider_choice_hint(environ: dict[str, str] | None = None) -> str:
-    """Route names and the names (never values) of credential variables set."""
+def provider_choice_hint(environ: dict[str, str] | None = None,
+                         judge: str = "openai") -> str:
+    """The judge's route names and the names (never values) of the key
+    variables of those routes that are set."""
     env = os.environ if environ is None else environ
-    present = [name for name in CREDENTIAL_VARIABLES if env.get(name)]
-    return " | ".join(PROVIDER_CHOICES) + f" (set: {', '.join(present) or 'none'})"
+    selectors = judge_selectors(judge)
+    names = {name for selector in selectors for name in _ROUTE_VARIABLES[selector]}
+    present = [name for name in CREDENTIAL_VARIABLES if name in names and env.get(name)]
+    return " | ".join(selectors) + f" (set: {', '.join(present) or 'none'})"
+
+
+def route_mismatch_hint(judge: str) -> str:
+    return f"{judge} routes: {' | '.join(judge_selectors(judge))}"
+
+
+def judge_of_provider(provider: object) -> str | None:
+    """The judge a provider serves, from its model spec; None for a custom one."""
+    judge = getattr(getattr(provider, "model_spec", None), "judge", None)
+    return judge if type(judge) is str and judge in JUDGES else None
+
+
+def foundry_provider(args: argparse.Namespace, judge: str, model: str | None,
+                     pool: dict[str, int]) -> providers.DecisionProvider:
+    """The Foundry provider (Microsoft judge): endpoint, deployment and auth
+    from the flags, else the environment; a missing one is NEED_USER_INPUT.
+
+    The endpoint and the credentials are never printed or journaled.
+    """
+    if (model is not None
+            or getattr(args, "openrouter_routing", DEFAULT_ROUTING) != DEFAULT_ROUTING
+            or getattr(args, "openrouter_zdr", False)):
+        # The deployment names the model; OpenRouter options never apply here.
+        raise ProviderError("invalid_request")
+    endpoint = (getattr(args, "foundry_endpoint", None)
+                or os.environ.get(FOUNDRY_ENDPOINT_VARIABLE, ""))
+    if not endpoint:
+        raise FoundryInputNeeded(
+            "foundry_endpoint", f"provide --foundry-endpoint or {FOUNDRY_ENDPOINT_VARIABLE} "
+            "(https://<resource>.services.ai.azure.com)")
+    deployment = (getattr(args, "foundry_deployment", None)
+                  or os.environ.get(FOUNDRY_DEPLOYMENT_VARIABLE, ""))
+    if not deployment:
+        raise FoundryInputNeeded(
+            "foundry_deployment",
+            f"provide --foundry-deployment or {FOUNDRY_DEPLOYMENT_VARIABLE}")
+    auth = getattr(args, "foundry_auth", None)
+    has_key = bool(os.environ.get(FOUNDRY_API_KEY_VARIABLE))
+    has_token = bool(os.environ.get(FOUNDRY_TOKEN_VARIABLE))
+    if auth is None and has_key and has_token:
+        raise FoundryInputNeeded(
+            "foundry_auth", "provide --foundry-auth api-key | entra-token "
+            f"({FOUNDRY_API_KEY_VARIABLE} and {FOUNDRY_TOKEN_VARIABLE} are both set)")
+    args.selected_auth = auth or ("entra-token" if has_token and not has_key else "api-key")
+    return providers.make_provider(
+        "foundry", judge=judge, foundry_endpoint=endpoint, foundry_deployment=deployment,
+        foundry_auth=auth,
+        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT),
+        **pool)
 
 
 def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
     """The provider for this run; the single construction point tests replace.
 
-    Selection is explicit (``--provider`` or ``DBH_PROVIDER``); ``--model``
-    is checked against the route's allow-list. Construction reads the
-    environment once and never touches the network. With ``--concurrency N``
-    above 1 the provider may hold N exchanges at once; at 1 it is built as
-    it always was.
+    Selection is explicit and ordered: the judge (``--judge`` or
+    ``DBH_JUDGE``), then the route (``--provider`` or ``DBH_PROVIDER``), then
+    that the route belongs to the judge, then ``--model`` against the pair's
+    allow-list, then the route's own options. Every check precedes any read of
+    the source and any output. Construction reads the environment once and
+    never touches the network. With ``--concurrency N`` above 1 the provider
+    may hold N exchanges at once; at 1 it is built as it always was.
     """
+    judge = selected_judge(args)
+    args.selected_judge = judge
     route = selected_provider(args)
     args.selected_provider = route
+    try:
+        judge_route(judge, route)
+    except ProviderError:
+        raise JudgeRouteMismatch() from None
     model = getattr(args, "model", None)
     concurrency = getattr(args, "concurrency", 1)
     pool = {} if concurrency == 1 else {"max_connections": concurrency}
+    if route != "foundry" and any(
+            getattr(args, name, None) is not None
+            for name in ("foundry_endpoint", "foundry_deployment", "foundry_auth")):
+        # Foundry settings never silently apply to another route.
+        raise ProviderError("invalid_request")
+    if route == "foundry":
+        return foundry_provider(args, judge, model, pool)
     if route == "openai":
         if (getattr(args, "openrouter_routing", DEFAULT_ROUTING) != DEFAULT_ROUTING
                 or getattr(args, "openrouter_zdr", False)):
@@ -343,9 +515,9 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
         if model is None:
             # The documented construction, kept as the patchable name.
             return DecisionsProvider(**pool)
-        return providers.make_provider("openai", model=model, **pool)
+        return providers.make_provider("openai", model=model, judge=judge, **pool)
     return providers.make_provider(
-        "openrouter", model=model,
+        "openrouter", model=model, judge=judge,
         routing=getattr(args, "openrouter_routing", DEFAULT_ROUTING),
         zdr=bool(getattr(args, "openrouter_zdr", False)),
         policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT),
@@ -441,13 +613,23 @@ def execute(args: argparse.Namespace) -> int:
     # Validated before any output directory exists, never after mkdtemp.
     call_deadline = validate_call_deadline(args.deadline_seconds)
     max_cost = validate_max_cost(getattr(args, "max_cost", None))
-    # The route is the caller's explicit choice of data processor; it and
-    # availability are checked before source reads, indexing, or output writes.
+    # The judge and the route are the caller's explicit choices of decision
+    # model and data processor; they and availability are checked before source
+    # reads, indexing, or output writes.
     try:
         provider = make_provider(args)
+    except JudgeChoiceNeeded:
+        return need_user_input("judge", JUDGE_CHOICE_HINT)
     except ProviderChoiceNeeded:
-        return need_user_input("provider", provider_choice_hint())
+        return need_user_input(
+            "provider", provider_choice_hint(judge=getattr(args, "selected_judge", "openai")))
+    except JudgeRouteMismatch:
+        return need_user_input(
+            "judge_route", route_mismatch_hint(getattr(args, "selected_judge", "openai")))
+    except FoundryInputNeeded as needed:
+        return need_user_input(needed.field, needed.hint)
     provider.require_available()
+    judge = judge_of_provider(provider)
     if getattr(provider, "routing", None) == "account-default":
         print(ACCOUNT_DEFAULT_DISCLOSURE, file=sys.stderr)
     source = Source.read(args.file, encoding=args.encoding)
@@ -480,6 +662,10 @@ def execute(args: argparse.Namespace) -> int:
         *([item for entry in project.entries for item in
            (entry.relpath, "\n".join(entry.source.lines))] if project else []),
     )
+    # Every selection, option and input check has passed: the run starts.
+    notice = None if judge is None else JUDGES[judge].notice
+    if notice is not None:
+        print(notice, file=sys.stderr)
     if make_output_parent(parent):
         mark_output_directory(parent)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
@@ -557,6 +743,9 @@ def execute(args: argparse.Namespace) -> int:
         # A fixed DBH code; never a provider message.
         print(f"Provider stopped ({result['stop_reason']}); remaining work was not sent.",
               file=sys.stderr)
+        if (result["stop_reason"] == "http_unauthorized"
+                and getattr(provider, "auth", None) == "entra-token"):
+            print(unauthorized_hint(), file=sys.stderr)
     spend = result.get("spend")
     if isinstance(spend, dict) and spend.get("upper_bound_usd") is not None:
         print(f"Spend (USD): provider-reported {spend['provider_reported_usd']}, "
@@ -577,9 +766,11 @@ def execute(args: argparse.Namespace) -> int:
     if "unverified_suspicions" in result:
         withheld = (f" ({len(result['unverified_suspicions'])} unverified suspicion(s) "
                     "withheld by --require-verification)")
+    # Named only for a judge other than OpenAI: absent means OpenAI.
+    judged = f" (judge {judge})" if judge not in (None, "openai") else ""
     print(
         f"Scan {status}; {count} suspected region(s){withheld}; {attempted} call(s) "
-        f"attempted; {assessed}/{len(source.lines)} source lines assessed.",
+        f"attempted; {assessed}/{len(source.lines)} source lines assessed{judged}.",
         file=sys.stderr,
     )
     if not complete:
@@ -593,7 +784,9 @@ def main(argv: list[str] | None = None) -> int:
         return execute(args)
     except ProviderError as error:
         return failure(error.code, getattr(args, "selected_provider", None)
-                       or getattr(args, "provider", None))
+                       or getattr(args, "provider", None),
+                       getattr(args, "selected_judge", None),
+                       getattr(args, "selected_auth", None))
     except (UnicodeError, LookupError):
         return failure("input_encoding_error")
     except OSError:

@@ -18,9 +18,9 @@ from decision_bug_hunter import questions as _questions
 KEY = "offline-synthetic-key-not-a-real-credential"
 
 #: Exact names removed by ``clean_provider_env`` besides the prefix rules.
-PROVIDER_VARIABLES = ("DBH_PROVIDER", "SSLKEYLOGFILE", "HTTP_PROXY", "HTTPS_PROXY",
-                      "ALL_PROXY", "NO_PROXY")
-PROVIDER_PREFIXES = ("OPENAI_", "OPENROUTER_")
+PROVIDER_VARIABLES = ("DBH_JUDGE", "DBH_PROVIDER", "AZURE_ENTRA_TOKEN", "SSLKEYLOGFILE",
+                      "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
+PROVIDER_PREFIXES = ("OPENAI_", "OPENROUTER_", "DBH_FOUNDRY_")
 
 
 def is_provider_variable(name):
@@ -33,8 +33,9 @@ def is_provider_variable(name):
 def clean_provider_env(*also_remove: str, **values: str) -> Iterator[None]:
     """Scrub every provider, credential, proxy and TLS key-log variable.
 
-    Removes ``*_API_KEY``, ``OPENAI_*``, ``OPENROUTER_*``, ``DBH_PROVIDER``,
-    ``SSLKEYLOGFILE`` and the proxy variables (any case), plus ``also_remove``;
+    Removes ``*_API_KEY``, ``OPENAI_*``, ``OPENROUTER_*``, ``DBH_FOUNDRY_*``,
+    ``DBH_JUDGE``, ``DBH_PROVIDER``, ``AZURE_ENTRA_TOKEN``, ``SSLKEYLOGFILE`` and
+    the proxy variables (any case), plus ``also_remove``;
     then sets ``values``. The original environment is restored on exit.
     """
     drop = {name.upper() for name in also_remove}

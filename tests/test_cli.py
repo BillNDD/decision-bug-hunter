@@ -397,7 +397,8 @@ class CliTests(unittest.TestCase):
                 self.assertIn(needle, flag)
 
     def test_the_provider_holds_a_pool_of_exchanges_only_above_one(self):
-        base = [str(self.source), "--scope", "standalone", "--provider", "openrouter"]
+        base = [str(self.source), "--scope", "standalone", "--judge", "openai",
+                "--provider", "openrouter"]
         with clean_provider_env(OPENROUTER_API_KEY="offline-synthetic-key-not-real"):
             plain_args = cli.parser().parse_args(base)
             self.assertIsNone(REAL_MAKE_PROVIDER(plain_args)._pool)
@@ -407,7 +408,8 @@ class CliTests(unittest.TestCase):
             pooled.close()
 
     def test_the_openai_provider_holds_a_pool_only_above_one(self):
-        base = [str(self.source), "--scope", "standalone", "--provider", "openai"]
+        base = [str(self.source), "--scope", "standalone", "--judge", "openai",
+                "--provider", "openai"]
         # Without --model the documented bare construction is used; with it the
         # library factory is. Both reach a provider that pools only above one.
         for extra in ([], ["--model", "gpt-6-luna"]):

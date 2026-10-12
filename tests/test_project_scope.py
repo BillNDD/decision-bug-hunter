@@ -70,7 +70,7 @@ class TestScopeContract(unittest.TestCase):
                  ('--scope', 'project', '--project-root', str(self.root))]
         for extra in cases:
             with self.subTest(extra=extra):
-                code, err = self.run_main(*extra, '--provider', 'openai')
+                code, err = self.run_main(*extra, '--judge', 'openai', '--provider', 'openai')
                 self.assertNotIn('NEED_USER_INPUT', err)
                 self.assertNotIn('conflicting_options', err)
                 self.assertEqual(code, 2)

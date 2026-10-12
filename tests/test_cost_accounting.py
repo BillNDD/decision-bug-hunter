@@ -466,9 +466,9 @@ class CliBudgetTests(unittest.TestCase):
         with clean_provider_env(), patch.object(cli, "make_provider", return_value=provider), \
                 redirect_stdout(stdout), redirect_stderr(stderr):
             try:
-                code = cli.main([str(self.target), "--scope", "isolate", "--provider",
-                                 "openrouter", "--output-dir", str(out), "--max-calls", "1000",
-                                 *flags])
+                code = cli.main([str(self.target), "--scope", "isolate", "--judge",
+                                 "openai", "--provider", "openrouter", "--output-dir", str(out),
+                                 "--max-calls", "1000", *flags])
             except SystemExit as exc:
                 code = exc.code
         runs = sorted(out.glob("run-*")) if out.exists() else []

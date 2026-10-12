@@ -574,7 +574,7 @@ class AvailabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, clean_provider_env(), no_network(), \
                 redirect_stdout(out), redirect_stderr(err):
             code = cli.main(["secret-target-name", "--scope", "standalone",
-                             "--provider", "openai",
+                             "--judge", "openai", "--provider", "openai",
                              "--output-dir", str(Path(td) / "outputs")])
             self.assertFalse((Path(td) / "outputs").exists())
         self.assertEqual((code, out.getvalue()), (2, ""))
@@ -649,9 +649,9 @@ class EndToEndCliTests(unittest.TestCase):
             with patch.dict(os.environ, {"OPENAI_API_KEY": KEY}), \
                     patch.object(cli, "make_provider", side_effect=make_provider), \
                     no_network(), redirect_stdout(out), redirect_stderr(err):
-                code = cli.main([str(target), "--scope", "standalone", "--provider", "openai",
-                                 "--output-dir", str(root / "runs"), "--no-whole-file",
-                                 "--no-bug-lenses", "--max-action-steps", "0"])
+                code = cli.main([str(target), "--scope", "standalone", "--judge", "openai",
+                                 "--provider", "openai", "--output-dir", str(root / "runs"),
+                                 "--no-whole-file", "--no-bug-lenses", "--max-action-steps", "0"])
             self.assertEqual(code, 1, err.getvalue())
             # Back-to-back calls share one kept-alive connection.
             self.assertEqual(len(service.connects), 1)

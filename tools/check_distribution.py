@@ -35,7 +35,9 @@ CATALOG_ATTRIBUTION = ("Copyright (c)", "MIT")
 def run(argv, cwd, *, expected=0, timeout=120):
     env = dict(os.environ)
     for name in ("PYTHONPATH", "PYTHONSAFEPATH", "OPENAI_API_KEY", "OPENAI_ORG_ID",
-                 "OPENAI_PROJECT_ID", "OPENROUTER_API_KEY", "DBH_PROVIDER"):
+                 "OPENAI_PROJECT_ID", "OPENROUTER_API_KEY", "DBH_PROVIDER", "DBH_JUDGE",
+                 "AZURE_API_KEY", "AZURE_ENTRA_TOKEN", "DBH_FOUNDRY_ENDPOINT",
+                 "DBH_FOUNDRY_DEPLOYMENT"):
         env.pop(name, None)
     result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True,
                             timeout=timeout)
@@ -127,15 +129,21 @@ def main():
         scan = [str(python), "-I", "-m", "decision_bug_hunter", "absent-source.py",
                 "--scope", "standalone", "--output-dir", "outputs"]
         for provider in ("openai", "openrouter"):
-            failed = run(scan + ["--provider", provider], root, expected=2)
+            failed = run(scan + ["--judge", "openai", "--provider", provider], root, expected=2)
             if ("provider_unavailable" not in failed.stderr or failed.stdout
                     or (root / "outputs").exists()):
                 raise RuntimeError("installed_provider_gate_failed")
         # No route selected: the caller must choose the data processor.
-        unselected = run(scan, root, expected=3)
+        unselected = run(scan + ["--judge", "openai"], root, expected=3)
         if ("NEED_USER_INPUT provider" not in unselected.stderr or unselected.stdout
                 or (root / "outputs").exists()):
             raise RuntimeError("installed_provider_selection_gate_failed")
+        # No judge selected: the caller must choose the decision model.
+        for extra in ([], ["--provider", "openai"]):
+            unjudged = run(scan + extra, root, expected=3)
+            if ("NEED_USER_INPUT judge" not in unjudged.stderr or unjudged.stdout
+                    or (root / "outputs").exists()):
+                raise RuntimeError("installed_judge_selection_gate_failed")
         # The sdist's own offline suite must pass from the unpacked sdist,
         # importing the package from that tree (not the installed wheel).
         located = run([str(python), "-c", "import decision_bug_hunter as p; print(p.__file__)"],
@@ -149,7 +157,7 @@ def main():
             print("\n".join(suite.stderr.splitlines()[-60:]), file=sys.stderr)
             raise RuntimeError("sdist_test_suite_failed")
     print("Distribution: wheel contents, sdist contents, fresh install, resource import, "
-          "CLI help, provider selection and unavailable gates, and the sdist test suite "
+          "CLI help, judge and provider selection and unavailable gates, and the sdist test suite "
           "passed.")
 
 

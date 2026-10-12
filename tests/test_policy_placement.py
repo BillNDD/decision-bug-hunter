@@ -506,12 +506,13 @@ class GeometryTests(unittest.TestCase):
                     ([], "instructions", (64, 24576)),
                     (["--policy-placement", "state"], "state", (200, 49152))):
                 with self.subTest(argv=argv):
-                    args = cli.parser().parse_args(["target.py", "--provider", "openrouter",
-                                                    *argv])
+                    args = cli.parser().parse_args(["target.py", "--judge", "openai",
+                                                    "--provider", "openrouter", *argv])
                     self.assertEqual(args.policy_placement, placement)
                     provider = cli.make_provider(args)
                     self.assertEqual(provider.request_limits, limits)
-            args = cli.parser().parse_args(["target.py", "--provider", "openai",
+            args = cli.parser().parse_args(["target.py", "--judge", "openai",
+                                            "--provider", "openai",
                                             "--policy-placement", "state"])
             self.assertEqual(cli.make_provider(args).request_limits, (64, 24576))
 

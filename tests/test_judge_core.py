@@ -115,6 +115,13 @@ class RegistryTests(unittest.TestCase):
         for judge, spec in JUDGES.items():
             self.assertEqual(spec.id, judge)
 
+    def test_only_the_microsoft_judge_carries_a_notice(self):
+        self.assertIsNone(JUDGES["openai"].notice)
+        self.assertEqual(
+            JUDGES["microsoft"].notice,
+            "Note: Microsoft-Decision-1 support is experimental: in DBH's validation it "
+            "finds fewer bugs than OpenAI Decisions (README: Choosing a judge).")
+
     def test_judge_route_pairs_only_registered_routes(self):
         self.assertEqual(judge_route("openai", "openai").model, "gpt-6-luna")
         self.assertEqual(judge_route("openai", "openrouter").model, LUNA)

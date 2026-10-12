@@ -44,6 +44,9 @@ class JudgeSpec:
     id: str
     title: str
     routes: tuple[JudgeRoute, ...]
+    #: One line the command line prints to stderr, once, before a run with this
+    #: judge starts; None for a judge that needs no notice.
+    notice: str | None = None
 
 
 JUDGES = {
@@ -56,7 +59,9 @@ JUDGES = {
         "microsoft", "Microsoft-Decision-1",
         (JudgeRoute("openrouter", "openrouter-decisions", "microsoft/microsoft-decision-1",
                     True),
-         JudgeRoute("foundry", "foundry-decisions", None, False))),
+         JudgeRoute("foundry", "foundry-decisions", None, False)),
+        notice=("Note: Microsoft-Decision-1 support is experimental: in DBH's validation it "
+                "finds fewer bugs than OpenAI Decisions (README: Choosing a judge).")),
 }
 JUDGE_CHOICES = ("openai", "microsoft")
 

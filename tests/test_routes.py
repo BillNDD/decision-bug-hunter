@@ -109,7 +109,8 @@ class SelectionTests(unittest.TestCase):
         self.addCleanup(self.reader.stop)
 
     def argv(self, *extra):
-        return [str(self.target), "--scope", "standalone", "--output-dir", str(self.out), *extra]
+        return [str(self.target), "--scope", "standalone", "--judge", "openai",
+                "--output-dir", str(self.out), *extra]
 
     def test_provider_required_need_user_input_lists_variable_names(self):
         code, out, err = run_cli(self.argv(), OPENROUTER_API_KEY=OTHER)
@@ -541,7 +542,7 @@ class CliRouteTests(unittest.TestCase):
                 "--openrouter-routing", "account-default", "--output-dir",
                 str(self.root / "runs"), *FAST]
         with served_by(service):
-            code, out, err = run_cli(argv, OPENROUTER_API_KEY=KEY)
+            code, out, err = run_cli(argv, OPENROUTER_API_KEY=KEY, DBH_JUDGE="openai")
         self.assertEqual(code, 1, err)
         self.assertEqual(err.count("OpenRouter routing: account default."), 1)
         self.assertTrue(service.bodies)
@@ -553,7 +554,8 @@ class CliRouteTests(unittest.TestCase):
         # The default sends the deny object and prints no disclosure.
         service = FakeOpenRouterService(FixtureProvider([(2, 2)]))
         with served_by(service):
-            code, _, err = run_cli(argv[:5] + argv[7:], OPENROUTER_API_KEY=KEY)
+            code, _, err = run_cli(argv[:5] + argv[7:], OPENROUTER_API_KEY=KEY,
+                                   DBH_JUDGE="openai")
         self.assertEqual(code, 1, err)
         self.assertNotIn("account default", err)
         for body in service.bodies:
@@ -567,7 +569,7 @@ class CliRouteTests(unittest.TestCase):
                 "--output-dir", str(self.root / "runs"), *FAST]
         with served_by(service):
             code, out, err = run_cli(argv, OPENAI_API_KEY=KEY, OPENAI_ORG_ID=org,
-                                     OPENAI_PROJECT_ID=project)
+                                     OPENAI_PROJECT_ID=project, DBH_JUDGE="openai")
         self.assertEqual(code, 1, err)
         for request in service.headers:
             self.assertEqual(request.header("OpenAI-Organization"), org)
