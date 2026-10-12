@@ -36,6 +36,15 @@ codes, and that no message, metadata value or identifier survived
 `tools/smoke/sanitize.py`. The mass-gate tests also run on an observed
 212-option vector in the sdist.
 
+The Foundry fixtures under `tests/fixtures/foundry/` are not observed
+responses: they are written from Microsoft's documentation of
+Microsoft-Decision-1 in Microsoft Foundry (updated 2026-10-09), with
+full-precision probabilities, the two documented usage spellings and one
+unrecognized usage shape. The Tile Sieve fixtures under
+`tests/fixtures/tile_sieve/` are recorded decisions of the OpenAI judge from
+the pilot study and the planned requests of the catalog; the engine tests
+replay them offline, without a socket.
+
 ## Live runs
 
 Live runs used both routes with operator keys that have a credit cap, read
@@ -336,8 +345,152 @@ suite's evidence; the other options stay opt-in. A default that moves
 findings would ideally rest on held-out labeled evidence, and this suite is
 neither held out nor large.
 
+## Microsoft-Decision-1 and Tile Sieve
+
+Live runs of the second judge and of the whole-file search, all through the
+shipped CLI (`tools/eval/run_catalog.py`) on 2026-10-12 with the shipped
+defaults, `data_collection: deny` on OpenRouter and operator keys with a credit
+cap read from the environment. OpenRouter reports each request's cost
+(input tokens x the model's listed price). OpenAI direct reports none, so its
+cost is the list-price estimate (input tokens x $0.0000001); the catalog
+runner's first summary of that run read $0 for this reason, and the figures
+here are the reports' own spend.
+
+| Date (UTC) | Run | Requests | Input tokens | Cost |
+|---|---|---:|---:|---:|
+| 2026-10-12 | Microsoft-Decision-1, `legacy-v1`, 34-case catalog, OpenRouter | 182 | 254,661 | $0.0107 |
+| 2026-10-12 | OpenAI Decisions, `tile-sieve-beta`, 34-case catalog, OpenAI direct | 53 | 153,561 | about $0.0154 (estimated) |
+| 2026-10-12 | OpenAI Decisions, `tile-sieve-beta`, 34-case catalog, OpenRouter | 52 | 148,640 | $0.0149 |
+
+The three catalog runs cost about $0.041 in all. The Microsoft tuning study
+below cost another $0.2143 of a $0.40 cap.
+
+### Microsoft-Decision-1 on OpenRouter
+
+What a live probe on 2026-10-11 and the catalog run showed:
+
+- The endpoint (`/api/alpha/decisions`), the request shape and the response
+  shape are those of `openai/gpt-6-luna-decisions`. The model id is
+  `microsoft/microsoft-decision-1` and the response names
+  `microsoft/microsoft-decision-1-20261009`, which the dated-suffix rule
+  accepts. `usage` has `input_tokens`, `output_tokens` and `cost`. The
+  routing object `{"allow_fallbacks":false,"data_collection":"deny"}` is
+  accepted, and the upstream was Azure on every one of the 1,225 Microsoft
+  receipts recorded on 2026-10-11.
+- Probabilities are full-precision floats, and identical requests differ by
+  about 10^-10. A choice answer's confidence follows the chance-normalized
+  identity: in the catalog run all 94 choice answers were checked and none
+  violated it, none had an answer defect or a displayed argmax that differed
+  from its choice, and all 182 requests passed their judge controls.
+- Answers arrived in a different order than the questions on 171 of the 182
+  requests of the catalog run (reports count it as
+  `provenance.answer_order_mismatch`); they are matched by name.
+- Latency depends on concurrency: a 24 KB request had a median of 1.70 s with 8
+  requests in flight and 0.59 s with 2 (2026-10-11), hence the advice to use
+  `--concurrency 2`.
+
+The 34-case catalog under `legacy-v1`, Microsoft-Decision-1 against OpenAI
+Decisions on the same route and on OpenAI direct (the OpenAI columns are the
+shipped-defaults runs above):
+
+| Outcome | Microsoft-Decision-1 | OpenAI Decisions, OpenRouter | OpenAI Decisions, direct |
+|---|---:|---:|---:|
+| Defective programs detected | 13/16 | 15/16 | 16/16 |
+| Individual defects covered | 14/17 | 16/17 | 17/17 |
+| Corrected controls clear | 14/16 | 16/16 | 16/16 |
+| Missing evidence incomplete | 1/2 | 1/2 | 0/2 |
+| Entire cases | 28/34 | 32/34 | 32/34 |
+| Calls | 182 | 214 | 211 |
+| Input tokens | 254,661 | 449,566 | 445,685 |
+| Cost | $0.0107 | $0.0450 | about $0.0446 (estimated) |
+
+The strict score (requirement citations) equaled the location score, 28/34.
+Microsoft-Decision-1 missed the defects in three programs (cases C009, C027
+and the 70-line C029, which took 36 calls), flagged two corrected programs
+(C008 and C026) and reported the missing-helper project case (C034) as
+complete. A research-harness run the day before gave 27 of 34 (12 of 16
+defective programs, 14 of 16 clean files).
+This is one run on a development catalog that is not held out (n = 34), and
+the thresholds are OpenAI's, not re-fitted.
+
+### Microsoft tuning study
+
+Between 2026-10-11 and 2026-10-12 a research harness, which is not part of
+this repository, tried to bring Microsoft-Decision-1 to the bar DBH sets for a
+judge, so that it could be offered with Tile Sieve as well. The results:
+
+- Judge controls: they passed on 85 of 86 checks, which was accepted, and a
+  drift check passed.
+- Screening request formats: six were compared (a control and five variants).
+  The best combination cut request bytes by 40% with a change in the
+  screening AUC within noise. Window size was not a limiter: leaf AUC was
+  0.55, 0.59 and 0.63 for windows of 16, 48 and 144 lines.
+- Verification (focus) formats: three were compared. None won; the best
+  pooled AUC was 0.60 against a bar of 0.65.
+- Held-out screening gate: it failed. A clean file produced 0.80 to 0.93 false
+  clusters on average (the bar was at most 0.65), and 25 to 35% of the looks
+  at a planted bug flagged it (the bar was at least 30%).
+- A 40-case development set: Tile Sieve scored 21 to 23 of 40 and
+  `legacy-v1` 16 to 21 of 40, against a bar of 36 of 40. The final stage was
+  not run.
+
+Neither six screening formats nor three verification formats helped, and
+window size was not a limiter, so the limit looks like the model, not the
+request design. Microsoft-Decision-1 therefore
+ships as experimental, on `legacy-v1` only, and Tile Sieve refuses it with no
+Microsoft threshold set.
+
+### Tile Sieve on the catalog
+
+`tile-sieve-beta` through the shipped CLI with the OpenAI judge (all 34 cases
+fit one request, so none fell back to `legacy-v1`), against the `legacy-v1`
+runs above. Location score; the strict score also requires each finding to
+cite the requirement and, in project cases, the helper file:
+
+| Outcome | Tile Sieve, OpenAI direct | Tile Sieve, OpenRouter | `legacy-v1`, OpenAI direct | `legacy-v1`, OpenRouter |
+|---|---:|---:|---:|---:|
+| Defective programs detected | 16/16 | 15/16 | 16/16 | 15/16 |
+| Individual defects covered | 17/17 | 16/17 | 17/17 | 16/17 |
+| Corrected controls clear | 16/16 | 16/16 | 16/16 | 16/16 |
+| Missing evidence incomplete | 2/2 | 2/2 | 0/2 | 1/2 |
+| Entire cases | 34/34 | 33/34 | 32/34 | 32/34 |
+| Entire cases, strict | 32/34 | 31/34 | 32/34 | 32/34 |
+| Calls | 53 | 52 | 211 | 214 |
+| Input tokens | 153,561 | 148,640 | 445,685 | 449,566 |
+| Cost | about $0.0154 (estimated) | $0.0149 | about $0.0446 (estimated) | $0.0450 |
+
+- The OpenAI-direct run took 53 requests: 36 whole-file looks (34 first looks
+  and 2 second looks; a file of 8 lines or fewer gets one look) and 17 focus
+  requests, one for each flagged region. Through OpenRouter there were 36
+  looks and 16 focus requests. The offline `catalog-tile-sieve` benchmark
+  scenario makes the same 53 requests.
+- All judge controls passed (53 of 53 and 52 of 52 requests), no answer had a
+  defect and the report schema was 9. The two missing-evidence cases ended
+  incomplete through `context_unresolved`, as intended.
+- Through OpenRouter the screening did not flag the defect of the
+  unit-conversion case C017, which OpenAI direct caught. The strict misses are
+  the two project cases C025 and C027 (the finding did not cite the helper
+  file), and C017 on OpenRouter.
+- The thresholds were fitted on the pilot study's own planted and clean files,
+  but the pilot also ran this 34-case catalog while the report rule was
+  chosen, so the catalog is not held out and these scores are optimistic. The
+  34 cases are synthetic and public, and no held-out evaluation exists. Treat
+  Tile Sieve as a beta.
+
 ## What remains unproven
 
+- The Foundry route: nothing has been sent to it. Its response fields (usage
+  names, the dated model echo), error bodies, real request limits and price are
+  taken from Microsoft's documentation and offline fixtures. It is verified
+  only by a live run against a deployment: a 5-request smoke first, then the
+  catalog.
+- Microsoft-Decision-1 beyond one catalog run on OpenRouter and the tuning
+  study: the legacy-v1 thresholds were not re-fitted for it, no held-out
+  evaluation exists, and the tuning study did not bring it to the bar for a
+  judge.
+- Tile Sieve beyond the catalog: its thresholds were chosen in a pilot that
+  also ran this catalog, files longer than one request fall back to
+  `legacy-v1`, and no held-out evaluation exists.
 - The OpenAI direct route beyond the smoke suite and two catalog runs: its
   401, 429, 5xx and refusal handling, and its rate-limit headers under load,
   are pinned only by fixtures written from the documentation.

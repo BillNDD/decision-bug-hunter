@@ -6,32 +6,65 @@ First public beta. Nothing has been published before this version; this
 entry describes everything in it. For where the starting files came from,
 see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
-### Judge and routes
+### Judges and routes
 
-- One judge, the OpenAI Decisions model, through two routes:
-  `--provider openai` (`POST https://api.openai.com/v1/decisions`, model
-  `gpt-6-luna`, `OPENAI_API_KEY`) and `--provider openrouter`
+- Two decision models, chosen explicitly with `--judge openai|microsoft` (or
+  `DBH_JUDGE`; the flag wins). There is no default judge and `--provider`
+  alone does not imply one: without a judge the CLI exits 3 with
+  `NEED_USER_INPUT judge`, an unknown `DBH_JUDGE` is `invalid_judge` (exit 2),
+  and a judge with a route that is not one of its own prints
+  `NEED_USER_INPUT judge_route` (exit 3).
+- OpenAI Decisions through two routes: `--provider openai`
+  (`POST https://api.openai.com/v1/decisions`, model `gpt-6-luna`,
+  `OPENAI_API_KEY`) and `--provider openrouter`
   (`POST https://openrouter.ai/api/alpha/decisions`, model
-  `openai/gpt-6-luna-decisions`, `OPENROUTER_API_KEY`). No other model is
-  supported. Both routes were verified live with smoke suites and the
-  34-case development catalog: OpenRouter on 2026-10-06 and 2026-10-07,
-  OpenAI direct on 2026-10-07. The OpenAI-direct
-  adapter needed no change after its first live contact.
+  `openai/gpt-6-luna-decisions`, `OPENROUTER_API_KEY`). Both routes were
+  verified live with smoke suites and the 34-case development catalog:
+  OpenRouter on 2026-10-06 and 2026-10-07, OpenAI direct on 2026-10-07. The
+  OpenAI-direct adapter needed no change after its first live contact.
+- Microsoft-Decision-1, **experimental**, through `--provider openrouter`
+  (model `microsoft/microsoft-decision-1` on the same endpoint and request
+  shape, `OPENROUTER_API_KEY`, $0.042 per million input tokens) or
+  `--provider foundry` (a new route to your own Microsoft Foundry resource,
+  built from Microsoft's documentation and **not yet verified live**; see
+  below). It is offered for the default `legacy-v1` search only, and it finds
+  fewer bugs than OpenAI Decisions on the development catalog (28 of 34 cases
+  against 32 of 34 through OpenRouter). Every run with it prints one stderr
+  note saying so. A live tuning study did not bring it to the bar DBH sets
+  for a judge.
 - Explicit route selection with `--provider` or `DBH_PROVIDER`; never
   inferred from which key is set. Without a route the CLI exits 3 with
-  `NEED_USER_INPUT provider`; without the route's key it exits 2 with
+  `NEED_USER_INPUT provider` (naming only the routes and key variables of
+  the chosen judge); without the route's key it exits 2 with
   `provider_unavailable`, both before reading the source.
-- `--model` accepts only the route's allowed model; the returned model must
-  match exactly or with a dated suffix.
+- `--model` accepts only the chosen judge's model on the route; a model of
+  the other judge is `invalid_request`. The returned model must match
+  exactly or with a dated suffix (the Microsoft model echoes
+  `microsoft/microsoft-decision-1-20261009` on OpenRouter).
 - OpenRouter requests carry `"provider":{"allow_fallbacks":false,
-  "data_collection":"deny"}` by default; `--openrouter-routing
+  "data_collection":"deny"}` by default for both judges; `--openrouter-routing
   account-default` omits it (with a notice) and `--openrouter-zdr` adds
   `"zdr":true`. `session_id`, `user`, `trace` and attribution headers are
-  never sent.
+  never sent. Microsoft-Decision-1 requests keep the local limits of 64
+  questions and 24 KiB also under `--policy-placement state`.
 - OpenAI direct: optional `OPENAI_ORG_ID` / `OPENAI_PROJECT_ID` routing
   headers; malformed values stop with `routing_invalid`.
-- Every configured provider key is checked against everything that would
-  be sent and against responses.
+- Microsoft Foundry (`--provider foundry`, `--judge microsoft`): endpoint
+  `--foundry-endpoint` / `DBH_FOUNDRY_ENDPOINT` (an `https` resource endpoint
+  under `services.ai.azure.com`, `cognitiveservices.azure.com` or
+  `openai.azure.com`; anything else, including a project URL, is
+  `endpoint_invalid`), deployment `--foundry-deployment` /
+  `DBH_FOUNDRY_DEPLOYMENT` (sent as the model), and either `AZURE_API_KEY` (an
+  `api-key` header) or a pre-acquired `AZURE_ENTRA_TOKEN` (a bearer token)
+  chosen with `--foundry-auth` or by whichever variable is set. A missing
+  endpoint or deployment, or an ambiguous credential, is `NEED_USER_INPUT
+  foundry_endpoint`, `foundry_deployment` or `foundry_auth`. DBH never
+  acquires or refreshes an Entra token. Usage field names are read tolerantly,
+  the cost is a list-price estimate, and the endpoint host is never written to
+  a report, receipt or message.
+- Every configured provider key (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
+  `AZURE_API_KEY`, `AZURE_ENTRA_TOKEN`) is checked against everything that
+  would be sent and against responses, whichever judge and route are chosen.
 
 ### Transport, retries and deadlines
 
@@ -77,6 +110,11 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 - Strict choice mass (within 10^-12) is the default; every live vector
   observed summed to exactly 1. `--choice-rounding-places N` is opt-in and
   `--strict-choice-mass` is a no-op kept for compatibility.
+- Full-precision probabilities: Microsoft-Decision-1 writes full-precision
+  floats, so a model can declare `probability_precision = "full"`. The mass
+  gate then uses exact values and the confidence identity is checked to six
+  decimal places. Answers may arrive in a different order than the questions
+  and are matched by name.
 - Reports include `answer_defects`, `refusals`, `possible_suppression`,
   `judge_diagnostics`, `banners` and an always-`uncalibrated`
   `calibration` record. The CLI prints a `Judge warning` line for a banner.
@@ -105,6 +143,27 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   development suite; `--canaries off` removes them.
 - Injection markers: a local pattern scan that annotates findings on lines
   that look like instructions to the judge (`injection-marker`).
+
+### Tile Sieve (beta)
+
+- `--search-policy tile-sieve-beta`: an opt-in whole-file search for the
+  OpenAI judge. A file that fits in one request is read in one or two
+  whole-file looks, each flagged region gets one focus request, and rule 8C
+  reports a strong region at a lower bar than any other, with no second
+  stage. A file that does not fit one request is scanned with `legacy-v1`,
+  and stderr and the report say so.
+- The thresholds are data, one set per judge, in
+  `decision_bug_hunter/tile_sieve_thresholds.json`; its sha256 and the set
+  used are recorded in every Tile Sieve report. Only the OpenAI judge has a
+  set. `--judge microsoft` with this policy exits 2 with
+  `invalid_search_configuration: tile-sieve-beta has no calibrated thresholds
+  for judge microsoft`, before the source is read.
+- It needs `--canaries on`, `--state-layout v1` and `--policy-placement
+  instructions`, and refuses `--polarity-twin` and `--require-verification`.
+- On the 34-case development catalog it located 34 of 34 cases with 53 calls
+  through OpenAI direct and 33 of 34 with 52 calls through OpenRouter, against
+  211 and 214 calls for `legacy-v1`. The thresholds were chosen in a pilot
+  that also ran that catalog, so those scores are optimistic.
 
 ### Request shape and opt-in options
 
@@ -136,10 +195,14 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
 ### Reports, receipts and output
 
-- Report schema 7 (legacy-v1) and 8 (scoped-v2-beta); handoff schema 4 and
-  5, with `stop_reason`. Reports include `provenance`, `attempts_transmitted`,
-  `retries`, `stop_reason`, `secret_scan`, `controls`, and, when relevant,
-  `injection_markers`, `request_geometry` and `unverified_suspicions`.
+- Report schema 7 (legacy-v1), 8 (scoped-v2-beta) and 9 (tile-sieve-beta);
+  handoff schema 4, 5 and 6, with `stop_reason`. Reports include
+  `provenance`, `attempts_transmitted`, `retries`, `stop_reason`,
+  `secret_scan`, `controls`, and, when relevant, `injection_markers`,
+  `request_geometry`, `unverified_suspicions`, `tile_sieve` and `judge`.
+  `judge` appears in a report and a receipt only for a judge other than
+  OpenAI (absent means OpenAI), so every OpenAI report and receipt keeps its
+  bytes.
 - Receipt schema 2: route, requested and returned model, upstream provider,
   generation or request id, wire hash, attempt and retry fields, cost
   fields and structural error fields. A 200 that fails framing or decoding
@@ -153,9 +216,12 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
 - `tools/smoke` (repository only): first-contact smoke suites for both
   routes through the shipped exchange, with a sanitizer for promoting
   observed fixtures.
-- `tools/eval`: the 34-case labeled development catalog and its runner.
+- `tools/eval`: the 34-case labeled development catalog and its runner,
+  which forwards `--judge`, takes `--search-policy` and `--max-total-cost`
+  (counted at each case's spend upper bound), and plans a Tile Sieve dry run.
 - `tools/bench`: an offline benchmark with golden fingerprints and a
-  regression gate (see `docs/performance.md`).
+  regression gate (see `docs/performance.md`), including Tile Sieve and
+  Microsoft-judge scenarios.
 - The offline test suite refuses real sockets. `tools/check_distribution.py`
   checks both archives, a keyless wheel install with the route-selection and
   `provider_unavailable` gates, and the unpacked sdist's own test suite. The

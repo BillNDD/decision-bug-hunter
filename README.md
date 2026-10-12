@@ -1,19 +1,24 @@
 # Decision Bug Hunter
 
-Decision Bug Hunter (DBH) is a bounded, first-pass bug hunter for single
-source files. It asks the OpenAI Decisions model closed-form questions about
-overlapping regions of a file and reports suspected bug locations with line
-citations. One more tool in the toolshed, not the whole workshop.
+A super-fast sanity check for LLM-written code, not a full bug checker. The OpenAI Decisions model answers closed questions about a file and DBH flags suspect line ranges in seconds, for about a tenth of a cent per small file. Tested live through both OpenAI and OpenRouter.
 
-**`0.1.0b1` is an experimental beta.** DBH is Decisions-only: its one judge
-is the OpenAI Decisions model, reached either directly or through OpenRouter.
-It supports no other model. Both routes have been exercised live with
-smoke requests and the 34-case development suite (see
+**`0.1.0b1` is an experimental beta.** DBH asks decision models only: the
+OpenAI Decisions model (`gpt-6-luna`), reached directly or through
+OpenRouter, and Microsoft-Decision-1 as an **experimental** second judge,
+reached through OpenRouter or your own Microsoft Foundry resource. You choose
+the judge explicitly with `--judge`; DBH never picks one for you. OpenAI
+Decisions is the judge DBH was built and validated on. Microsoft-Decision-1
+finds fewer bugs on the same test catalog (see
+[Choosing a judge](#choosing-a-judge)). Both OpenAI routes and the Microsoft
+route through OpenRouter have been exercised live with smoke requests and the
+34-case development suite; the Foundry route is not yet verified live (see
 [Evidence and limits](#evidence-and-limits)).
 
 ## How it works
 
-DBH never executes your program. Python splits the target file into
+Decision Bug Hunter (DBH) is a bounded, first-pass bug hunter for single
+source files. One more tool in the toolshed, not the whole workshop. DBH
+never executes your program. Python splits the target file into
 overlapping windows and asks the judge two kinds of questions about each
 region: yes/no questions that return the probability of a bug, and choice
 questions over supplied line intervals or next steps that return a full
@@ -59,9 +64,10 @@ because a key happens to be set; the flag wins over the variable.
 | `microsoft` (experimental) | `foundry` (not yet verified live) | `POST <your resource endpoint>/providers/microsoft/v1/systemone` | your deployment name | `AZURE_API_KEY` or `AZURE_ENTRA_TOKEN` |
 
 The checks run in this order, each before the source is read, any output
-exists or the network is used: scope, judge, route, that the route is one of
-that judge's, `--model` against the pair's allow-list, the route's own options,
-then availability.
+exists or the network is used: scope, the `--search-policy tile-sieve-beta`
+option conflicts, judge, that the judge has Tile Sieve thresholds (when that
+policy is chosen), route, that the route is one of that judge's, `--model`
+against the pair's allow-list, the route's own options, then availability.
 
 - With no judge, the CLI prints `NEED_USER_INPUT judge: openai (OpenAI
   Decisions gpt-6-luna; routes openai | openrouter) | microsoft
@@ -158,6 +164,31 @@ service's real limits have not been observed against a deployment.
 - `--model` and the OpenRouter options do not apply to Foundry (`invalid_request`),
   and the Foundry flags do not apply to any other route.
 
+Setup with the Azure CLI, once. The deployment and token commands follow
+Microsoft's documentation of 2026-10-09; the account line is the standard
+step for a subscription that has no Foundry resource yet. Replace the
+`<...>` names with your own, and let the shell read the key so that it never
+appears in your history or in a chat:
+
+```sh
+az login
+az cognitiveservices account create --name <ACCOUNT_NAME> --resource-group <RESOURCE_GROUP> --kind AIServices --sku S0 --location <REGION> --custom-domain <ACCOUNT_NAME>
+az cognitiveservices account deployment create --name <ACCOUNT_NAME> --resource-group <RESOURCE_GROUP> --deployment-name <DEPLOYMENT_NAME> --model-name "Microsoft-Decision-1" --model-format Microsoft --model-version "1" --sku-name GlobalStandard --sku-capacity 1
+export DBH_FOUNDRY_ENDPOINT=$(az cognitiveservices account show --name <ACCOUNT_NAME> --resource-group <RESOURCE_GROUP> --query properties.endpoint --output tsv)
+export DBH_FOUNDRY_DEPLOYMENT=<DEPLOYMENT_NAME>
+export AZURE_API_KEY=$(az cognitiveservices account keys list --name <ACCOUNT_NAME> --resource-group <RESOURCE_GROUP> --query key1 --output tsv)
+# or, for Microsoft Entra instead of the key:
+# export AZURE_ENTRA_TOKEN=$(az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken --output tsv)
+decision-bug-hunter target.py --judge microsoft --provider foundry --scope standalone
+```
+
+An Entra access token is short-lived (typically about an hour; `az account
+get-access-token` prints its expiry). Get a fresh one before a long scan.
+The response fields, error bodies and limits of this route are the ones
+Microsoft documents, not ones DBH has observed, and no Azure price has been
+read: the cost DBH shows for it is an estimate at the OpenRouter list price of
+Microsoft-Decision-1 ($0.042 per million input tokens).
+
 ## Choosing a judge
 
 OpenAI Decisions is the judge DBH was built, tuned and validated on; choose it
@@ -169,14 +200,60 @@ with it:
 Note: Microsoft-Decision-1 support is experimental: in DBH's validation it finds fewer bugs than OpenAI Decisions (README: Choosing a judge).
 ```
 
-On the 34-case development catalog with the default `legacy-v1` search,
-Microsoft-Decision-1 located 27 of 34 cases (it found 12 of 16 planted defects
-and cleared 14 of 16 clean files), against 32 of 34 for OpenAI Decisions. A
-live tuning study did not bring it to the bar DBH sets for a judge, so it is
-offered for the default `legacy-v1` search only. A report, receipt or handoff
-names the judge only when it is not OpenAI (a `judge` field; absent means
-OpenAI), and the stderr summary line gains `(judge microsoft)` before its final
-period.
+It finds fewer bugs. On the 34-case development catalog with the default
+`legacy-v1` search and the shipped defaults (the Microsoft run is from
+2026-10-12, through OpenRouter and the shipped CLI):
+
+| Outcome | Microsoft-Decision-1 | OpenAI Decisions, OpenRouter | OpenAI Decisions, direct |
+|---|---:|---:|---:|
+| Defective programs detected | 13/16 | 15/16 | 16/16 |
+| Individual defects covered | 14/17 | 16/17 | 17/17 |
+| Corrected controls clear | 14/16 | 16/16 | 16/16 |
+| Missing evidence marked incomplete | 1/2 | 1/2 | 0/2 |
+| Entire cases | 28/34 | 32/34 | 32/34 |
+| Calls / cost | 182 / $0.0107 | 214 / $0.0450 | 211 / about $0.045 (estimated) |
+
+Microsoft-Decision-1 missed the defect in three programs, flagged two
+corrected programs and reported one case with missing evidence as complete;
+an earlier run of the same catalog the day before, through a research
+harness, gave 27 of 34 (12 of 16 defective programs, 14 of 16 clean files).
+It costs less per scan because it is listed at $0.042 per million input
+tokens and made fewer calls. A live tuning study tried to bring it to the bar
+DBH sets for a judge: it tried six request formats for the screening
+questions and three for the verification questions, and varied the window
+size, which was not a limiter. A held-out screening check still failed, so the
+limit looks like the model, not the request design. The figures are in
+[docs/VALIDATION.md](docs/VALIDATION.md). Microsoft-Decision-1 is therefore
+offered for the default `legacy-v1` search only: `--search-policy
+tile-sieve-beta` refuses it (see [Tile Sieve (beta)](#tile-sieve-beta)).
+
+Using it:
+
+```sh
+decision-bug-hunter target.py --judge microsoft --provider openrouter --concurrency 2 --scope standalone
+```
+
+- Use `--concurrency 2` through OpenRouter. On 2026-10-11 a 24 KB request had
+  a median latency of 1.70 s with 8 requests in flight and 0.59 s with 2.
+- Probabilities arrive as full-precision floats, not two-decimal values, and
+  identical requests differ by about 10^-10, so answers are not byte-identical
+  across repeated requests the way OpenAI Decisions' are. With no display
+  precision to allow for, the localization mass gate uses the exact values and
+  the confidence identity (the chance-normalized one OpenAI Decisions also
+  follows) is checked to six decimal places. Choice vectors still must sum to
+  1 within 10^-12; none failed in the catalog run.
+- Answers may arrive in a different order than the questions. DBH matches
+  them by name, so this is harmless; it was seen on 171 of the 182 requests
+  of the catalog run (the report's `provenance.answer_order_mismatch` counts
+  them).
+- Through OpenRouter, the default routing object is accepted:
+  `"data_collection":"deny"` returned 200 and the upstream was Azure. A
+  different upstream is journaled as `upstream_provider_unexpected`, never
+  fatal. The request limits are the same as OpenAI direct's: 64 questions and
+  24 KiB, also under `--policy-placement state`.
+- A report or receipt names the judge only when it is not OpenAI (a `judge`
+  field; absent means OpenAI). The stderr summary line gains
+  `(judge microsoft)` before its final period. The handoff does not name it.
 
 ## Scope
 
@@ -238,7 +315,7 @@ before turning one on.
 | `--foundry-auth` | unset | `api-key` (`AZURE_API_KEY`) or `entra-token` (`AZURE_ENTRA_TOKEN`); needed only when both variables are set. `foundry` only. |
 | `--openrouter-routing` | `deny` | `deny` sends `allow_fallbacks: false` and `data_collection: deny`; `account-default` omits them. OpenRouter only. |
 | `--openrouter-zdr` | off | Also request zero-data-retention endpoints. OpenRouter only. |
-| `--search-policy` | `legacy-v1` | `scoped-v2-beta` adds scoped verification, explicit refutation and exploratory beams. `tile-sieve-beta` is an opt-in whole-file beta calibrated for the OpenAI judge only: a file that fits in one request is read in one or two whole-file looks, then each flagged region gets one focus request (no stage 2), and strong regions report at a lower bar. A larger file falls back to `legacy-v1` with a stderr notice. It needs `--canaries on`, `--state-layout v1` and `--policy-placement instructions`, and refuses `--polarity-twin`, `--require-verification` and `--judge microsoft`. |
+| `--search-policy` | `legacy-v1` | `scoped-v2-beta` adds scoped verification, explicit refutation and exploratory beams. `tile-sieve-beta` is an opt-in whole-file beta calibrated for the OpenAI judge only: a file that fits in one request is read in one or two whole-file looks, then each flagged region gets one focus request (no stage 2), and strong regions report at a lower bar. A larger file falls back to `legacy-v1` with a stderr notice. It needs `--canaries on`, `--state-layout v1` and `--policy-placement instructions`, and refuses `--polarity-twin`, `--require-verification` and `--judge microsoft`. See [Tile Sieve (beta)](#tile-sieve-beta). |
 | `--state-layout` | `v1` | `v2` puts the DBH-written state fields first and adds an imitation warning to the policy text. |
 | `--policy-placement` | `instructions` | `state` sends the policy text once as the first state key instead of in every question. |
 | `--canaries` | `on` | Two judge-control questions with known answers in every request; `off` removes them. |
@@ -284,7 +361,7 @@ before turning one on.
 | `--run-deadline-seconds` | `1800.0` | Cooperative deadline for the whole run, indexing included. |
 | `--no-retry` | off | One attempt per request. |
 | `--max-cost` | unset | Stop before any attempt whose cost bound could take spend above this many USD (at most 1000). |
-| `--concurrency` | `1` | Opt-in: up to N requests in flight at once (1 to 8). Results are identical on success; after a failure or a stop, requests already in flight still complete and are billed. |
+| `--concurrency` | `1` | Opt-in: up to N requests in flight at once (1 to 8). Results are identical on success; after a failure or a stop, requests already in flight still complete and are billed. Use 2 with Microsoft-Decision-1 through OpenRouter. |
 | `--allow-secrets` | off | Send the file and specification even when they contain credential-shaped text. |
 | `--output-dir` | `dbh_runs` | Parent of the private run directories. |
 | `--output-format` | `compact` | What is printed on stdout: `compact`, `ranges` or `json`. All formats are saved. |
@@ -293,16 +370,101 @@ OpenRouter-only options combined with `--provider openai` or `--provider
 foundry`, and Foundry-only options with any other route, stop the scan with
 `invalid_request`.
 
+## Tile Sieve (beta)
+
+`--search-policy tile-sieve-beta` is an opt-in whole-file search for the
+OpenAI judge. Where `legacy-v1` screens overlapping windows and drills into
+the suspicious ones, Tile Sieve reads the whole file at once:
+- A file that fits in one request (at most 64 questions and 24,064 bytes with
+  15,872 bytes of state, about 200 lines of typical code) is read in one or
+  two whole-file looks. Each look asks about 16-line and 48-line cells and
+  ranks 8-line cells, over the whole file, with the two judge controls. A file
+  of 8 lines or fewer gets one look.
+- Flagged cells merge into regions, and each region gets one focus request
+  that asks where the bug is and puts the suspicion to the judge again, also
+  as its inverted twin.
+- Rule 8C decides each region. A strong region, one in which a 16-line cell
+  scored 0.96 or more in a look or an overlapping 8-line cell did, is reported
+  at a focus score of 0.39 or more. Any other region is reported at 0.54 (the
+  bar for a file of up to 200 lines; it rises with file length). A region that
+  a related passage of code supports at 0.75 or more is reported from 0.39.
+  There is no second stage. If only the twin question is refused, the region
+  is decided on the other answer and carries a note that does not block the
+  scan; any other missing answer leaves the region unmeasured and the scan
+  incomplete.
+- A larger file falls back to `legacy-v1`: stderr prints a notice and the
+  report's `tile_sieve.mode` is `legacy-fallback` with the reason. A design
+  that tiles larger files was modeled, and its modeled recall on large files
+  was about 0.30, so it is not offered.
+
+It needs `--canaries on`, `--state-layout v1` and `--policy-placement
+instructions`, refuses `--polarity-twin` and `--require-verification`, and
+uses the other search options only for the fallback. The report is schema 9
+with a `tile_sieve` block (the looks, each region's strength, bar, score and
+decision, and the thresholds used) and the handoff is schema 6, with a
+`SEARCH:` line in `findings.txt`. `tools/eval/run_catalog.py --search-policy
+tile-sieve-beta --dry-run` prints the plan for the catalog (36 tile requests
+and a projection of 34 focus requests) without sending anything.
+
+The thresholds are data, one set per judge, in
+`decision_bug_hunter/tile_sieve_thresholds.json`. The file holds a set for the
+OpenAI judge only, and every Tile Sieve report records the set used
+(`thresholds_set`), the file's sha256 (`thresholds_sha256`) and the screening
+rule. Microsoft-Decision-1 has no set and will get none in this beta:
+choosing it with Tile Sieve stops before the source is read, on every route,
+with exit `2` and
+
+```text
+Scan failed (invalid_search_configuration: tile-sieve-beta has no calibrated thresholds for judge microsoft).
+```
+
+A library caller whose gateway declares no judge is given the OpenAI set, and
+the report says `"judge_declared": false`.
+
+The same 34-case development catalog through the shipped CLI (OpenAI
+Decisions, 2026-10-12), against `legacy-v1`. Scores are by location, except
+the strict row, which also requires each finding to cite the requirement and,
+in project cases, the helper file:
+
+| Outcome | Tile Sieve, OpenAI direct | Tile Sieve, OpenRouter | `legacy-v1`, OpenAI direct | `legacy-v1`, OpenRouter |
+|---|---:|---:|---:|---:|
+| Defective programs detected | 16/16 | 15/16 | 16/16 | 15/16 |
+| Individual defects covered | 17/17 | 16/17 | 17/17 | 16/17 |
+| Corrected controls clear | 16/16 | 16/16 | 16/16 | 16/16 |
+| Missing evidence marked incomplete | 2/2 | 2/2 | 0/2 | 1/2 |
+| Entire cases | 34/34 | 33/34 | 32/34 | 32/34 |
+| Entire cases, strict | 32/34 | 31/34 | 32/34 | 32/34 |
+| Calls | 53 | 52 | 211 | 214 |
+| Input tokens | 153,561 | 148,640 | 445,685 | 449,566 |
+| Cost | about $0.015 (estimated) | $0.0149 | about $0.045 (estimated) | $0.0450 |
+
+Every case fit one request, so none fell back. The 53 requests of the
+OpenAI-direct run were 36 whole-file looks and 17 focus requests. Through
+OpenRouter the screening did not flag the defect in one case that OpenAI
+direct caught (the unit-conversion case), so the two routes differ here as
+they do under `legacy-v1`.
+
+Treat Tile Sieve as a beta. The thresholds were fitted on the pilot study's
+own planted and clean files, but the pilot also ran this 34-case catalog while
+the report rule was chosen, so the catalog is not held out and these scores
+are optimistic: this is development evidence, not held-out evidence, with
+n = 34 and one run per route (answers are deterministic per request). Expect
+lower scores on files that are unlike the catalog, and use it as a fast first
+look, not as a verdict.
+
 ## Cost and limits
 
-Both routes list the model at $0.10 per million input tokens and bill no
-output tokens (price table dated 2026-10-06; check the provider's current
-price yourself). OpenRouter reports the cost of every request, and in every
-observed response it equaled input tokens x $0.0000001. OpenAI direct
-reports usage but no cost, so on that route DBH records the list-price
-estimate (input tokens x $0.0000001).
+OpenAI Decisions is listed at $0.10 per million input tokens on both of its
+routes, and Microsoft-Decision-1 at $0.042 through OpenRouter; neither bills
+output tokens (price tables dated 2026-10-06 and 2026-10-11; check the
+provider's current price yourself). OpenRouter reports the cost of every
+request, and in every observed response it equaled input tokens times the
+listed price. OpenAI direct and Foundry report usage but no cost, so on those
+routes DBH records the list-price estimate (input tokens x $0.0000001, or
+x $0.000000042 on Foundry, which borrows the OpenRouter price because no Azure
+price has been read).
 
-Observed costs (2026-10-06 and 2026-10-07):
+Observed costs (2026-10-06 to 2026-10-12):
 
 - One screening request of a short file, about 8,500 input tokens: $0.00085.
 - Across the 34-case development suite with the shipped defaults, one call
@@ -314,11 +476,17 @@ Observed costs (2026-10-06 and 2026-10-07):
 - Judge controls (`--canaries on`, the default) add about 19 percent input
   tokens: two extra questions per request, each carrying the policy text.
   `--canaries off` removes them.
+- Microsoft-Decision-1 through OpenRouter (legacy-v1, all 34 cases): 182 calls,
+  254,661 input tokens, $0.0107.
+- Tile Sieve (all 34 cases): 53 calls and about $0.015 on OpenAI direct (153,561
+  input tokens, estimated), 52 calls and $0.0149 through OpenRouter.
 
 Each request carries at most 64 questions and a 24 KiB local envelope
-(16 KiB of state). The wire body is capped at 64 KiB on both routes. Under
-`--policy-placement state`, OpenRouter requests that carry the policy in
-state may hold 200 questions and 48 KiB. Responses are capped at 256 KiB.
+(16 KiB of state). The wire body is capped at 64 KiB on every route. Under
+`--policy-placement state`, OpenRouter requests for OpenAI Decisions that
+carry the policy in state may hold 200 questions and 48 KiB; Microsoft-Decision-1
+keeps 64 questions and 24 KiB on every route, and so does Foundry until its
+limits are confirmed on a deployment. Responses are capped at 256 KiB.
 
 DBH bounds an attempt whose usage is unknown at its wire bytes plus 64
 tokens per question: about $0.0029 for a full 24 KiB, 64-question request
@@ -327,7 +495,8 @@ and about $0.007 to $0.008 at the 64 KiB wire cap (65,536 bytes plus
 or 200-question state-placement requests approach. Under the default
 1000-call limit a scan of full-size requests would therefore cost about $3,
 and at most about $8, plus one possible duplicate charge for each
-stale-connection retry. Real requests
+stale-connection retry; for Microsoft-Decision-1, whose
+price is lower, a full 24 KiB request is bounded at about $0.0012. Real requests
 are much smaller. For a hard limit pass `--max-cost USD`: before every
 attempt, retries included, DBH adds the reported cost, the list-price
 estimate of known usage and the bound of every possibly billed attempt with
@@ -377,22 +546,24 @@ is incomplete with `provider_stopped`, and stderr says
 Error bodies are read only when they are JSON, at most 16 KiB and free of
 every configured key. Only structural fields are kept (error type and code,
 a parameter path on the `openai` route, routing and moderation key presence
-on `openrouter`); the provider's message is never kept or printed.
+on `openrouter`, only the error type and code on `foundry`); the provider's
+message is never kept or printed.
 
 Refusals and malformed answers cost one answer, not the batch. One refused
 question in a request becomes `question_refused` for that answer; two or
 more refusals withhold the batch as `response_refused`. A choice answer with
 the wrong mass or option keys (`response_distribution`), a displayed argmax
-that differs from the choice (`choice_argmax_mismatch`) or, on OpenRouter, a
-choice without its vector (`response_vector_missing`) also costs only that
-answer. The attempt is then `validated_partial`. Wrong types, missing or
+that differs from the choice (`choice_argmax_mismatch`) or, on OpenRouter and
+Foundry, a choice without its vector (`response_vector_missing`) also costs only
+that answer. The attempt is then `validated_partial`. Wrong types, missing or
 extra names and out-of-range numbers still reject the whole batch.
 
 Choice vectors must sum to 1 within 10^-12 by default. Every one of the 61
 choice vectors observed live summed to exactly 1 at two decimals, so this
 strict default holds for the current model; `--choice-rounding-places N`
-exists in case a future model rounds differently. Values are never
-renormalized.
+exists in case a future model rounds differently. Microsoft-Decision-1 writes
+full-precision floats, and its 94 choice answers in the catalog run passed the
+same strict test. Values are never renormalized.
 
 ## Security checks before sending
 
@@ -431,18 +602,20 @@ backup tools and DBH's own indexer skip it. DBH writes those two files into
 the parent only if it created the parent. Contents:
 
 - `report.json`: the full report (schema 7 for legacy-v1, 8 for
-  scoped-v2-beta): findings, coverage, issues, `provenance`, `usage`,
-  `spend`, `attempts_transmitted`, `retries`, `stop_reason`,
+  scoped-v2-beta, 9 for tile-sieve-beta): findings, coverage, issues,
+  `provenance`, `usage`, `spend`, `attempts_transmitted`, `retries`, `stop_reason`,
   `answer_defects`, `refusals`, `judge_diagnostics`, `banners`, `controls`,
   `secret_scan` and `calibration` (always `uncalibrated`). Some fields appear
-  only when relevant: `request_geometry` (`--policy-placement state`),
+  only when relevant: `judge` (a judge other than OpenAI), `tile_sieve`
+  (`tile-sieve-beta`), `request_geometry` (`--policy-placement state`),
   `unverified_suspicions` (`--require-verification`), `injection_markers`
   (markers found) and `gateway_totals` (a gateway shared by several scans);
   `controls` is absent with `--canaries off`.
-- `findings.txt` (compact handoff), `handoff.json` (schema 4 or 5) and
+- `findings.txt` (compact handoff), `handoff.json` (schema 4, 5 or 6) and
   `ranges.txt`.
 - `receipts/`: one JSON receipt per attempt (schema 2) with hashes, route,
-  requested and returned model, the provider's generation or request id,
+  requested and returned model, `judge` (a judge other than OpenAI), the
+  provider's generation or request id,
   usage, cost and its source, the cost bound, validated answers and fixed
   failure codes. Source text, specifications, request and response bodies
   and keys are never journaled.
@@ -469,8 +642,11 @@ with ValidatedGateway(provider, Path("dbh_runs/receipts")) as gateway:
                   context_scope="declared_standalone")
 ```
 
-`make_provider("openai")` builds the direct route. `context_scope` is
-required: `project` (with `project=ProjectIndex`), `declared_standalone` or
+`make_provider("openai")` builds the direct route, and
+`make_provider("openrouter", judge="microsoft")` the Microsoft judge through
+OpenRouter (`judge=` may also be given with the other judge; `"foundry"` takes
+`foundry_endpoint=`, `foundry_deployment=` and `foundry_auth=`). `context_scope`
+is required: `project` (with `project=ProjectIndex`), `declared_standalone` or
 `owner_isolated`. `ValidatedGateway` takes `retry_policy=`
 (`RetryPolicy.none()` for `--no-retry`), `max_cost=` (a `Decimal`) and
 `deadline_seconds=`; `Config` takes the engine options above
@@ -500,19 +676,26 @@ python tools/check_distribution.py dist
 ```
 
 The distribution checker inspects both archives, installs the wheel into a
-fresh environment without keys, confirms the CLI exits `3` without a route
-and `2` with `provider_unavailable` for each route, and runs the unpacked
-sdist's own test suite. [docs/VALIDATION.md](docs/VALIDATION.md) records the
-latest results. The repository also holds live tooling: `tools/eval` (the
-labeled development catalog, shipped in the sdist; see
-[tools/eval/README.md](tools/eval/README.md)) and `tools/smoke`
-(first-contact smoke suites, repository only).
+fresh environment without keys, confirms the CLI exits `3` without a judge and
+without a route and `2` with `provider_unavailable` for each OpenAI route, and
+runs the unpacked sdist's own test suite.
+[docs/VALIDATION.md](docs/VALIDATION.md) records the latest results. The
+repository also holds live tooling: `tools/eval` (the labeled development
+catalog, shipped in the sdist; see
+[tools/eval/README.md](tools/eval/README.md)) and `tools/smoke` (first-contact
+smoke suites, repository only).
 
 ## Evidence and limits
 
-All live evidence comes from 2026-10-06 and 2026-10-07: smoke suites and
-catalog runs on OpenRouter, and a 5-request smoke suite plus two catalog
-runs on OpenAI direct.
+The evidence for OpenAI Decisions comes from 2026-10-06 and 2026-10-07:
+smoke suites and catalog runs on OpenRouter, and a 5-request smoke suite plus
+two catalog runs on OpenAI direct. The evidence for Microsoft-Decision-1 and
+Tile Sieve comes from 2026-10-11 and 2026-10-12: probes and a tuning study of
+the Microsoft model on OpenRouter, and three catalog runs through the shipped
+CLI (see [Choosing a judge](#choosing-a-judge) and
+[Tile Sieve (beta)](#tile-sieve-beta); the figures are in
+[docs/VALIDATION.md](docs/VALIDATION.md)). No request has ever been sent to
+the Foundry route.
 
 The catalog below is a small public development suite of 34 synthetic
 cases (16 defective programs with 17 planted defects, 16 corrected
@@ -578,18 +761,22 @@ cost). That choice rests on this development suite alone: a default that
 moves findings would ideally have held-out labeled evidence, which does not
 exist yet. The other variants stay opt-in.
 
-Other live observations (OpenRouter smoke runs, 32 and 48 requests): answers
-were byte-identical across repeated requests; four planted bugs all
-screened above their clean twins (a preview on 8 files, not calibration);
-two crude prompt-injection attempts neither suppressed a real bug nor
-flooded a clean function. On the OpenAI-direct smoke run all 4 answer
-batches validated (76 answers); every choice vector summed to exactly 1 at
-two decimals with the choice equal to the argmax, and the confidence
-followed the same identity as on OpenRouter. No refusal was observed on
-either route, so the refusal handling is pinned only by fixtures.
+Other live observations (OpenRouter smoke runs of OpenAI Decisions, 32 and 48
+requests): answers were byte-identical across repeated requests; four planted
+bugs all screened above their clean twins (a preview on 8 files, not
+calibration); two crude prompt-injection attempts neither suppressed a real
+bug nor flooded a clean function. On the OpenAI-direct smoke run all 4 answer
+batches validated (76 answers); every choice vector summed to exactly 1 at two
+decimals with the choice equal to the argmax, and the confidence followed the
+same identity as on OpenRouter. No refusal was observed on either route, so
+the refusal handling is pinned only by fixtures.
 
 Limits: returned probabilities are operating heuristics, and the report,
-relation and refutation thresholds (0.80, 0.70, 0.80) are uncalibrated.
+relation and refutation thresholds (0.80, 0.70, 0.80) are uncalibrated. They
+were set for OpenAI Decisions and are applied unchanged to
+Microsoft-Decision-1; they were not re-fitted for it. The Microsoft figures
+rest on one catalog run, and the Tile Sieve thresholds were chosen in a pilot
+that also ran this catalog.
 Name resolution is bounded only by the operating system's resolver. DBH
 judges text; it cannot see runtime behavior, and a clean report is not
 evidence of correctness. Release status is tracked in

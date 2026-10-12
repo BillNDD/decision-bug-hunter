@@ -104,17 +104,58 @@ counters differ as described above.
 
 | Scenario | Jobs | Provider calls | Questions | Envelope bytes | Rounds (executed) | Critical path (upper) | DBH-own ncalls | JSON dumps chars | sha256 bytes | Receipt writes |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| synth-200 | 1 | 120 | 980 | 1,351,813 | 96 | 88 | 116,605 | 4,521,899 | 6,887,295 | 240 |
-| synth-1000 | 1 | 235 | 3,426 | 4,013,114 | 112 | 72 | 263,296 | 12,597,639 | 19,899,969 | 470 |
-| synth-1000-legacy-gate | 1 | 246 | 3,470 | 4,139,876 | 123 | 83 | 281,715 | 13,017,522 | 20,532,173 | 492 |
-| synth-1000-state | 1 | 112 | 3,180 | 1,738,384 | 112 | 72 | 213,495 | 6,427,050 | 9,024,087 | 224 |
-| synth-1000-nocanary | 1 | 235 | 2,956 | 3,923,814 | 112 | 72 | 243,441 | 12,305,746 | 15,541,307 | 470 |
-| synth-5000 | 1 | 903 | 16,116 | 18,228,326 | 279 | 72 | 1,074,877 | 56,224,835 | 89,645,013 | 1,806 |
-| catalog-legacy | 34 | 199 | 1,178 | 1,117,659 | 187 | 183 | 134,261 | 4,149,510 | 5,874,398 | 398 |
-| catalog-scoped | 34 | 191 | 1,246 | 1,261,404 | 179 | 175 | 145,633 | 5,076,104 | 7,107,116 | 382 |
-| cli-1000 | 1 | 235 | 3,426 | 4,013,114 | 112 | 72 | 263,578 | 13,592,461 | 19,903,318 | 470 |
-| catalog-4 | 4 | 20 | 94 | 74,685 | 20 | 20 | 11,398 | 299,126 | 401,915 | 40 |
+| synth-200 | 1 | 120 | 980 | 1,351,813 | 96 | 88 | 95,140 | 2,785,635 | 5,535,482 | 240 |
+| synth-1000 | 1 | 235 | 3,426 | 4,013,114 | 112 | 72 | 209,973 | 8,151,014 | 15,886,855 | 470 |
+| synth-1000-legacy-gate | 1 | 246 | 3,470 | 4,139,876 | 123 | 83 | 225,323 | 8,401,355 | 16,392,297 | 492 |
+| synth-1000-state | 1 | 112 | 3,180 | 1,738,384 | 112 | 72 | 175,835 | 4,179,889 | 7,285,703 | 224 |
+| synth-1000-nocanary | 1 | 235 | 2,956 | 3,923,814 | 112 | 72 | 194,348 | 7,948,814 | 11,617,493 | 470 |
+| synth-5000 | 1 | 903 | 16,116 | 18,228,326 | 279 | 72 | 847,574 | 36,916,902 | 71,416,687 | 1,806 |
+| catalog-legacy | 34 | 199 | 1,178 | 1,117,659 | 187 | 183 | 117,119 | 2,853,621 | 4,756,739 | 398 |
+| catalog-scoped | 34 | 191 | 1,246 | 1,261,404 | 179 | 175 | 127,550 | 3,533,459 | 5,845,712 | 382 |
+| cli-1000 | 1 | 235 | 3,426 | 4,013,114 | 112 | 72 | 210,256 | 9,146,255 | 15,890,204 | 470 |
+| catalog-4 | 4 | 20 | 94 | 74,685 | 20 | 20 | 10,216 | 215,798 | 327,230 | 40 |
+| catalog-4-tile-sieve | 4 | 6 | 76 | 36,134 | 6 | 6 | 8,482 | 172,952 | 276,517 | 12 |
+| catalog-tile-sieve | 34 | 53 | 690 | 350,041 | 53 | 53 | 79,658 | 1,680,442 | 2,615,493 | 106 |
+| synth-200-tile-sieve | 1 | 3 | 70 | 57,397 | 3 | 3 | 11,885 | 274,611 | 364,120 | 6 |
+| synth-1000-tile-sieve | 1 | 235 | 3,426 | 4,013,114 | 112 | 72 | 210,410 | 8,160,082 | 15,894,008 | 470 |
+| catalog-4-microsoft | 4 | 20 | 94 | 74,685 | 20 | 20 | 10,170 | 219,193 | 327,290 | 40 |
 
 "Critical path (upper)" is an upper bound on dependent provider round trips,
 not a measured latency. Timings are indicative only. This machine is loaded and
 its disk is slow, so process times and wall clocks are not reported here.
+
+## The Tile Sieve and Microsoft scenarios
+
+Five scenarios cover the second judge and the whole-file search. The ten that
+existed before them keep the fingerprints and exact values they had before the
+second judge: the OpenAI judge's reports, receipts and requests are
+byte-identical. Their `dbh_ncalls` and `dbh_primitive_calls` counters rose by
+at most about 1.4% (gate 2%) and `json_dumps_chars` moved by less than 0.01%
+(gate 1%); no other counter moved.
+
+- `catalog-tile-sieve`: all 34 catalog cases under `--search-policy
+  tile-sieve-beta`. It makes 53 provider calls, 690 questions and 350,041
+  envelope bytes, against 199 calls and 1,117,659 bytes for `catalog-legacy`.
+  The rounds by phase are 34 first looks (`ts-screen-l0`), 2 second looks
+  (`ts-screen-l1`) and 17 focus requests (`ts-focus`): 36 look requests and 17
+  focus requests. The 53 matches the live catalog run of the OpenAI judge on
+  OpenAI direct.
+- `catalog-4-tile-sieve`: the first four catalog cases, 6 provider calls (4
+  looks and 2 focus requests).
+- `synth-200-tile-sieve`: the 200-line synthetic file, 3 provider calls (two
+  looks and one focus request).
+- `synth-1000-tile-sieve`: the 1,000-line file does not fit one request, so the
+  scan falls back to `legacy-v1`. Its provider calls, questions, envelope bytes
+  and rounds equal `synth-1000`'s; the fingerprint differs because the report
+  carries the `tile_sieve` block that names the fallback.
+- `catalog-4-microsoft`: the first four catalog cases on the Microsoft model
+  with full-precision probabilities from the synthetic judge. The requests are
+  those of `catalog-4` (the same request envelope hash and the same calls,
+  questions and envelope bytes; the wire bytes are 60 larger because the model
+  id is longer); the fingerprint differs because the report and receipts name
+  the judge.
+
+`python tools/bench/bench.py --markdown tools/bench/golden.json` prints the
+table above from the recorded values; the exact-value columns (jobs, calls,
+questions, envelope bytes, rounds, critical path, receipt writes) are also
+checked against `golden.json` by the documentation tests.

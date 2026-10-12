@@ -35,7 +35,10 @@ selected route's key from the environment. A live run bills that route; each
 case runs with `--max-calls 32` (96 for the two 70-line cases). A full run
 of the shipped defaults cost $0.0450 (legacy-v1) and $0.0683
 (scoped-v2-beta) on OpenRouter, and about $0.045 and $0.065 at list price on
-OpenAI direct, on 2026-10-07.
+OpenAI direct, on 2026-10-07. On 2026-10-12 a run with `--judge microsoft`
+cost $0.0107 (legacy-v1, OpenRouter), and runs with `--search-policy
+tile-sieve-beta` cost about $0.015 (OpenAI direct, list-price estimate) and
+$0.0149 (OpenRouter).
 
 ## Judge and search policy
 
