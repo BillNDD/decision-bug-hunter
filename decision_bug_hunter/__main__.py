@@ -14,7 +14,7 @@ import time
 
 from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
                    DEFAULT_STATE_LAYOUT, CHOICE_GATES, DEFAULT_CHOICE_GATE,
-                   LOCALIZATION_MENUS,
+                   LOCALIZATION_MENUS, SEARCH_POLICIES,
                    CANARY_MODES, DEFAULT_CANARIES, MAX_CONCURRENCY)
 from .handoff import compact_report, format_handoff
 from .protocol import (ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES, POLICY_PLACEMENTS,
@@ -50,6 +50,8 @@ _FOUNDRY_VARIABLES = {"api-key": FOUNDRY_API_KEY_VARIABLE,
 JUDGE_CHOICE_HINT = (
     "openai (OpenAI Decisions gpt-6-luna; routes openai | openrouter) | "
     "microsoft (Microsoft-Decision-1; routes openrouter | foundry)")
+#: The opt-in whole-file search policy; its options and judge are checked up front.
+TILE_SIEVE = "tile-sieve-beta"
 ACCOUNT_DEFAULT_DISCLOSURE = (
     "OpenRouter routing: account default. The request carries no data_collection "
     "deny and no fallback restriction; your OpenRouter account settings decide "
@@ -94,8 +96,18 @@ def parser() -> argparse.ArgumentParser:
                         default=Decimal("0.60"))
     result.add_argument("--report-threshold", type=decimal_argument,
                         default=Decimal("0.80"))
-    result.add_argument("--search-policy", choices=("legacy-v1", "scoped-v2-beta"),
-                        default="legacy-v1", help="Opt in to scoped verification and exploratory beams.")
+    result.add_argument("--search-policy", choices=SEARCH_POLICIES, default="legacy-v1",
+                        help="Search policy (default: %(default)s). scoped-v2-beta opts in to "
+                             "scoped verification and exploratory beams. tile-sieve-beta is an "
+                             "opt-in whole-file beta calibrated for the OpenAI judge only: a "
+                             "file that fits in one request (about 200 lines of typical code) "
+                             "is read in two looks, then each flagged region gets one focus "
+                             "request (no stage 2); strong regions report at a lower bar. A "
+                             "larger file is scanned with legacy-v1, and stderr and the report "
+                             "say so. It needs --canaries on, --state-layout v1 and "
+                             "--policy-placement instructions, refuses --polarity-twin, "
+                             "--require-verification and --judge microsoft, and uses the other "
+                             "options only for that fallback.")
     result.add_argument("--refute-threshold", type=decimal_argument, default=Decimal("0.80"),
                         help="Explicit-refutation threshold for scoped-v2-beta only.")
     result.add_argument("--state-layout", choices=STATE_LAYOUTS, default=DEFAULT_STATE_LAYOUT,
@@ -297,8 +309,10 @@ def make_output_parent(parent: Path) -> bool:
 
 
 def failure(code: str, provider: str | None = None, judge: str | None = None,
-            auth: str | None = None) -> int:
-    print(f"Scan failed ({code}).", file=sys.stderr)
+            auth: str | None = None, detail: str | None = None) -> int:
+    # The detail is fixed DBH text naming a flag or a judge, never user input.
+    shown = code if detail is None else f"{code}: {detail}"
+    print(f"Scan failed ({shown}).", file=sys.stderr)
     if code == "provider_unavailable":
         if provider == "foundry":
             print(f"Set {FOUNDRY_API_KEY_VARIABLE} (--foundry-auth api-key) or "
@@ -348,6 +362,14 @@ def need_user_input(field: str, hint: str) -> int:
     return 3
 
 
+class SearchPolicyRefused(Exception):
+    """The search policy cannot run with these options or this judge."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 class JudgeChoiceNeeded(Exception):
     """No judge was selected; the caller must choose the decision model."""
 
@@ -367,6 +389,73 @@ class FoundryInputNeeded(Exception):
         super().__init__(field)
         self.field = field
         self.hint = hint
+
+
+def tile_sieve_conflict(args: argparse.Namespace) -> str | None:
+    """Why the options conflict with tile-sieve-beta, as the text after the
+    colon of ``invalid_search_configuration``; None when they do not.
+
+    The thresholds were measured with canaries on and layout v1, the policy
+    always travels in the request state, and the polarity twin and verification
+    gating have no meaning there: ``Config`` refuses the same combinations.
+    """
+    if args.search_policy != TILE_SIEVE:
+        return None
+    if args.canaries != "on":
+        return f"{TILE_SIEVE} needs --canaries on"
+    if args.state_layout != "v1":
+        return f"{TILE_SIEVE} needs --state-layout v1"
+    if args.policy_placement != DEFAULT_POLICY_PLACEMENT:
+        return f"{TILE_SIEVE} needs --policy-placement {DEFAULT_POLICY_PLACEMENT}"
+    if args.polarity_twin:
+        return f"{TILE_SIEVE} does not support --polarity-twin"
+    if args.require_verification:
+        return f"{TILE_SIEVE} does not support --require-verification"
+    return None
+
+
+def require_calibrated_judge(search_policy: str, judge: str) -> None:
+    """Refuse tile-sieve-beta for a judge with no calibrated threshold set.
+
+    The refusal is permanent for the Microsoft judge in this beta: it is made
+    right after the judge is chosen, before any read or output, on every route.
+    """
+    if search_policy != TILE_SIEVE:
+        return
+    from .tile_sieve_fusion import load_thresholds
+    try:
+        load_thresholds(judge)
+    except LookupError:
+        raise SearchPolicyRefused(
+            f"{TILE_SIEVE} has no calibrated thresholds for judge {judge}") from None
+
+
+def fallback_notice(source: Source, spec: Source | None, project: ProjectIndex | None,
+                    context_scope: str) -> str | None:
+    """The stderr line for a file that does not fit one request, else None.
+
+    It calls the planner the engine calls, on the same inputs, so the two agree
+    on whether the scan falls back and why. A planner integrity failure is not
+    a fallback: it propagates and the run ends as ``unexpected_error``.
+    """
+    from .tile_sieve_plan import Fallback, plan_whole_file
+    plan = plan_whole_file(source, spec, project.entries if project is not None else (),
+                           context_scope)
+    if not isinstance(plan, Fallback):
+        return None
+    if plan.reason == "empty_file":
+        return f"Search policy {TILE_SIEVE}: the file is empty; scanning with legacy-v1."
+    detail = plan.detail
+    reason = plan.reason
+    if "bytes" in detail and "limit" in detail:
+        least = "at least " if detail.get("at_least") else ""
+        reason += f": {least}{detail['bytes']:,} B > {detail['limit']:,} B"
+    elif "questions" in detail and "limit" in detail:
+        reason += f": {detail['questions']} > {detail['limit']} questions"
+    elif "batches" in detail:
+        reason += f": {detail['batches']} batches"
+    return (f"Search policy {TILE_SIEVE}: the file does not fit in one request "
+            f"({reason}); scanning with legacy-v1.")
 
 
 def judge_selectors(judge: str | None) -> tuple[str, ...]:
@@ -491,6 +580,7 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
     """
     judge = selected_judge(args)
     args.selected_judge = judge
+    require_calibrated_judge(getattr(args, "search_policy", "legacy-v1"), judge)
     route = selected_provider(args)
     args.selected_provider = route
     try:
@@ -566,6 +656,9 @@ def execute(args: argparse.Namespace) -> int:
     if args.scope == "project" and not args.project_root.is_dir():
         print("Scan failed (project_root_invalid).", file=sys.stderr)
         return 2
+    conflict = tile_sieve_conflict(args)
+    if conflict is not None:
+        return failure("invalid_search_configuration", detail=conflict)
     started_at = datetime.now(timezone.utc).isoformat()
     started_monotonic = time.monotonic()
     config = Config(
@@ -662,10 +755,17 @@ def execute(args: argparse.Namespace) -> int:
         *([item for entry in project.entries for item in
            (entry.relpath, "\n".join(entry.source.lines))] if project else []),
     )
+    context_scope = {"project": "project", "standalone": "declared_standalone",
+                     "isolate": "owner_isolated"}[args.scope]
     # Every selection, option and input check has passed: the run starts.
     notice = None if judge is None else JUDGES[judge].notice
     if notice is not None:
         print(notice, file=sys.stderr)
+    if config.search_policy == TILE_SIEVE:
+        # Once, before the run directory exists; the engine plans the same way.
+        fallback = fallback_notice(source, spec, project, context_scope)
+        if fallback is not None:
+            print(fallback, file=sys.stderr)
     if make_output_parent(parent):
         mark_output_directory(parent)
     run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=parent))
@@ -689,9 +789,7 @@ def execute(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         result = scan(source, gateway, config=config, spec=spec, project=project,
-                      context_scope={"project": "project",
-                                     "standalone": "declared_standalone",
-                                     "isolate": "owner_isolated"}[args.scope],
+                      context_scope=context_scope,
                       deadline_at=deadline_at,
                       secret_scan={"target": target_scan,
                                    "project_files_skipped":
@@ -768,9 +866,14 @@ def execute(args: argparse.Namespace) -> int:
                     "withheld by --require-verification)")
     # Named only for a judge other than OpenAI: absent means OpenAI.
     judged = f" (judge {judge})" if judge not in (None, "openai") else ""
+    searched = ""
+    tile_block = result.get("tile_sieve")
+    if tile_block is not None:
+        searched = (f" ({TILE_SIEVE} whole-file)" if tile_block["mode"] == "whole-file"
+                    else f" ({TILE_SIEVE}: legacy-v1 fallback)")
     print(
         f"Scan {status}; {count} suspected region(s){withheld}; {attempted} call(s) "
-        f"attempted; {assessed}/{len(source.lines)} source lines assessed{judged}.",
+        f"attempted; {assessed}/{len(source.lines)} source lines assessed{judged}{searched}.",
         file=sys.stderr,
     )
     if not complete:
@@ -782,6 +885,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return execute(args)
+    except SearchPolicyRefused as refused:
+        return failure("invalid_search_configuration", detail=refused.detail)
     except ProviderError as error:
         return failure(error.code, getattr(args, "selected_provider", None)
                        or getattr(args, "provider", None),

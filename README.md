@@ -238,7 +238,7 @@ before turning one on.
 | `--foundry-auth` | unset | `api-key` (`AZURE_API_KEY`) or `entra-token` (`AZURE_ENTRA_TOKEN`); needed only when both variables are set. `foundry` only. |
 | `--openrouter-routing` | `deny` | `deny` sends `allow_fallbacks: false` and `data_collection: deny`; `account-default` omits them. OpenRouter only. |
 | `--openrouter-zdr` | off | Also request zero-data-retention endpoints. OpenRouter only. |
-| `--search-policy` | `legacy-v1` | `scoped-v2-beta` adds scoped verification, explicit refutation and exploratory beams. |
+| `--search-policy` | `legacy-v1` | `scoped-v2-beta` adds scoped verification, explicit refutation and exploratory beams. `tile-sieve-beta` is an opt-in whole-file beta calibrated for the OpenAI judge only: a file that fits in one request is read in two looks, then each flagged region gets one focus request (no stage 2), and strong regions report at a lower bar. A larger file falls back to `legacy-v1` with a stderr notice. It needs `--canaries on`, `--state-layout v1` and `--policy-placement instructions`, and refuses `--polarity-twin`, `--require-verification` and `--judge microsoft`. |
 | `--state-layout` | `v1` | `v2` puts the DBH-written state fields first and adds an imitation warning to the policy text. |
 | `--policy-placement` | `instructions` | `state` sends the policy text once as the first state key instead of in every question. |
 | `--canaries` | `on` | Two judge-control questions with known answers in every request; `off` removes them. |
