@@ -103,7 +103,10 @@ class ThresholdFileTests(unittest.TestCase):
         self.assertEqual(F.load_thresholds("openai").screening_rule, "pilot-full")
         self.assertEqual(self.data()["judges"]["openai"]["leaf_only"], {"tau_leaf": "0.85"})
 
-    def test_microsoft_has_no_set_yet(self):
+    def test_microsoft_has_no_set_and_is_refused(self):
+        # Owner decision 12A: the Microsoft judge cannot meet the Tile Sieve gate,
+        # so the beta ships no Microsoft threshold set and the loader refuses it.
+        self.assertEqual(set(self.data()["judges"]), {"openai"})
         with self.assertRaises(LookupError) as caught:
             F.load_thresholds("microsoft")
         self.assertEqual(str(caught.exception), "tile_sieve_uncalibrated")

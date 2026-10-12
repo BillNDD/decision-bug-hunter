@@ -425,7 +425,7 @@ class FullPrecisionJudgeTests(unittest.TestCase):
         fake = bench.FakeExchange(Judge(), bench.JudgeClock(), None, model, True)
         data = json.loads(fake.post(body, {}, 1.0).body)
         self.assertEqual(data["model"], model + "-20261009")
-        self.assertEqual(data["provider"], "Microsoft")
+        self.assertEqual(data["provider"], "Azure")
         tokens = max(1, len(body) // 4)
         self.assertEqual(data["usage"], {"input_tokens": tokens, "output_tokens": 0,
                                          "cost": float(Decimal(tokens) * Decimal("4.2e-8"))})

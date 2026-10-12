@@ -66,10 +66,10 @@ def reply(body, status=200):
     return Reply(status=status, body=body, headers=headers, close_after=True)
 
 
-def microsoft_body(answers=None, *, model=DATED, **extra):
+def microsoft_body(answers=None, *, model=DATED, provider="Azure", **extra):
     """A 200 body in the shape OpenRouter returned for the Microsoft judge."""
     return openrouter_body(FULL if answers is None else answers, model=model,
-                           provider="Microsoft", input_tokens=96, cost=0.000004, **extra)
+                           provider=provider, input_tokens=96, cost=0.000004, **extra)
 
 
 class Harness:
@@ -203,12 +203,15 @@ class ModelSpecTests(unittest.TestCase):
         self.assertEqual((spec.price_in_per_mtok, spec.price_out_upper_per_mtok),
                          (Decimal("0.042"), Decimal(0)))
         self.assertEqual(spec.confidence_identity, "chance_normalized_p1")
-        self.assertIsNone(spec.expected_upstream)
+        self.assertEqual(spec.expected_upstream, "Azure")
+        self.assertEqual(spec.expected_upstream, openrouter.MICROSOFT_EXPECTED_UPSTREAM)
         self.assertIsNone(spec.state_placement_max_questions)
         self.assertIsNone(spec.state_placement_max_envelope_bytes)
         self.assertEqual(spec.limits("instructions"), (64, 24576))
         self.assertEqual(spec.limits("state"), (64, 24576))
-        # The OpenAI model on the same route keeps its raised caps.
+        # The OpenAI model on the same route keeps its upstream pin and its raised caps.
+        self.assertEqual(openrouter.ROUTE.model(LUNA).expected_upstream, "OpenAI")
+        self.assertEqual(openrouter.EXPECTED_UPSTREAM, "OpenAI")
         self.assertEqual(openrouter.ROUTE.model(LUNA).limits("state"),
                          (RAISED_QUESTIONS, RAISED_BYTES))
         # The price was read live after the shared table's date.
@@ -394,6 +397,53 @@ class MakeProviderTests(unittest.TestCase):
                                      api_key=KEY, environ={}), "invalid_request")
 
 
+class MicrosoftUpstreamTests(unittest.TestCase):
+    """The Microsoft spec pins Azure; a mismatch is journaled and never fails the call."""
+
+    def decode(self, model, **kwargs):
+        spec = openrouter.ROUTE.model(model)
+        body = microsoft_body(**kwargs) if model == MICROSOFT else openrouter_body(
+            OPENAI_ANSWERS, **kwargs)
+        return openrouter.decode_response(body, QUESTIONS, model=model,
+                                          expected_upstream=spec.expected_upstream)
+
+    def test_azure_is_not_flagged(self):
+        response = self.decode(MICROSOFT)
+        self.assertIsNone(response.error)
+        self.assertEqual(response.provenance["upstream_provider"], "Azure")
+        self.assertNotIn("upstream_provider_unexpected", response.provenance)
+
+    def test_another_upstream_is_journaled_and_not_fatal(self):
+        for upstream in ("Microsoft", "OpenAI", "azure", "bad\nname", 7):
+            with self.subTest(upstream=upstream):
+                response = self.decode(MICROSOFT, provider=upstream)
+                self.assertIsNone(response.error)
+                self.assertEqual(response.answers["screen"]["noul"], FULL["screen"]["noul"])
+                self.assertIs(response.provenance["upstream_provider_unexpected"], True)
+
+    def test_an_absent_upstream_is_not_flagged(self):
+        # Without a provider block the check never runs: nothing is recorded.
+        response = self.decode(MICROSOFT, omit=("provider",))
+        self.assertIsNone(response.error)
+        self.assertNotIn("upstream_provider", response.provenance)
+        self.assertNotIn("upstream_provider_unexpected", response.provenance)
+
+    def test_the_openai_spec_is_unchanged(self):
+        response = self.decode(LUNA)
+        self.assertEqual(response.provenance["upstream_provider"], "OpenAI")
+        self.assertNotIn("upstream_provider_unexpected", response.provenance)
+        flagged = self.decode(LUNA, provider="Azure")
+        self.assertIs(flagged.provenance["upstream_provider_unexpected"], True)
+
+    def test_a_mismatch_reaches_the_receipt_through_the_gateway(self):
+        harness = Harness(self, [reply(microsoft_body(provider="Microsoft"))],
+                          model=MICROSOFT, judge="microsoft")
+        _, receipt = harness.evaluate()
+        self.assertEqual(receipt["status"], "validated")
+        self.assertEqual(receipt["upstream_provider"], "Microsoft")
+        self.assertIs(receipt["upstream_provider_unexpected"], True)
+
+
 class MicrosoftExchangeTests(unittest.TestCase):
     def test_a_full_precision_exchange_validates_and_names_the_judge(self):
         harness = Harness(self, [reply(microsoft_body())], model=MICROSOFT, judge="microsoft")
@@ -408,6 +458,7 @@ class MicrosoftExchangeTests(unittest.TestCase):
         self.assertEqual(receipt["route"], "openrouter-decisions")
         self.assertEqual(receipt["cost_source"], "provider_reported")
         self.assertEqual(receipt["cost_usd"], "0.000004")
+        self.assertEqual(receipt["upstream_provider"], "Azure")
         self.assertNotIn("upstream_provider_unexpected", json.dumps(receipt))
         # The judge key sits beside the route and model identity.
         keys = list(receipt)

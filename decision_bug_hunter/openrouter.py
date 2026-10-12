@@ -55,6 +55,8 @@ PORT = 443
 PATH = "/api/alpha/decisions"
 CREDENTIAL_VARIABLE = "OPENROUTER_API_KEY"
 EXPECTED_UPSTREAM = "OpenAI"
+#: Observed on 1,225 of 1,225 recorded Microsoft receipts on 2026-10-11.
+MICROSOFT_EXPECTED_UPSTREAM = "Azure"
 ROUTING_CHOICES = ("deny", "account-default")
 DEFAULT_ROUTING = "deny"
 MAX_BODY_BYTES = 64 * 1024
@@ -80,12 +82,13 @@ ROUTE = RouteSpec(
             # The second judge on the same endpoint and request shape, verified
             # live 2026-10-11. No raised state-placement caps (owner decision
             # 5A): 64 questions and 24 KiB under either policy placement.
-            # Probabilities are full-precision floats; the upstream is journaled
-            # and not flagged until one has been observed.
+            # Probabilities are full-precision floats; the upstream is pinned to
+            # the one observed live, and a mismatch is journaled, never fatal.
             ModelSpec(MICROSOFT_MODEL, price_in_per_mtok=Decimal("0.042"),
                       price_out_upper_per_mtok=Decimal("0"),
                       confidence_identity="chance_normalized_p1",
-                      expected_upstream=None, judge="microsoft",
+                      expected_upstream=MICROSOFT_EXPECTED_UPSTREAM,
+                      judge="microsoft",
                       probability_precision="full",
                       # The price was read live on this date; the shared table
                       # date (2026-10-06) predates the model.

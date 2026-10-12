@@ -224,7 +224,7 @@ class FakeExchange:
                 answers = {qid: full_precision_answer(seed, qid, answer)
                            for qid, answer in answers.items()}
             raw = support.openrouter_body(
-                answers, model=self.model + MODEL_DATE_SUFFIX, provider="Microsoft",
+                answers, model=self.model + MODEL_DATE_SUFFIX, provider="Azure",
                 input_tokens=tokens,
                 cost=float(Decimal(tokens) * MODEL_PRICE_PER_TOKEN))
         self.posts += 1

@@ -81,25 +81,25 @@
         {
           "id": "C001",
           "receipt_files": 9,
-          "receipts_sha256": "67ea09f8770d3d811e8a67bb944c1f02d4a26a72fcf4f838046051e0a1142498",
+          "receipts_sha256": "989d45a7f5397a6431d30f93793110332d5a7b939be54b82d93eea764c8d06b6",
           "report_sha256": "2170de4ec58fca7e3d31bab31671cd398dfeabc479e5adcfd4b4e136f4dc6b54"
         },
         {
           "id": "C002",
           "receipt_files": 1,
-          "receipts_sha256": "0e3745fee86da69d9c73f155d1f1d0e0da0a44cb8d79d614b58eec97ac950674",
+          "receipts_sha256": "e488a352af14b2e6de96cfa70038e48d697859c10ee8b94aa2364a24cb107568",
           "report_sha256": "ea2c62633c07d29e91f8e341db6ef648398b4bd8a698cc8e1f08ab189e4e24e0"
         },
         {
           "id": "C003",
           "receipt_files": 9,
-          "receipts_sha256": "abd539bb035f10d6d85c07281d47c09f92ebdaf3cf3c2bc4a184614baab9f657",
+          "receipts_sha256": "f261fdec6bc4958c38deffeeb09ec7c997800413292df253609f450a84a93fd3",
           "report_sha256": "57c356afe39aff51cafb34d2a7477e730afd000fbf4c507b1bf105fe214144fa"
         },
         {
           "id": "C004",
           "receipt_files": 1,
-          "receipts_sha256": "1ef666734e4a68c5febea9e13d6ada4d97b208260b3ebb26fdb4f5a2e5798809",
+          "receipts_sha256": "ca8b769d43073308d7eb2330a1e238b5e945c32bc7b412fd92c4ed5cdfb439da",
           "report_sha256": "0d91de03afd69f5dd8d23821f1133fbff35ed81d610269afa5bb5bcaddca564c"
         }
       ],
@@ -109,8 +109,8 @@
         "dbh_ncalls": 10170,
         "dbh_primitive_calls": 8518,
         "json_dumps_calls": 238,
-        "json_dumps_chars": 219272,
-        "json_loads_bytes": 186631,
+        "json_dumps_chars": 219193,
+        "json_loads_bytes": 186551,
         "json_loads_calls": 64,
         "path_mkdir_calls": 4,
         "protocol_secret_in_calls": 804,
@@ -125,7 +125,7 @@
         "questions_total": 94,
         "receipt_files": 20,
         "receipt_writes": 40,
-        "response_bytes_total": 11953,
+        "response_bytes_total": 11873,
         "rounds_as_executed": 20,
         "rounds_by_phase": {
           "action-select": 4,
@@ -139,7 +139,7 @@
         "unique_requests": 20,
         "wire_bytes_total": 76225
       },
-      "fingerprint": "a382945dc6eb1ad7786e2fd3893ce1ac038d75fda8127067a3af244d4417a488",
+      "fingerprint": "b9c728b378bae759657c29dbf4b4d0ca6f9b633f977b942b7c92e6860065e66d",
       "jobs": 4,
       "request_envelopes_sha256": "0e98e369d30c1f4ddda3e8c41c74a1607ce34e83c5279663a91a9b0bacbdeccb"
     },
