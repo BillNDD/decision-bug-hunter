@@ -343,11 +343,11 @@ class BuildTests(unittest.TestCase):
                                  "--model", "gpt-6-luna", OPENAI_API_KEY=OPENAI_KEY)
         self.assertEqual(provider.identity.model, "gpt-6-luna")
 
-    def test_concurrency_reaches_the_foundry_pool(self):
+    def test_the_foundry_provider_holds_one_exchange(self):
         provider, _ = self.build("--judge", "microsoft", "--provider", "foundry", *FOUNDRY,
-                                 "--concurrency", "3", AZURE_API_KEY=AZURE_KEY)
+                                 AZURE_API_KEY=AZURE_KEY)
         try:
-            self.assertEqual(provider._pool._size, 3)
+            self.assertIsNone(provider._pool)
         finally:
             provider.close()
 

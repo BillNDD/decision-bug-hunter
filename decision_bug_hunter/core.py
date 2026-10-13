@@ -163,8 +163,6 @@ LEGACY_OMITTED_OPTIONS = {**LEGACY_CHOICE_OPTIONS, "canaries": "off",
 #: Search policies. ``tile-sieve-beta`` is opt-in and reads a file that fits one
 #: request in two whole-file looks; any other file is scanned by ``legacy-v1``.
 SEARCH_POLICIES = ("legacy-v1", "scoped-v2-beta", "tile-sieve-beta")
-#: Most requests a run may have in flight (``Config.concurrency``).
-MAX_CONCURRENCY = 8
 #: Support paths that count as a second look under ``require_verification``
 #: (revision-3 WP-17): a supporting direct recheck, a promoted relationship
 #: recheck, or (scoped-v2-beta) a supported scoped verification of the claim.
@@ -240,11 +238,6 @@ class Config:
     #: suspicions whose support includes a VERIFICATION_SUPPORT_PATHS entry;
     #: the rest are listed as ``unverified_suspicions``, not findings.
     require_verification: bool = False
-    #: Requests in flight at once (opt-in, default 1: one at a time). It
-    #: changes timing and nothing else on a run that succeeds, so it is not
-    #: part of ``as_dict`` (and so of no hash); the report records it when
-    #: above 1.
-    concurrency: int = 1
 
     def __post_init__(self):
         limits = ((self.width, 2, 4096), (self.min_width, 1, self.width),
@@ -261,8 +254,7 @@ class Config:
                   (self.max_evidence_candidates, 1, 4096),
                   (self.max_relationships, 0, 64),
                   (self.max_project_candidates, 1, 4096),
-                  (self.localization_beam_width, 1, 32),
-                  (self.concurrency, 1, MAX_CONCURRENCY))
+                  (self.localization_beam_width, 1, 32))
         if any(type(v) is not int or not lo <= v <= hi for v, lo, hi in limits):
             raise ValueError("invalid_search_configuration")
         for name in ("drill_threshold", "report_threshold", "context_threshold",
@@ -323,8 +315,7 @@ class Config:
     def as_dict(self):
         return {k: str(v) if isinstance(v, Decimal) else v
                 for k, v in asdict(self).items()
-                if k != "concurrency"
-                and (k not in LEGACY_OMITTED_OPTIONS or v != LEGACY_OMITTED_OPTIONS[k])}
+                if k not in LEGACY_OMITTED_OPTIONS or v != LEGACY_OMITTED_OPTIONS[k]}
 
 
 def windows(span: Span, width: int, offsets: bool = True) -> list[Span]:

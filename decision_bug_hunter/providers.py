@@ -941,6 +941,7 @@ class ValidatedGateway:
         self._block_code: str | None = None
         self._closed = False
         self._call_lock = threading.Lock()
+        # Known limitation: not checked against the provider's max_connections (RELEASE_GATES.md).
         self.max_in_flight = max_in_flight
         # Without a semaphore (the default) no call runs beside another and
         # the call lock above is the only exclusion, as before.
@@ -1365,6 +1366,7 @@ class ValidatedGateway:
                     break
             # The place is held from here until the worker frees it, so
             # everything up to the worker's start answers for it.
+            # Known limitation: the worker does not inherit context variables (RELEASE_GATES.md).
             worker = threading.Thread(target=self._work,
                                       args=(call, wire, key, metadata),
                                       name="dbh-gateway-call", daemon=False)
@@ -1575,6 +1577,7 @@ class ValidatedGateway:
         bound = self._attempt_bound(wire, len(expected))
         with self._state_lock:
             if self._over_budget(bound):
+                # Known limitation: reservations alone can latch this stop (RELEASE_GATES.md).
                 # Refused before any receipt or byte, like the reserve refusal.
                 self._stop("cost_budget_exhausted", call)
                 raise ProviderError("cost_budget_exhausted",
@@ -1774,6 +1777,7 @@ class ValidatedGateway:
             return "internal_error", 0.0
         waited = max(0.0, self._now() - began)
         with self._state_lock:
+            # Known limitation: a stop latched by reservations cancels this call (RELEASE_GATES.md).
             if first:
                 return self._refusal(), waited
             return (self._block_code or ("transport_failed" if self._closing else None),

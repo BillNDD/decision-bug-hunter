@@ -351,8 +351,7 @@ class DocumentationTests(unittest.TestCase):
         self.assertEqual(table["Input tokens"][0], "254,661")
         self.assertEqual(table["Cost"][0], "$0.0107")
         flat_readme = flat(readme)
-        for needle in ("1.70 s with 8 requests in flight and 0.59 s with 2",
-                       "171 of the 182 requests", "--concurrency 2", "about 10^-10",
+        for needle in ("171 of the 182 requests", "about 10^-10",
                        "six request formats for the screening questions and three for the "
                        "verification questions", "the limit looks like the model, not the "
                        "request design", "27 of 34 (12 of 16 defective programs, 14 of 16 clean "
@@ -493,9 +492,32 @@ class DocumentationTests(unittest.TestCase):
         for needle in ("AZURE_API_KEY", "AZURE_ENTRA_TOKEN", "DBH_FOUNDRY_ENDPOINT",
                        "by its exact value", "no pattern for an Azure resource key",
                        "short-lived", "never acquires or refreshes", "`http_unauthorized`",
-                       "`--judge microsoft --provider foundry`", "Azure for `--judge microsoft`"):
+                       "`--judge microsoft --provider foundry`", "Azure for `--judge microsoft`",
+                       "refused wherever its unaltered text appears",
+                       "matches the key's text as configured",
+                       "an escaped or encoded form (JSON `\\u` escapes, base64 or hex)",
+                       "a byte-order mark, a zero-width character, an unbalanced quote, "
+                       "a `Bearer ` prefix or backticks", "Keep keys out of the files you scan"):
             with self.subTest(needle):
                 self.assertIn(needle, security)
+        self.assertNotIn("never be sent to OpenAI or OpenRouter", security)
+        flat_readme = flat(read("README.md"))
+        for needle in ("so the unaltered key is refused wherever it appears, on every route",
+                       "Keep keys out of the files you scan"):
+            with self.subTest(needle):
+                self.assertIn(needle, flat_readme)
+
+    def test_concurrency_is_not_a_public_setting(self):
+        for name in ("README.md", "CHANGELOG.md", "docs/PROVIDER_CONTRACT.md", "docs/VALIDATION.md"):
+            with self.subTest(name):
+                self.assertNotIn("--concurrency", read(name))
+        known = flat(read("docs/RELEASE_GATES.md").split("## Known issues", 1)[1])
+        for needle in ("Request concurrency is not exposed in 0.1.0b1",
+                       "do not inherit context variables",
+                       "`max_in_flight` is not checked against the provider's `max_connections`",
+                       "latches `cost_budget_exhausted`"):
+            with self.subTest(needle):
+                self.assertIn(needle, known)
 
     def test_changelog_describes_the_second_judge_and_tile_sieve(self):
         changelog = flat(read("CHANGELOG.md"))

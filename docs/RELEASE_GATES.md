@@ -46,3 +46,22 @@ gates 12 to 15 cover Microsoft-Decision-1 and Tile Sieve.
   Decisions' on the same catalog. A new route needs the same, except the
   catalog run when the judge is unchanged. A judge offered with Tile Sieve
   also needs its own threshold set.
+
+## Known issues
+
+- Request concurrency is not exposed in 0.1.0b1. The gateway can hold several
+  requests in flight (`max_in_flight`) and the exchange can pool connections
+  (`max_connections`), but both search policies send one request at a time,
+  so there is no `--concurrency` flag. Before one is added, three latent
+  gateway issues found by the 2026-10-12 audit must be fixed:
+  - Gateway worker threads do not inherit context variables, so a worker
+    does not see the active request envelope or state layout, and a request
+    the calling thread would have completed can be sent (and billed) and then
+    fail as `invalid_request`.
+  - `max_in_flight` is not checked against the provider's `max_connections`,
+    so with a gateway wider than its provider one unlocked exchange can be
+    shared by several workers.
+  - A budget refusal caused only by other calls' in-flight cost reservations
+    latches `cost_budget_exhausted` and cancels calls that were admitted but
+    not yet sent, so a tight `--max-cost` completes fewer calls at a higher
+    `max_in_flight`.

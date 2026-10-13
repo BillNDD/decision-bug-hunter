@@ -97,7 +97,14 @@ Credential handling:
   `sensitive_input`. A response that echoes a key is rejected as
   `response_sensitive`. The credential-shaped text scanner recognizes an Entra
   token but has no pattern for an Azure resource key, which is covered only by
-  this exact-value check.
+  this exact-value check. The check matches the key's text as configured
+  (after removing surrounding whitespace and one pair of matching quotes, and
+  line by line for a multi-line value), so the unaltered key is refused
+  wherever it appears, on every route. It does not recognize escaped or
+  encoded forms in your files (JSON `\u` escapes, base64 or hex, a key split
+  across strings or lines) or a configured value wrapped in anything else (a
+  byte-order mark, a zero-width character, an unbalanced quote, a `Bearer `
+  prefix, backticks). Keep keys out of the files you scan.
 - Keys never appear in requests other than the `Authorization` header (or
   the `api-key` header of a Foundry resource key), nor in receipts, reports,
   error text or progress lines.
@@ -230,11 +237,9 @@ tile-sieve-beta` refuses it (see [Tile Sieve (beta)](#tile-sieve-beta)).
 Using it:
 
 ```sh
-decision-bug-hunter target.py --judge microsoft --provider openrouter --concurrency 2 --scope standalone
+decision-bug-hunter target.py --judge microsoft --provider openrouter --scope standalone
 ```
 
-- Use `--concurrency 2` through OpenRouter. On 2026-10-11 a 24 KB request had
-  a median latency of 1.70 s with 8 requests in flight and 0.59 s with 2.
 - Probabilities arrive as full-precision floats, not two-decimal values, and
   identical requests differ by about 10^-10, so answers are not byte-identical
   across repeated requests the way OpenAI Decisions' are. With no display
@@ -361,7 +366,6 @@ before turning one on.
 | `--run-deadline-seconds` | `1800.0` | Cooperative deadline for the whole run, indexing included. |
 | `--no-retry` | off | One attempt per request. |
 | `--max-cost` | unset | Stop before any attempt whose cost bound could take spend above this many USD (at most 1000). |
-| `--concurrency` | `1` | Opt-in: up to N requests in flight at once (1 to 8). Results are identical on success; after a failure or a stop, requests already in flight still complete and are billed. Use 2 with Microsoft-Decision-1 through OpenRouter. |
 | `--allow-secrets` | off | Send the file and specification even when they contain credential-shaped text. |
 | `--output-dir` | `dbh_runs` | Parent of the private run directories. |
 | `--output-format` | `compact` | What is printed on stdout: `compact`, `ranges` or `json`. All formats are saved. |

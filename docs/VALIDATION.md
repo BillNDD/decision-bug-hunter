@@ -385,9 +385,6 @@ What a live probe on 2026-10-11 and the catalog run showed:
 - Answers arrived in a different order than the questions on 171 of the 182
   requests of the catalog run (reports count it as
   `provenance.answer_order_mismatch`); they are matched by name.
-- Latency depends on concurrency: a 24 KB request had a median of 1.70 s with 8
-  requests in flight and 0.59 s with 2 (2026-10-11), hence the advice to use
-  `--concurrency 2`.
 
 The 34-case catalog under `legacy-v1`, Microsoft-Decision-1 against OpenAI
 Decisions on the same route and on OpenAI direct (the OpenAI columns are the

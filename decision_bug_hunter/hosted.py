@@ -139,7 +139,7 @@ def token(value: Any) -> str | None:
 
 
 def _credential_forms(value: str) -> tuple[str, ...]:
-    """Every text of one configured key that must never leave this machine.
+    """Every text of one configured key that is refused wherever it appears in local data.
 
     The value itself when it is a header token (what is sent when the key is
     selected), and its core: the value without surrounding whitespace and
@@ -475,6 +475,7 @@ class HostedProvider:
         self._exchange: HttpsExchange | None = None
         self._pool: _ExchangePool | None = None
         if max_connections == 1:
+            # Known limitation: a wider gateway can share this unlocked exchange (RELEASE_GATES.md).
             self._exchange = exchange if exchange is not None else HttpsExchange(
                 self.route.host, self.route.path, port=self.route.port)
         else:

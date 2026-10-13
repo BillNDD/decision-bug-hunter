@@ -313,8 +313,7 @@ what it was before the second judge existed.
 
 ## Transport
 
-Each provider holds its own exchange (or, with `--concurrency` above 1, a pool
-of them), whatever the route: an explicit TLS context
+Each provider holds its own exchange, whatever the route: an explicit TLS context
 (system trust store, TLS 1.2 minimum, never `SSLKEYLOGFILE`), at most one
 kept-alive connection, no proxy (proxy variables are ignored), no redirect
 following and no content decoding (`Accept-Encoding: identity`). Requests are

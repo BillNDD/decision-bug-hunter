@@ -541,6 +541,7 @@ class HttpsExchange:
         return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + body
 
     def _take_connection(self) -> tuple[Any, bool]:
+        # Known limitation: unlocked, so it relies on one caller at a time (RELEASE_GATES.md).
         sock, idle_since = self._sock, self._idle_since
         self._sock, self._idle_since = None, None
         if sock is None:

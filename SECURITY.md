@@ -55,12 +55,20 @@ Every configured key of the four (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`,
 exact value against the files, the specification, project files and the
 output path before anything is sent, on every route, and against responses
 and the final report. A set Azure key or token, even one that belongs to
-another tool, can therefore never be sent to OpenAI or OpenRouter, and an
-OpenAI or OpenRouter key never to Foundry. Surrounding whitespace and one pair
+another tool, is therefore refused wherever its unaltered text appears in
+those inputs, whichever route is selected, and an OpenAI or OpenRouter key is
+refused the same way on the Foundry route. Surrounding whitespace and one pair
 of surrounding quotes are ignored when matching configured keys, so a key
 pasted with a trailing newline is still caught; a key with a line break inside
 is also matched line by line. No key is written to receipts, reports, errors or
 request bodies.
+
+The check matches the key's text as configured, nothing more. It does not
+recognize a key written in your files in an escaped or encoded form (JSON
+`\u` escapes, base64 or hex), a key split across strings or lines, or a
+configured value wrapped in anything else (a byte-order mark, a zero-width
+character, an unbalanced quote, a `Bearer ` prefix or backticks). Keep keys
+out of the files you scan.
 
 The credential-shaped text scan below recognizes an Entra token (it is a JWT)
 but has no pattern for an Azure resource key, which has no reliable public

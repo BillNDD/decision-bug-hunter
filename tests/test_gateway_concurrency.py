@@ -14,13 +14,12 @@ reserved; a rate-limit wait pauses every worker; a failed receipt write or a
 stop refuses new calls while calls in flight settle; an interrupt leaves every
 receipt settled or recording a possible submission; at ``max_in_flight`` 1 the
 call runs in the calling thread and writes the receipts ``_evaluate_prepared``
-writes; and a scan with ``--concurrency 4`` through the serial engine is
-byte-identical to one without.
+writes; and a scan through a gateway that allows 4 requests in flight, driven
+by the serial engine, is the same scan as one through a gateway that allows 1.
+No command-line flag or ``Config`` field reaches this code in 0.1.0b1.
 """
-from contextlib import redirect_stderr, redirect_stdout
 from decimal import Decimal
 import hashlib
-import io
 import json
 from pathlib import Path
 import random
@@ -32,9 +31,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-from decision_bug_hunter import __main__ as cli
 from decision_bug_hunter import providers
-from decision_bug_hunter.core import MAX_CONCURRENCY, Config
+from decision_bug_hunter.core import Config
 from decision_bug_hunter.hosted import MAX_CONNECTIONS
 from decision_bug_hunter.protocol import QUESTION, ProviderError, encode_request
 from decision_bug_hunter.providers import (MAX_IN_FLIGHT, CallHandle, CallResult,
@@ -487,7 +485,6 @@ class ConcurrentSubmitTests(Base):
             gateway = self.gateway(ConcurrentProvider(), f"good-{good}", max_in_flight=good)
             self.assertEqual(gateway.max_in_flight, good)
         self.assertEqual(self.gateway(ConcurrentProvider(), "default").max_in_flight, 1)
-        self.assertEqual(MAX_IN_FLIGHT, MAX_CONCURRENCY)
         self.assertEqual(MAX_IN_FLIGHT, MAX_CONNECTIONS)
 
 
@@ -1455,44 +1452,28 @@ class SerialSubmitTests(Base):
         self.assertEqual((saved["status"], saved["error"]), ("failed", "interrupted"))
 
 
-class ConfigAndReportTests(Base):
-    def test_concurrency_defaults_to_one_and_is_validated(self):
-        self.assertEqual(Config().concurrency, 1)
-        for value in range(1, MAX_CONCURRENCY + 1):
-            self.assertEqual(Config(concurrency=value).concurrency, value)
-        for bad in (0, 9, -1, True, 2.0, "2", None):
-            with self.subTest(concurrency=bad):
-                with self.assertRaises(ValueError):
-                    Config(concurrency=bad)
-
-    def test_the_hashed_configuration_never_holds_concurrency(self):
-        for value in (1, 4):
-            self.assertNotIn("concurrency", Config(concurrency=value).as_dict())
-        self.assertEqual(Config(concurrency=4).as_dict(), Config().as_dict())
-
-    def scan_report(self, concurrency, label, **config):
+class ScanReportTests(Base):
+    def scan_report(self, max_in_flight, label, **config):
         """(report, receipts) of a small scan: screening and the first recheck."""
         provider = SyntheticProvider(fixture=FixtureProvider(((2, 3), (6, 6))))
-        options = pinned(max_in_flight=concurrency) if concurrency > 1 else pinned()
+        options = pinned(max_in_flight=max_in_flight) if max_in_flight > 1 else pinned()
         gateway = ValidatedGateway(provider, self.root / label, **options)
         config = {"whole_file": False, "bug_lenses": False, "max_action_steps": 0, **config}
         with gateway:
-            report = scan(source(8), gateway, config=Config(concurrency=concurrency, **config))
+            report = scan(source(8), gateway, config=Config(**config))
         return report, self.receipts(label)
 
-    def test_a_scan_with_concurrency_is_the_same_scan(self):
+    def test_a_scan_through_a_wider_gateway_is_the_same_scan(self):
         one, receipts_one = self.scan_report(1, "one")
-        # Recorded only above 1, and then as the number asked for.
         self.assertNotIn("concurrency", one["configuration"])
-        for value in (2, MAX_CONCURRENCY):
-            with self.subTest(concurrency=value):
+        for value in (2, MAX_IN_FLIGHT):
+            with self.subTest(max_in_flight=value):
                 other, receipts_other = self.scan_report(value, f"c{value}")
-                self.assertEqual(other["configuration"].pop("concurrency"), value)
                 self.assertEqual(canonical(scrub(other)), canonical(scrub(one)))
                 self.assertEqual(sorted(canonical(receipt_scrub(r)) for r in receipts_other),
                                  sorted(canonical(receipt_scrub(r)) for r in receipts_one))
 
-    def test_the_scoped_policy_hash_does_not_move_with_concurrency(self):
+    def test_the_scoped_policy_hash_does_not_move_with_the_gateway_width(self):
         one, _ = self.scan_report(1, "scoped-one", search_policy="scoped-v2-beta")
         four, _ = self.scan_report(4, "scoped-four", search_policy="scoped-v2-beta")
         self.assertIn("policy_sha256", one)
@@ -1513,53 +1494,6 @@ class ProviderPoolTests(Base):
                         providers.make_provider(route, api_key="offline-synthetic-key-xyz",
                                                 max_connections=bad)
                     self.assertEqual(caught.exception.code, "invalid_request")
-
-
-class CliScanTests(Base):
-    """A whole CLI scan through the offline provider, with and without concurrency."""
-
-    def setUp(self):
-        super().setUp()
-        self.source = self.root / "sample.txt"
-        self.source.write_text("".join(f"line {number}\n" for number in range(1, 41)),
-                               encoding="utf-8")
-
-    def run_scan(self, label, *extra):
-        out, err = io.StringIO(), io.StringIO()
-        output = self.root / label
-        provider = SyntheticProvider(fixture=FixtureProvider(((12, 13), (30, 30))))
-        argv = [str(self.source), "--scope", "standalone", "--output-dir", str(output),
-                "--output-format", "json",
-                # A slow disk must not turn the run deadline into a difference.
-                "--run-deadline-seconds", "86400", *extra]
-        with redirect_stdout(out), redirect_stderr(err), \
-                patch.object(cli, "make_provider", return_value=provider):
-            code = cli.main(argv)
-        run, = output.glob("run-*")
-        files = {name: (run / name).read_bytes()
-                 for name in ("findings.txt", "handoff.json", "ranges.txt")}
-        report = json.loads((run / "report.json").read_text(encoding="utf-8"))
-        receipts = [json.loads(path.read_text(encoding="utf-8"))
-                    for path in sorted((run / "receipts").glob("*.json"))]
-        return code, out.getvalue(), files, report, receipts, len(provider.requests)
-
-    def test_concurrency_four_is_byte_identical_to_one(self):
-        base = self.run_scan("one")
-        for flags in (("--concurrency", "1"), ("--concurrency", "4")):
-            with self.subTest(flags=flags):
-                other = self.run_scan("c" + flags[1], *flags)
-                self.assertEqual(other[:3], base[:3])
-                self.assertEqual(other[5], base[5])
-                report = other[3]
-                if flags[1] == "1":
-                    self.assertNotIn("concurrency", report["configuration"])
-                else:
-                    self.assertEqual(report["configuration"].pop("concurrency"),
-                                     int(flags[1]))
-                self.assertEqual(canonical(scrub(report)), canonical(scrub(base[3])))
-                self.assertEqual(sorted(canonical(receipt_scrub(r)) for r in other[4]),
-                                 sorted(canonical(receipt_scrub(r)) for r in base[4]))
-        self.assertGreater(base[5], 3)
 
 
 class HandleTests(Base):

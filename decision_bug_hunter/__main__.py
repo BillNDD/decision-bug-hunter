@@ -15,7 +15,7 @@ import time
 from .core import (Config, Source, format_findings, scan, STATE_LAYOUTS,
                    DEFAULT_STATE_LAYOUT, CHOICE_GATES, DEFAULT_CHOICE_GATE,
                    LOCALIZATION_MENUS, SEARCH_POLICIES,
-                   CANARY_MODES, DEFAULT_CANARIES, MAX_CONCURRENCY)
+                   CANARY_MODES, DEFAULT_CANARIES)
 from .handoff import compact_report, format_handoff
 from .protocol import (ProviderError, DEFAULT_CHOICE_ROUNDING_PLACES, POLICY_PLACEMENTS,
                        DEFAULT_POLICY_PLACEMENT)
@@ -254,12 +254,6 @@ def parser() -> argparse.ArgumentParser:
                         help="Stop before any attempt (retries included) whose cost bound "
                              "could take reported, estimated and unknown-usage spend above "
                              "USD (default: unset).")
-    result.add_argument("--concurrency", type=int, choices=range(1, MAX_CONCURRENCY + 1),
-                        default=1, metavar="N",
-                        help="Opt-in: allow up to N requests in flight at once, 1 to "
-                             f"{MAX_CONCURRENCY} (default 1: one at a time). Results are "
-                             "identical on success. After a failure or a stop, requests "
-                             "already in flight still complete and are billed.")
     result.add_argument("--allow-secrets", action="store_true",
                         help="Send the file and specification even when they hold "
                              "credential-shaped text (default: refuse with "
@@ -529,8 +523,8 @@ def judge_of_provider(provider: object) -> str | None:
     return judge if type(judge) is str and judge in JUDGES else None
 
 
-def foundry_provider(args: argparse.Namespace, judge: str, model: str | None,
-                     pool: dict[str, int]) -> providers.DecisionProvider:
+def foundry_provider(args: argparse.Namespace, judge: str,
+                     model: str | None) -> providers.DecisionProvider:
     """The Foundry provider (Microsoft judge): endpoint, deployment and auth
     from the flags, else the environment; a missing one is NEED_USER_INPUT.
 
@@ -564,8 +558,7 @@ def foundry_provider(args: argparse.Namespace, judge: str, model: str | None,
     return providers.make_provider(
         "foundry", judge=judge, foundry_endpoint=endpoint, foundry_deployment=deployment,
         foundry_auth=auth,
-        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT),
-        **pool)
+        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT))
 
 
 def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
@@ -576,8 +569,7 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
     that the route belongs to the judge, then ``--model`` against the pair's
     allow-list, then the route's own options. Every check precedes any read of
     the source and any output. Construction reads the environment once and
-    never touches the network. With ``--concurrency N`` above 1 the provider
-    may hold N exchanges at once; at 1 it is built as it always was.
+    never touches the network.
     """
     judge = selected_judge(args)
     args.selected_judge = judge
@@ -589,15 +581,13 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
     except ProviderError:
         raise JudgeRouteMismatch() from None
     model = getattr(args, "model", None)
-    concurrency = getattr(args, "concurrency", 1)
-    pool = {} if concurrency == 1 else {"max_connections": concurrency}
     if route != "foundry" and any(
             getattr(args, name, None) is not None
             for name in ("foundry_endpoint", "foundry_deployment", "foundry_auth")):
         # Foundry settings never silently apply to another route.
         raise ProviderError("invalid_request")
     if route == "foundry":
-        return foundry_provider(args, judge, model, pool)
+        return foundry_provider(args, judge, model)
     if route == "openai":
         if (getattr(args, "openrouter_routing", DEFAULT_ROUTING) != DEFAULT_ROUTING
                 or getattr(args, "openrouter_zdr", False)):
@@ -605,14 +595,13 @@ def make_provider(args: argparse.Namespace) -> providers.DecisionProvider:
             raise ProviderError("invalid_request")
         if model is None:
             # The documented construction, kept as the patchable name.
-            return DecisionsProvider(**pool)
-        return providers.make_provider("openai", model=model, judge=judge, **pool)
+            return DecisionsProvider()
+        return providers.make_provider("openai", model=model, judge=judge)
     return providers.make_provider(
         "openrouter", model=model, judge=judge,
         routing=getattr(args, "openrouter_routing", DEFAULT_ROUTING),
         zdr=bool(getattr(args, "openrouter_zdr", False)),
-        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT),
-        **pool)
+        policy_placement=getattr(args, "policy_placement", DEFAULT_POLICY_PLACEMENT))
 
 
 def check_secrets(source: Source, spec: Source | None, allow: bool) -> str:
@@ -701,7 +690,6 @@ def execute(args: argparse.Namespace) -> int:
         polarity_twin=args.polarity_twin,
         policy_placement=args.policy_placement,
         require_verification=args.require_verification,
-        concurrency=args.concurrency,
     )
     deadline_at = started_monotonic + config.run_deadline_seconds
     # Validated before any output directory exists, never after mkdtemp.
@@ -779,8 +767,6 @@ def execute(args: argparse.Namespace) -> int:
         retry_policy=RetryPolicy.none() if getattr(args, "no_retry", False) else RetryPolicy(),
         progress=sys.stderr,
         max_cost=max_cost,
-        # Passed only above 1, so a run at 1 builds its gateway as it always did.
-        **({} if config.concurrency == 1 else {"max_in_flight": config.concurrency}),
     )
     result = None
     try:
