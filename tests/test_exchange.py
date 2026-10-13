@@ -376,6 +376,22 @@ class ErrorBodyTests(ExchangeCase):
         self.assertEqual((unread.status, unread.error_body_state, unread.error_raw),
                          (400, "unread", None))
 
+    def test_deeply_nested_error_body_is_withheld_not_a_recursion_error(self):
+        # About 1500 levels fit in the cap and are too deep for the credential walk.
+        # Where json.loads itself cannot read that depth the body is not_json.
+        for label, leaf in (("unescaped", '"v"'), ("escaped", '"v' + chr(92) + 'u0041"')):
+            body = ('{"k": ' * 1500 + leaf + "}" * 1500).encode()
+            self.assertLess(len(body), ERROR_BODY_CAP)
+            try:
+                json.loads(body)
+                expected = "withheld_sensitive"
+            except RecursionError:
+                expected = "not_json"
+            with self.subTest(body=label):
+                _, outcome = self.outcome(Reply(status=400, body=body))
+                self.assertEqual(outcome.error_body_state, expected)
+                self.assertEqual((outcome.body, outcome.error_raw), (b"", None))
+
     def test_error_body_read_respects_deadline(self):
         body = json.dumps({"error": {"message": "slow"}}).encode()
         _, outcome = self.outcome(Reply(status=503, body=body, chunk_size=1,

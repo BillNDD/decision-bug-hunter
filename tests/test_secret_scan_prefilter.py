@@ -244,3 +244,59 @@ class PrefilterTests(unittest.TestCase):
             with self.subTest(prefix=prefix):
                 line = swapped + "0123456789abcdefGHIJKLMNOPQRSTUVWXYZ"
                 self.assertEqual(scan_lines([line]), old_scan_lines([line]))
+
+
+class LateTokenTests(unittest.TestCase):
+    """A token far into a long text is found, wherever the prefilter looks.
+
+    The prefilter must look at the whole text: a token after the first few
+    thousand characters is a hit. Each case is compared with the oracle and
+    with the exact expected hit, so a scanner and an oracle that changed
+    together would still fail.
+    """
+
+    def assertFound(self, lines, pattern_id, line_no):
+        expected = [(pattern_id, line_no)]
+        self.assertEqual(old_scan_lines(lines), expected)
+        self.assertEqual(scan_lines(lines), expected)
+
+    def test_token_after_a_long_filler_on_one_line(self):
+        for pattern_id in PATTERN_IDS:
+            for size in (4095, 4096, 65536):
+                with self.subTest(pattern=pattern_id, filler=size):
+                    self.assertFound(["a" * size + " " + token(pattern_id)], pattern_id, 1)
+                with self.subTest(pattern=pattern_id, filler=size, joined="="):
+                    self.assertFound(["a" * size + "=" + token(pattern_id)], pattern_id, 1)
+        # The 1 MiB case runs for one pattern only, to keep the module fast.
+        with self.subTest(pattern="openai", filler=1 << 20):
+            self.assertFound(["a" * (1 << 20) + " " + token("openai")], "openai", 1)
+
+    def test_token_on_a_late_line_of_many_clean_lines(self):
+        for pattern_id in PATTERN_IDS:
+            with self.subTest(pattern=pattern_id, layout="last of 5001"):
+                lines = ["x = 1"] * 5000 + [f"value = '{token(pattern_id)}'"]
+                self.assertGreater(len("\n".join(lines)), 4096)
+                self.assertFound(lines, pattern_id, 5001)
+            with self.subTest(pattern=pattern_id, layout="middle of 20001"):
+                lines = ["x = 1"] * 10000 + [f"value = '{token(pattern_id)}'"] + ["x = 1"] * 10000
+                self.assertFound(lines, pattern_id, 10001)
+
+    def test_a_long_text_without_any_prefix_skips_the_expression(self):
+        with patch.object(secret_scan, "_SCANNER", wraps=secret_scan._SCANNER) as scanner:
+            self.assertEqual(scan_lines(["a" * (1 << 20)]), [])
+            self.assertEqual(scan_lines(["x = 1"] * 200000), [])
+            self.assertEqual(scanner.finditer.call_count, 0)
+
+    def test_seeded_fuzz_texts_behind_a_long_filler_match_the_oracle(self):
+        mismatches = []
+        hits = 0
+        for seed in range(60):
+            rng = random.Random(70_000 + seed)
+            filler = "x = 1 " * (rng.randint(4000, 70000) // 6)
+            lines = (filler + fuzz_text(rng)).split("\n")
+            old = old_scan_lines(lines)
+            if scan_lines(lines) != old:
+                mismatches.append(seed)
+            hits += bool(old)
+        self.assertEqual(mismatches, [])
+        self.assertGreater(hits, 10)

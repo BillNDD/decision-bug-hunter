@@ -9,6 +9,8 @@ The oracles keep a frozen copy of the pre-memo ``wire_size`` and ``_prepare``
 (``Frozen``) and a copy of the current code whose ``wire_size`` clears the
 memo (``ClearsMemo``). Both must send exactly the bytes the memo path sends.
 """
+import copy
+import dataclasses
 from decimal import Decimal
 import json
 import math
@@ -268,6 +270,40 @@ class MemoContract:
         self.assertEqual(harness.script.requests[0].body, expected)
         self.assertIsNone(provider._encoded)
 
+    def test_same_length_different_payload_is_a_miss(self):
+        route = self.route
+        harness = self.wired(route.provider, [ok_reply(route)])
+        provider = harness.provider
+        other = copy.deepcopy(STATE)
+        other["excerpts"][0]["lines"][0]["text"] = "private-sample-lime"
+        first, second = envelope(STATE, QUESTIONS), envelope(other, QUESTIONS)
+        self.assertEqual(len(first), len(second))
+        self.assertNotEqual(first, second)
+        provider.wire_size(first)
+        with counted(route) as counter:
+            provider.decide(ProviderRequest(second, 30.0))
+        sent = harness.script.requests[0].body
+        self.assertEqual(counter.call_count, 1)
+        self.assertIn(b"private-sample-lime", sent)
+        self.assertNotIn(b"private-sample-line", sent)
+        self.assertEqual(sent, provider.encode(second, provider.payload_limits(second)[0])[0])
+        self.assertIsNone(provider._encoded)
+
+    def test_changed_model_spec_is_a_miss(self):
+        route = self.route
+        harness = self.wired(route.provider, [ok_reply(route)])
+        provider = harness.provider
+        payload = envelope(STATE, QUESTIONS)
+        provider.wire_size(payload)
+        stale = provider._encoded[2]
+        provider.model_spec = dataclasses.replace(provider.model_spec, id="other-model-id")
+        with counted(route) as counter:
+            body = provider._prepare(ProviderRequest(payload, 30.0))[0]
+        self.assertEqual(counter.call_count, 1)
+        self.assertNotEqual(body, stale)
+        self.assertIn(b"other-model-id", body)
+        self.assertEqual(body, provider.encode(payload, provider.payload_limits(payload)[0])[0])
+
     def test_equal_copy_of_payload_is_a_hit(self):
         route = self.route
         harness = self.wired(route.provider, [ok_reply(route)])
@@ -287,9 +323,9 @@ class MemoContract:
         provider = harness.provider
         payload = envelope(STATE, QUESTIONS)
         provider.wire_size(payload)
-        stored, limit, _body, questions = provider._encoded
+        stored, limit, _body, questions, settings = provider._encoded
         # A memo whose limits differ must be ignored, whatever bytes it holds.
-        provider._encoded = (stored, limit - 1, b"not the wire body", questions)
+        provider._encoded = (stored, limit - 1, b"not the wire body", questions, settings)
         with counted(route) as counter:
             provider.decide(ProviderRequest(payload, 30.0))
         self.assertEqual(counter.call_count, 1)
@@ -394,6 +430,37 @@ class MemoContract:
 
 class OpenRouterMemoTests(MemoContract, unittest.TestCase):
     route_name = "openrouter"
+
+    def test_changed_routing_settings_never_reuse_stale_bytes(self):
+        route = self.route
+        changes = (("zdr", {"zdr": True}),
+                   ("routing", {"routing": "account-default"}),
+                   ("both", {"routing": "account-default", "zdr": True}))
+        for label, change in changes:
+            with self.subTest(change=label):
+                provider = self.wired(route.provider, [ok_reply(route)]).provider
+                payload = envelope(STATE, QUESTIONS)
+                provider.wire_size(payload)
+                stale = provider._encoded[2]
+                self.assertIn(b'"allow_fallbacks":false', stale)
+                for name, value in change.items():
+                    setattr(provider, name, value)
+                with counted(route) as counter:
+                    body = provider._prepare(ProviderRequest(payload, 30.0))[0]
+                self.assertEqual(counter.call_count, 1)
+                self.assertNotEqual(body, stale)
+                self.assertEqual(body, provider.encode(
+                    payload, provider.payload_limits(payload)[0])[0])
+                self.assertIsNone(provider._encoded)
+
+    def test_unchanged_routing_settings_still_hit(self):
+        route = self.route
+        provider = self.wired(route.provider, [ok_reply(route)]).provider
+        payload = envelope(STATE, QUESTIONS)
+        provider.wire_size(payload)
+        with counted(route) as counter:
+            provider._prepare(ProviderRequest(payload, 30.0))
+        self.assertEqual(counter.call_count, 0)
 
 
 class DecisionsMemoTests(MemoContract, unittest.TestCase):

@@ -348,7 +348,12 @@ def read_error_body(response: http.client.HTTPResponse, deadline: Deadline,
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs)
     except Exception:
         return None, "not_json"
-    if any(credential and _secret_in(credential, [data]) for credential in credentials):
+    try:
+        found = any(credential and _secret_in(credential, [data]) for credential in credentials)
+    except RecursionError:
+        # Too deeply nested to check for a credential, so it is withheld.
+        return None, "withheld_sensitive"
+    if found:
         return None, "withheld_sensitive"
     return raw, "ok"
 

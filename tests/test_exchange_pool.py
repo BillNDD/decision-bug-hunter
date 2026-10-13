@@ -338,7 +338,7 @@ class PoolTests(unittest.TestCase):
             provider.wire_size(payload)
             stored = provider._encoded
             assert stored is not None
-            provider._encoded = (stored[0], stored[1], b"POISON", stored[3])
+            provider._encoded = (stored[0], stored[1], b"POISON", stored[3], stored[4])
             planted.set()
             b_done.wait(10)
             results["a"] = provider._prepare(ProviderRequest(payload, 30.0))[0]

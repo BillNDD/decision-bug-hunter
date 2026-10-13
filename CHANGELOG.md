@@ -145,6 +145,9 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   that look like instructions to the judge (`injection-marker`).
 - A configured key is matched by its text without surrounding whitespace or
   quotes, so a key set with a trailing newline or space is still never sent.
+- A response or error body nested too deeply to be checked for a configured
+  key is refused as `response_invalid_json` for that request (an error body is
+  withheld), never a run-blocking `internal_error`.
 
 ### Tile Sieve (beta)
 

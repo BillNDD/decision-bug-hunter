@@ -240,11 +240,17 @@ def decode_response(raw: bytes, questions: Mapping[str, Any],
     except Exception:
         raise ProviderError("response_invalid_json") from None
     # Without a backslash every decoded string is a verbatim slice of raw, and
-    # an ASCII credential found there is already found in raw above, so the
-    # decoded walk is needed only when an escape is present.
-    if ((b"\\" in raw or not all(credential.isascii() for credential in credentials))
-            and any(_secret_in(credential, [data]) for credential in credentials)):
-        raise ProviderError("response_sensitive")
+    # a credential found there, ASCII or not, is already found in raw above
+    # (UTF-8 finds the same text at the same places), so the decoded walk is
+    # needed only when an escape is present. A body too deeply nested to walk
+    # is refused as undecodable, never left to raise RecursionError.
+    if b"\\" in raw:
+        try:
+            sensitive = any(_secret_in(credential, [data]) for credential in credentials)
+        except RecursionError:
+            raise ProviderError("response_invalid_json") from None
+        if sensitive:
+            raise ProviderError("response_sensitive")
     if type(data) is not dict:
         raise ProviderError("response_schema")
     provenance: dict[str, Any] = {}

@@ -1,15 +1,15 @@
 """Old-versus-new equivalence for the credential scan (offline, seeded).
 
 Covers the flat ``protocol._secret_in`` walker and the response scans of
-``openrouter.decode_response`` and ``decisions.translate_response``, which
-skip the decoded walk when the raw bytes hold no escape and every credential
-is ASCII. The frozen copies below are the pre-change code and are the
-oracles, with one deliberate difference: a bytes value is searched for the
-UTF-8 form of the credential, where the pre-change code encoded it as ASCII and
-raised UnicodeEncodeError for a non-ASCII credential. Configured credentials
-can be non-ASCII since ``configured_credentials`` keeps the core of a key that
-is not a header token. Every generated input comes from a seed, and no socket
-is opened.
+``openrouter.decode_response``, ``decisions.translate_response`` and
+``foundry.decode_response``, which skip the decoded walk when the raw bytes
+hold no escape, whether or not a credential is ASCII. The frozen copies below
+are the pre-change code and are the oracles, with one deliberate difference: a
+bytes value is searched for the UTF-8 form of the credential, where the
+pre-change code encoded it as ASCII and raised UnicodeEncodeError for a
+non-ASCII credential. Configured credentials can be non-ASCII since
+``configured_credentials`` keeps the core of a key that is not a header token.
+Every generated input comes from a seed, and no socket is opened.
 """
 from __future__ import annotations
 
@@ -18,8 +18,9 @@ import random
 import sys
 import unittest
 from decimal import Decimal
+from pathlib import Path
 
-from decision_bug_hunter import decisions, openrouter, protocol
+from decision_bug_hunter import decisions, foundry, openrouter, protocol
 from decision_bug_hunter.openrouter import OpenRouterProvider
 from decision_bug_hunter.protocol import QUESTION, ProviderError
 from decision_bug_hunter.providers import classify
@@ -27,6 +28,7 @@ from tests.support import openai_body, openrouter_body
 from tests.test_openrouter import Harness, reply
 
 SENTINEL = "offline-sensitive-scan-sentinel-5b1e"
+NON_ASCII = "ünïcred-41"
 QUESTIONS = {"q": dict(QUESTION)}
 REFUSALS = ("response_sensitive", "response_invalid_json")
 
@@ -111,6 +113,13 @@ def _decode_call(raw, credentials):
 
 def _translate_call(raw, credentials):
     decisions.translate_response(raw, QUESTIONS, credentials)
+
+
+def _foundry_call(raw, credentials):
+    foundry.decode_response(raw, QUESTIONS, credentials)
+
+
+SCANS = (_decode_call, _translate_call, _foundry_call)
 
 
 # ---------------------------------------------------------------- generators
@@ -261,12 +270,12 @@ class SensitiveEquivalence(unittest.TestCase):
             rng = random.Random(10_000 + seed)
             credentials = tuple(rng.choice(CREDENTIALS) for _ in range(rng.randint(1, 2)))
             raw = _body(rng, credentials[0])
-            for function in (_decode_call, _translate_call):
+            for function in SCANS:
                 self._assert_scan_matches(function, raw, credentials, f"seed {seed}")
             old = _result(_old_response_scan, raw, credentials)
             refused = _refusal(old)
             seen["refused" if refused else "passed"] += 1
-            if b"\\" not in raw and all(item.isascii() for item in credentials if item):
+            if b"\\" not in raw:
                 seen["skipped_walk"] += 1
             if refused and old[1] is ProviderError and old[2] == "response_sensitive" and not any(
                     item.isascii() and item.encode("ascii") in raw for item in credentials if item):
@@ -305,14 +314,35 @@ class EscapeRegressions(unittest.TestCase):
              (SENTINEL,), "response_sensitive"),
             ("escaped slash in value", '{"note": "cred\\/slash-41"}',
              ("cred/slash-41",), "response_sensitive"),
+            ("escaped slash in key", '{"cred\\/slash-41": 1}',
+             ("cred/slash-41",), "response_sensitive"),
+            ("escaped slash beside a clean escape", '{"note": "\\u0041 cred\\/slash-41"}',
+             ("cred/slash-41",), "response_sensitive"),
             ("escaped newline in value", '{"note": "line\\nbreak-41"}',
              ("line\nbreak-41",), "response_sensitive"),
             ("escape elsewhere, no credential", '{"note": "\\u0041"}',
              (SENTINEL,), None),
+            # A configured key can be non-ASCII (the core of a key that is not
+            # a header token). Without a backslash the raw scan finds it, so
+            # the decoded walk is not needed for it; with escapes it is.
+            ("non-ASCII verbatim value, no escape", '{"note": "ünïcred-41"}',
+             (NON_ASCII,), "response_sensitive"),
+            ("non-ASCII verbatim key, no escape", '{"ünïcred-41": 1}',
+             (NON_ASCII,), "response_sensitive"),
+            ("non-ASCII value only after unescaping",
+             '{"note": "%s"}' % self._escaped(NON_ASCII), (NON_ASCII,), "response_sensitive"),
+            ("non-ASCII key only after unescaping",
+             '{"%s": 1}' % self._escaped(NON_ASCII), (NON_ASCII,), "response_sensitive"),
+            ("non-ASCII verbatim value beside a clean escape",
+             '{"note": "\\u0041 ünïcred-41"}', (NON_ASCII,), "response_sensitive"),
+            ("non-ASCII elsewhere, no credential", '{"note": "ünï \\u0041"}',
+             (NON_ASCII,), None),
+            ("non-ASCII credential absent, no escape", '{"note": "ünïcred-42"}',
+             (NON_ASCII,), None),
         ]
         for label, text, credentials, expected in cases:
             raw = text.encode("utf-8")
-            for function in (_decode_call, _translate_call):
+            for function in SCANS:
                 with self.subTest(case=label, function=function.__name__):
                     old = _result(_old_response_scan, raw, credentials)
                     new = _result(function, raw, credentials)
@@ -389,8 +419,10 @@ class DeepNestedBodies(unittest.TestCase):
     The recursive credential rescan runs only when the raw bytes hold a
     backslash. An escape-free body skips it, so depth alone gives no
     RecursionError and the outcome is the documented one pinned below. A body
-    with a backslash keeps the rescan, and its RecursionError, as the frozen
-    full scan does. At top level, json.loads reads up to 2997 levels on Python
+    with a backslash keeps the rescan, where the frozen full scan raised
+    RecursionError; the decoders now refuse such a body as
+    response_invalid_json (see ``test_backslash_bodies_too_deep_to_rescan``).
+    At top level, json.loads reads up to 2997 levels on Python
     3.12 and 2998 on 3.13 (3.11 shares the 1000-frame recursion limit and fails
     sooner); each expectation is taken from json.loads on the running build: a
     body it reads gets the pinned outcome, and a body it cannot read gets
@@ -525,7 +557,7 @@ class DeepNestedBodies(unittest.TestCase):
                                     self.assertIsNone(outcome[1].error)
                                     self.assertEqual(sorted(outcome[1].answers), ["q"])
 
-    def test_backslash_bodies_keep_the_rescan_and_its_recursion_error(self):
+    def test_backslash_bodies_too_deep_to_rescan_are_invalid_json(self):
         backslash = chr(92)
         leaf = '"v' + backslash + 'u0041"'
         valid = openrouter_body(self.ANSWERS, model=openrouter.MODEL)
@@ -537,29 +569,60 @@ class DeepNestedBodies(unittest.TestCase):
                                + b'u0041": 1, "deep": ' + nested + b"}")
                 for raw in (nested, ignored, escaped_key):
                     with self.subTest(depth=depth, shape=shape, raw=raw[:24]):
-                        # Readable: the rescan's RecursionError, as before. Unreadable:
-                        # json.loads fails first, and every scan reports the decode error.
-                        expected = (("raised", RecursionError, None)
-                                    if _parser_reads(raw) else self.UNREADABLE)
+                        # Readable: the frozen scan raised the rescan's RecursionError;
+                        # the decoders refuse the body instead. Unreadable: json.loads
+                        # fails first, and every scan reports the decode error.
+                        frozen = (("raised", RecursionError, None)
+                                  if _parser_reads(raw) else self.UNREADABLE)
                         self.assertEqual(
-                            _result(_old_response_scan, raw, self.CREDENTIALS), expected)
-                        self.assertEqual(
-                            _result(openrouter.decode_response, raw, QUESTIONS,
-                                    self.CREDENTIALS), expected)
-                        self.assertEqual(
-                            _result(decisions.translate_response, raw, QUESTIONS,
-                                    self.CREDENTIALS), expected)
+                            _result(_old_response_scan, raw, self.CREDENTIALS), frozen)
+                        for function in SCANS:
+                            self.assertEqual(
+                                _result(function, raw, self.CREDENTIALS), self.UNREADABLE)
+
+    def test_depth_1500_never_raises_a_recursion_error_from_any_decoder(self):
+        """Escaped and unescaped bodies about 1500 levels deep, through every decoder.
+
+        An unescaped body skips the credential walk and gets its ordinary
+        outcome; an escaped one is too deep for the walk and is refused as
+        response_invalid_json for that request. Neither raises RecursionError,
+        which the gateway would record as a run-blocking internal_error.
+        """
+        backslash = chr(92)
+        foundry_ok = (Path(__file__).parent / "fixtures" / "foundry" / "response_ok.json"
+                      ).read_bytes().rstrip(b"\n")
+        valid = {openrouter.decode_response: openrouter_body(
+                    self.ANSWERS, model=openrouter.MODEL),
+                 decisions.translate_response: openai_body(
+                    self.ANSWERS, model=decisions.MODEL),
+                 foundry.decode_response: foundry_ok}
+        for function, body in valid.items():
+            for shape in ("object", "array"):
+                for escaped in (False, True):
+                    leaf = '"v' + backslash + 'u0041"' if escaped else '"v"'
+                    nested = _nested(1500, shape, leaf)
+                    for where, raw in (("alone", nested),
+                                       ("in a valid body",
+                                        body[:-1] + b', "deep": ' + nested + b"}")):
+                        with self.subTest(function=function.__module__, shape=shape,
+                                          escaped=escaped, where=where):
+                            outcome = _result(function, raw, QUESTIONS, self.CREDENTIALS)
+                            self.assertNotEqual(outcome, ("raised", RecursionError, None))
+                            if escaped:
+                                self.assertEqual(outcome, self.UNREADABLE)
+                            elif _parser_reads(raw):
+                                # Read by json.loads and never walked: an ordinary outcome.
+                                self.assertNotEqual(outcome, self.UNREADABLE)
 
     def test_gateway_ends_each_deep_body_with_its_pinned_code(self):
         """Through the OpenRouter gateway: one call, one terminal receipt, the code pinned here.
 
         An escape-free body that json.loads reads fails its shape check with
         response_schema, and the gateway raises that code. A body with a backslash
-        that json.loads reads keeps the rescan, whose RecursionError the gateway
-        records as internal_error, and that failure blocks the gateway: the next
-        call is refused without a request. A body that json.loads cannot read
-        fails with response_invalid_json, which does not block: the next call
-        dispatches and validates. A valid body with a deep unused key is a change
+        is too deep for the rescan whether or not json.loads reads it, and fails
+        with response_invalid_json (on 1a5f5be the rescan's RecursionError became
+        internal_error and blocked the gateway), which does not block: the next
+        call dispatches and validates. A valid body with a deep unused key is a change
         from 1a5f5be: there the decoders raised RecursionError, the gateway
         recorded internal_error and blocked, while the rescan skip validates it;
         that is the kept, documented behavior.
@@ -583,14 +646,11 @@ class DeepNestedBodies(unittest.TestCase):
                             self.assertEqual(receipt["status"], "validated")
                             self.assertEqual(len(harness.script.requests), 1)
                             continue
-                        if not readable:
+                        if not readable or label == "backslash":
                             code = "response_invalid_json"
-                        elif label == "escape-free":
-                            code = "response_schema"
                         else:
-                            code = "internal_error"
-                        self.assertEqual(classify(code).scope,
-                                         "run" if code == "internal_error" else "request")
+                            code = "response_schema"
+                        self.assertEqual(classify(code).scope, "request")
                         harness = Harness(self, [reply(raw), reply(valid)])
                         outcome, receipt = harness.evaluate(questions=QUESTIONS)
                         self.assertIsInstance(outcome, ProviderError)
@@ -599,14 +659,9 @@ class DeepNestedBodies(unittest.TestCase):
                                          ("failed", code))
                         self.assertEqual(len(harness.script.requests), 1)
                         second, second_receipt = harness.evaluate(questions=QUESTIONS)
-                        if code == "internal_error":
-                            self.assertIsInstance(second, ProviderError)
-                            self.assertEqual(second.code, "internal_error")
-                            self.assertEqual(len(harness.script.requests), 1)
-                        else:
-                            self.assertEqual(sorted(second), ["q"])
-                            self.assertEqual(second_receipt["status"], "validated")
-                            self.assertEqual(len(harness.script.requests), 2)
+                        self.assertEqual(sorted(second), ["q"])
+                        self.assertEqual(second_receipt["status"], "validated")
+                        self.assertEqual(len(harness.script.requests), 2)
 
     def test_escape_free_deep_consumed_fields_get_typed_codes(self):
         """Escape-free deep values in fields the decoders read, pinned as observed.

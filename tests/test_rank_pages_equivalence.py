@@ -8,7 +8,9 @@ code under both policy placements and both state layouts.
 import random
 import unittest
 from collections import Counter
+from unittest import mock
 
+from decision_bug_hunter import questions as questions_module
 from decision_bug_hunter.core import Span
 from decision_bug_hunter.protocol import (CONTRACT_VERSION, MAX_QUESTIONS, MAX_REQUEST_BYTES,
                                           MAX_STATE_BYTES, STATE_PLACEMENT_MAX_QUESTIONS,
@@ -275,6 +277,51 @@ def _questions(rng, pack, region, targets):
     if kind < 0.9:
         return {"bad name!": choice(pack, "rank", region, subset)}
     return {"rank": choice(pack, "rank", region, [Span(i, i) for i in range(1, 300)])}
+
+
+class FinalPageVerificationTests(unittest.TestCase):
+    """The final authoritative encode of every page, after the sizing arithmetic.
+
+    The arithmetic sizes pages from fragments; the last loop re-encodes each
+    page exactly. It swallows only an oversized singleton and re-raises
+    everything else, which these cases pin.
+    """
+
+    def test_a_page_the_arithmetic_let_through_but_the_encoder_refuses_is_raised(self):
+        # A negative reserve makes the arithmetic accept far more than a request
+        # holds, so a multi-entry page reaches the final encode and fails there.
+        region = Span(1, 10**4)
+        targets = [Span(10**6 + n, 10**6 + n + 5) for n in range(150)]
+        for layout in LAYOUTS:
+            for placement in ("instructions", "state"):
+                with self.subTest(layout=layout, placement=placement):
+                    state = _text_state(random.Random(1), 14000)
+                    with using_state_layout(layout), using_request_envelope(
+                            _envelope(random.Random(2), placement, layout)):
+                        expected = _outcome(lambda: reference_rank_pages(
+                            PACK, region, targets, state, 200, -9000))
+                        actual = _outcome(lambda: _rank_pages(
+                            PACK, region, targets, state, 200, -9000))
+                    _assert_same(self, actual, expected)
+                    self.assertEqual(actual, ("provider", "request_too_large"))
+
+    def test_only_an_oversized_singleton_is_swallowed(self):
+        target = Span(5, 9)
+        state = {"text": "body"}
+        too_large = ProviderError("request_too_large")
+        with mock.patch.object(questions_module, "_encode_owned_state", side_effect=too_large):
+            # One target on its page: kept as a page, for the execution layer to record.
+            self.assertEqual(_rank_pages(PACK, Span(1, 20), [target], state), [[target]])
+        other = ProviderError("invalid_request")
+        with mock.patch.object(questions_module, "_encode_owned_state", side_effect=other):
+            with self.assertRaises(ProviderError) as caught:
+                _rank_pages(PACK, Span(1, 20), [target], state)
+            self.assertEqual(caught.exception.code, "invalid_request")
+        with mock.patch.object(questions_module, "_encode_owned_state", side_effect=too_large):
+            # Two targets on one page: the same code is raised, not swallowed.
+            with self.assertRaises(ProviderError) as caught:
+                _rank_pages(PACK, Span(1, 20), [target, Span(11, 12)], state)
+            self.assertEqual(caught.exception.code, "request_too_large")
 
 
 if __name__ == "__main__":

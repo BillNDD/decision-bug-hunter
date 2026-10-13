@@ -895,6 +895,28 @@ class DecodeTests(unittest.TestCase):
                     self.assertNotIn(key, json.dumps(receipt))
                     self.assertNotIn(key, harness.receipt_text())
 
+    def test_a_key_with_a_slash_is_found_through_a_json_escaped_slash(self):
+        # JSON may write "/" as the two characters backslash and slash, so the
+        # key appears in the body only after unescaping; the escape gate must
+        # take the decoded walk for any backslash, not only for a \u escape.
+        key = "ab/cd+ef0123456789"
+        for label, raw in (("value", b'{"id": "ab\\/cd+ef0123456789"}'),
+                           ("key", b'{"ab\\/cd+ef0123456789": 1}'),
+                           ("beside a clean escape", b'{"id": "\\u0041 ab\\/cd+ef0123456789"}')):
+            with self.subTest(placement=label):
+                with self.assertRaises(ProviderError) as caught:
+                    decode_response(raw, QUESTIONS, (key,))
+                self.assertEqual(caught.exception.code, "response_sensitive")
+        # The same escape around other text is not refused by the scan.
+        clean = decode_response(b'{"id": "ab\\/cd+ef9999999999"}', QUESTIONS, (key,))
+        self.assertEqual(clean.error, "response_schema")
+        # Through the provider, with the configured key in the environment.
+        raw = fixture("response_ok.json")[:-1] + b',"id":"ab\\/cd+ef0123456789"}'
+        harness = Harness(self, [reply(raw)], environ={"AZURE_API_KEY": key})
+        outcome, _ = harness.evaluate()
+        self.assertEqual(outcome.code, "response_sensitive")
+        self.assertNotIn(key, harness.receipt_text())
+
     def test_an_unrelated_body_never_reaches_the_receipt(self):
         body = mutated("response_ok.json", lambda d: d.update(
             reasoning="private-rationale", provider="private-upstream", id="private-id"))

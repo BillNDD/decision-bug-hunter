@@ -301,7 +301,7 @@ def _unsent_deadline() -> ProviderError:
 class _Memo(threading.local):
     """The one-slot encode memo of one thread (see ``HostedProvider._encoded``)."""
 
-    slot: tuple[bytes, int, bytes, dict[str, Any]] | None = None
+    slot: tuple[bytes, int, bytes, dict[str, Any], tuple[Any, ...]] | None = None
 
 
 class _ExchangePool:
@@ -483,18 +483,21 @@ class HostedProvider:
         self._api_key = token(key)
         self._credentials = configured_credentials(env, self._api_key)
         # One slot per thread: the last wire_size encode, (payload, max
-        # questions, body, questions), for the decide call that follows it on
-        # the same thread. Only ever a hit when the payload and limits are
-        # equal, so it cannot change bytes.
+        # questions, body, questions, encode settings), for the decide call
+        # that follows it on the same thread. Only ever a hit when the
+        # payload, the limits and the settings the encode depends on
+        # (``_encode_settings``, read again at the hit) are all equal, so it
+        # cannot change bytes even if a setting is changed in between.
         self._memo = _Memo()
 
     @property
-    def _encoded(self) -> tuple[bytes, int, bytes, dict[str, Any]] | None:
+    def _encoded(self) -> tuple[bytes, int, bytes, dict[str, Any], tuple[Any, ...]] | None:
         """This thread's encode memo; another thread's never matches."""
         return self._memo.slot
 
     @_encoded.setter
-    def _encoded(self, value: tuple[bytes, int, bytes, dict[str, Any]] | None) -> None:
+    def _encoded(self, value: tuple[bytes, int, bytes, dict[str, Any], tuple[Any, ...]] | None
+                 ) -> None:
         self._memo.slot = value
 
     def __getstate__(self) -> dict[str, Any]:
@@ -559,6 +562,15 @@ class HostedProvider:
                max_questions: int = MAX_QUESTIONS) -> tuple[bytes, dict[str, Any]]:
         """Local envelope bytes -> (wire body, expected questions)."""
         raise NotImplementedError
+
+    def _encode_settings(self) -> tuple[Any, ...]:
+        """Every public, changeable setting that ``encode`` reads, as a tuple.
+
+        The encode memo is a hit only while this equals its value at the
+        ``wire_size`` call; a subclass whose ``encode`` reads more than the
+        model id lists it here.
+        """
+        return (self.model_spec.id,)
 
     def auth_headers(self) -> dict[str, str]:
         """The credential header(s); the default is a bearer token."""
@@ -688,8 +700,9 @@ class HostedProvider:
         if len(request.payload) > max_bytes:
             raise ProviderError("request_too_large")
         if (memo is not None and memo[1] == max_questions
-                and memo[0] == request.payload):
-            # The same payload under the same limits encodes to the same bytes.
+                and memo[0] == request.payload and memo[4] == self._encode_settings()):
+            # The same payload under the same limits and settings encodes to
+            # the same bytes.
             body, questions = memo[2], memo[3]
         else:
             body, questions = self.encode(request.payload, max_questions)
@@ -713,11 +726,12 @@ class HostedProvider:
         if type(payload) is not bytes:
             return None
         max_questions = self.payload_limits(payload)[0]
+        settings = self._encode_settings()
         try:
             body, questions = self.encode(payload, max_questions)
         except ProviderError:
             return None
-        self._encoded = (payload, max_questions, body, questions)
+        self._encoded = (payload, max_questions, body, questions, settings)
         return len(body)
 
     def close(self) -> None:

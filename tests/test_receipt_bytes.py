@@ -331,6 +331,39 @@ class ReceiptDirectoryTests(unittest.TestCase):
             return real(path, *args, **kwargs)
         return counting
 
+    def mode_recording_mkdir(self, modes):
+        """A ``Path.mkdir`` that records the mode asked for the receipt directory."""
+        real = self.real_mkdir
+
+        def recording(path, *args, **kwargs):
+            modes.append((Path(path), kwargs.get("mode", args[0] if args else 0o777)))
+            return real(path, *args, **kwargs)
+        return recording
+
+    def test_first_receipt_directory_is_created_private(self):
+        gateway, _ = self.gateway()
+        modes = []
+        with patch.object(pathlib.Path, "mkdir", self.mode_recording_mkdir(modes)):
+            self.evaluate(gateway)
+        self.assertEqual(modes, [(gateway.receipt_dir, 0o700)])
+
+    @unittest.skipIf(os.name == "nt", "directory permission bits are not expressible here")
+    def test_first_receipt_directory_is_private_on_disk(self):
+        previous = os.umask(0o022)
+        self.addCleanup(os.umask, previous)
+        gateway, _ = self.gateway()
+        self.evaluate(gateway)
+        self.assertEqual(stat.S_IMODE(gateway.receipt_dir.stat().st_mode), 0o700)
+
+    def test_recreated_receipt_directory_is_created_private(self):
+        gateway, _ = self.gateway()
+        self.evaluate(gateway)
+        shutil.rmtree(gateway.receipt_dir)
+        modes = []
+        with patch.object(pathlib.Path, "mkdir", self.mode_recording_mkdir(modes)):
+            self.evaluate(gateway)
+        self.assertEqual(modes, [(gateway.receipt_dir, 0o700)])
+
     def test_receipt_directory_is_created_once_per_gateway(self):
         gateway, provider = self.gateway()
         calls = []

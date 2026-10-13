@@ -177,14 +177,63 @@ class CallSummaryTests(unittest.TestCase):
 
     # (b) ownership ----------------------------------------------------------
     def test_returned_stats_and_summary_are_owned_by_the_caller(self):
-        gateway = self.gateway(SyntheticProvider(ProviderResponse(self.good)))
-        self.evaluate(gateway)
-        before_stats = canonical(gateway.last_call_stats)
-        before_summary = canonical(gateway.last_call_summary)
-        scramble(gateway.last_call_stats)
-        scramble(gateway.last_call_summary)
-        self.assertEqual(canonical(gateway.last_call_stats), before_stats)
-        self.assertEqual(canonical(gateway.last_call_summary), before_summary)
+        # With usage in the response the receipt carries nested dicts (usage,
+        # logical usage) that a missing copy would share with the caller.
+        usage = {"input_tokens": 100, "output_tokens": 1}
+        cases = (
+            ("one attempt", SyntheticProvider(ProviderResponse(self.good, dict(usage))), {}),
+            ("after a retry", FlakySynthetic([ProviderError("http_rate_limited")],
+                                             response=ProviderResponse(self.good, dict(usage))),
+             {"sleep": lambda seconds: None, "rng": random.Random(3)}),
+        )
+        for label, provider, options in cases:
+            with self.subTest(case=label):
+                gateway = self.gateway(provider, label=label, **options)
+                self.evaluate(gateway)
+                summary = gateway.last_call_summary
+                self.assertIsInstance(summary["usage"], dict)
+                self.assertIsInstance(summary["logical_usage"], dict)
+                before_stats = canonical(gateway.last_call_stats)
+                before_summary = canonical(gateway.last_call_summary)
+                # The summary alone first, so a leak through it is not hidden
+                # by the stats copy being scrambled afterwards.
+                scramble(gateway.last_call_summary)
+                self.assertEqual(canonical(gateway.last_call_stats), before_stats)
+                self.assertEqual(canonical(gateway.last_call_summary), before_summary)
+                scramble(gateway.last_call_stats)
+                self.assertEqual(canonical(gateway.last_call_stats), before_stats)
+                self.assertEqual(canonical(gateway.last_call_summary), before_summary)
+
+    def test_stats_during_the_provider_call_are_the_dispatching_snapshot(self):
+        dispatching = []
+        real_write = providers._write_receipt
+
+        def recording(path, receipt):
+            if receipt.get("status") == "dispatching":
+                dispatching.append(deepcopy(receipt))
+            return real_write(path, receipt)
+
+        seen = {}
+
+        class Observing(SyntheticProvider):
+            def decide(self, request):
+                seen["stats"] = gateway.last_call_stats
+                seen["held"] = gateway._last._stats
+                return super().decide(request)
+
+        ticks = iter(range(10 ** 6))
+        # A clock that moves on every read, so the timeout set just before the
+        # call differs from the one in the dispatching receipt.
+        gateway = self.gateway(Observing(ProviderResponse(self.good)),
+                               clock=lambda: next(ticks) * 0.125)
+        with patch.object(providers, "_write_receipt", recording):
+            self.evaluate(gateway)
+        self.assertEqual(len(dispatching), 1)
+        self.assertEqual(seen["stats"], dispatching[0])
+        # The object held during the call is not edited in place afterwards.
+        self.assertEqual(seen["held"]["status"], "dispatching")
+        self.assertEqual(seen["held"], dispatching[0])
+        self.assertEqual(gateway.last_call_stats["status"], "validated")
 
     # (c) caller questions ---------------------------------------------------
     def test_answers_are_validated_against_the_questions_at_call_time(self):

@@ -19,7 +19,9 @@ from tests.fakes import FakeClock, Reply, ScriptedHTTPS, shared_test_context
 HOST = "api.example.test"
 PATH = "/v1/test"
 NODELAY = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-OPTION_CASES = (None, errno.ENOPROTOOPT, errno.EPERM, errno.ECONNRESET)
+#: Stands for an OSError raised with no errno at all (``None`` means no error).
+ERRNOLESS = "errnoless"
+OPTION_CASES = (None, errno.ENOPROTOOPT, errno.EPERM, errno.ECONNRESET, ERRNOLESS)
 SEEDS = 400
 
 
@@ -70,6 +72,8 @@ class _RecordingSocket:
 
     def setsockopt(self, *args):
         self.log.append(("setsockopt", args))
+        if self.option == ERRNOLESS:
+            raise OSError("scripted")
         if self.option is not None:
             raise OSError(self.option, "scripted")
 
@@ -204,6 +208,20 @@ class NoDelayTests(unittest.TestCase):
                 self.assertEqual(script.requests, [])
                 self.assertEqual(script.closed, [0])
 
+    def test_an_option_error_without_an_errno_fails_the_connect_phase_and_closes(self):
+        # errno is None, which is not ENOPROTOOPT, so it is raised like any other error.
+        error = OSError("boom")
+        self.assertIsNone(error.errno)
+        script, exchange = self.script([Reply(body=b"{}")], option_error=error)
+        with self.assertRaises(ExchangeError) as caught:
+            exchange.post(b"{}", {}, exchange.deadline(30.0))
+        failure = caught.exception
+        self.assertEqual((failure.phase, failure.kind), ("connect", "os"))
+        self.assertEqual((failure.reused, failure.bytes_sent, failure.response_bytes),
+                         (False, 0, 0))
+        self.assertEqual(script.requests, [])
+        self.assertEqual(script.closed, [0])
+
     def test_address_path_sets_the_option_before_tls_wrap(self):
         log, clock = [], FakeClock(0.0)
         addresses = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.1", 443))]
@@ -225,8 +243,9 @@ class NoDelayTests(unittest.TestCase):
 
     def test_address_path_enoprotoopt_is_ignored_and_other_errors_close(self):
         addresses = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.0.2.1", 443))]
-        for option, expected in ((errno.ENOPROTOOPT, "ok"), (errno.EPERM, "raise")):
-            with self.subTest(errno=errno.errorcode[option]):
+        for option, expected in ((errno.ENOPROTOOPT, "ok"), (errno.EPERM, "raise"),
+                                 (ERRNOLESS, "raise")):
+            with self.subTest(errno=option if option == ERRNOLESS else errno.errorcode[option]):
                 log, clock = [], FakeClock(0.0)
 
                 def make_socket(family, kind, proto, option=option):
@@ -242,7 +261,8 @@ class NoDelayTests(unittest.TestCase):
                 else:
                     with self.assertRaises(OSError) as caught:
                         exchange._open(exchange.deadline(30.0))
-                    self.assertEqual(caught.exception.errno, option)
+                    self.assertEqual(caught.exception.errno,
+                                     None if option == ERRNOLESS else option)
                     self.assertEqual(log[-1], ("close", 0))
 
 
@@ -251,7 +271,8 @@ class NoDelayEquivalenceTests(unittest.TestCase):
     the frozen pre-A10 ``_open`` in everything except the one option call."""
 
     def test_generated_connections_match_the_frozen_old_open(self):
-        seen = {"socket_none": 0, "enoprotoopt": 0, "error": 0, "no_socket": 0}
+        seen = {"socket_none": 0, "enoprotoopt": 0, "error": 0, "errnoless": 0,
+                "no_socket": 0}
         for seed in range(SEEDS):
             case = _generate(seed)
             with self.subTest(seed=seed, case=case):
@@ -272,9 +293,10 @@ class NoDelayEquivalenceTests(unittest.TestCase):
                     self.assertEqual([entry for entry in new_log if entry[0] != "setsockopt"],
                                      old_log)
                 else:
-                    seen["error"] += 1
+                    seen["errnoless" if case["option"] == ERRNOLESS else "error"] += 1
                     self.assertEqual(new_result[0], "raise")
-                    self.assertEqual(new_result[2], case["option"])
+                    self.assertEqual(new_result[2],
+                                     None if case["option"] == ERRNOLESS else case["option"])
                     self.assertEqual(new_log[:position], old_log[:position])
                     self.assertEqual([entry[0] for entry in new_log[position + 1:]],
                                      ["close"])
