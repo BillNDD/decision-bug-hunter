@@ -138,17 +138,53 @@ def token(value: Any) -> str | None:
     return value
 
 
+def _credential_forms(value: str) -> tuple[str, ...]:
+    """Every text of one configured key that must never leave this machine.
+
+    The value itself when it is a header token (what is sent when the key is
+    selected), and its core: the value without surrounding whitespace and
+    without one pair of matching surrounding quotes, with the whitespace inside
+    those quotes removed as well. A key pasted with a newline, a Windows
+    variable with a trailing space or a quoted key then still matches its bare
+    text. The core is kept even when it is not a header token. A core with an
+    inner line break is also listed line by line, because source lines are
+    checked one at a time and the input reader splits at CR and LF. The forms
+    are only ever used to refuse data, so including one can cause a refusal and
+    never a leak; a form that is only whitespace is not a key and is skipped.
+    """
+    forms: list[str] = []
+    if token(value) is not None:
+        forms.append(value)
+    core = value.strip()
+    if len(core) >= 2 and core[0] == core[-1] and core[0] in "'\"":
+        core = core[1:-1]
+    candidates = [core, core.strip()]
+    if "\r" in core or "\n" in core:
+        candidates.extend(core.replace("\r", "\n").split("\n"))
+    for candidate in candidates:
+        for form in (candidate, candidate.strip()):
+            if form.strip() and form not in forms:
+                forms.append(form)
+    return tuple(forms)
+
+
 def configured_credentials(environ: Mapping[str, str], active: str | None) -> tuple[str, ...]:
-    """The active credential plus every set, token-valid provider key.
+    """The active credential plus every set provider key.
 
     Used only to refuse local data that contains any of them; a key for the
-    route that was not selected must not leave this machine either.
+    route that was not selected must not leave this machine either. A value
+    with surrounding whitespace or quotes, or that is not a header token, is
+    protected by its core text (``_credential_forms``); the selected key is
+    still sent only when it is a header token as it stands.
     """
     found: list[str] = [] if active is None else [active]
     for variable in CREDENTIAL_VARIABLES:
-        value = token(environ.get(variable, ""))
-        if value is not None and len(value) >= _INACTIVE_MIN_LENGTH and value not in found:
-            found.append(value)
+        value = environ.get(variable, "")
+        if type(value) is not str:
+            continue
+        for form in _credential_forms(value):
+            if len(form) >= _INACTIVE_MIN_LENGTH and form not in found:
+                found.append(form)
     return tuple(found)
 
 

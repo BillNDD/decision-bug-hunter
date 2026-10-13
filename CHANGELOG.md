@@ -143,6 +143,8 @@ see [docs/PROVENANCE.md](docs/PROVENANCE.md).
   development suite; `--canaries off` removes them.
 - Injection markers: a local pattern scan that annotates findings on lines
   that look like instructions to the judge (`injection-marker`).
+- A configured key is matched by its text without surrounding whitespace or
+  quotes, so a key set with a trailing newline or space is still never sent.
 
 ### Tile Sieve (beta)
 

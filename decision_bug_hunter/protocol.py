@@ -383,7 +383,7 @@ def _secret_in(key, values):
             if key in value:
                 return True
         elif kind is bytes:
-            if key.encode("ascii") in value:
+            if key.encode("utf-8", "surrogatepass") in value:
                 return True
         elif kind is dict:
             if _secret_in(key, chain(value, value.values())):

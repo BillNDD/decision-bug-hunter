@@ -56,8 +56,11 @@ exact value against the files, the specification, project files and the
 output path before anything is sent, on every route, and against responses
 and the final report. A set Azure key or token, even one that belongs to
 another tool, can therefore never be sent to OpenAI or OpenRouter, and an
-OpenAI or OpenRouter key never to Foundry. No key is written to receipts,
-reports, errors or request bodies.
+OpenAI or OpenRouter key never to Foundry. Surrounding whitespace and one pair
+of surrounding quotes are ignored when matching configured keys, so a key
+pasted with a trailing newline is still caught; a key with a line break inside
+is also matched line by line. No key is written to receipts, reports, errors or
+request bodies.
 
 The credential-shaped text scan below recognizes an Entra token (it is a JWT)
 but has no pattern for an Azure resource key, which has no reliable public

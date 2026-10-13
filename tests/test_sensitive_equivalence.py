@@ -4,7 +4,12 @@ Covers the flat ``protocol._secret_in`` walker and the response scans of
 ``openrouter.decode_response`` and ``decisions.translate_response``, which
 skip the decoded walk when the raw bytes hold no escape and every credential
 is ASCII. The frozen copies below are the pre-change code and are the
-oracles. Every generated input comes from a seed, and no socket is opened.
+oracles, with one deliberate difference: a bytes value is searched for the
+UTF-8 form of the credential, where the pre-change code encoded it as ASCII and
+raised UnicodeEncodeError for a non-ASCII credential. Configured credentials
+can be non-ASCII since ``configured_credentials`` keeps the core of a key that
+is not a header token. Every generated input comes from a seed, and no socket
+is opened.
 """
 from __future__ import annotations
 
@@ -41,11 +46,11 @@ class _List(list):
 
 
 def _old_secret_in(key, values):
-    """Frozen pre-change protocol._secret_in (the two-call dict form)."""
+    """Frozen pre-change protocol._secret_in (the two-call dict form), UTF-8 bytes."""
     for value in values:
         if type(value) is str and key in value:
             return True
-        if type(value) is bytes and key.encode("ascii") in value:
+        if type(value) is bytes and key.encode("utf-8", "surrogatepass") in value:
             return True
         if type(value) is dict:
             if _old_secret_in(key, value.keys()) or _old_secret_in(key, value.values()):
@@ -66,8 +71,7 @@ def _old_response_scan(raw, credentials):
     """Frozen pre-change scan order of decode_response and translate_response.
 
     Returns None when the body passes the scan. Raises ProviderError with the
-    old code, or lets UnicodeEncodeError escape from the raw scan, as the old
-    code did for a non-ASCII credential.
+    old code.
     """
     credentials = tuple(item for item in credentials if item)
     if any(_old_secret_in(credential, [raw]) for credential in credentials):
@@ -95,11 +99,9 @@ def _result(function, *args):
 
 
 def _refusal(outcome):
-    """True for the scan refusals and for the UnicodeEncodeError of a non-ASCII key."""
+    """True for the scan refusals."""
     if outcome[0] != "raised":
         return False
-    if outcome[1] is UnicodeEncodeError:
-        return True
     return outcome[1] is ProviderError and outcome[2] in REFUSALS
 
 
@@ -237,7 +239,7 @@ def _json_tree(rng, credential, depth):
 
 class SensitiveEquivalence(unittest.TestCase):
     def test_flat_walker_matches_the_frozen_walker_on_seeded_structures(self):
-        counts = {"True": 0, "False": 0, "raised": 0}
+        counts = {"True": 0, "False": 0}
         for seed in range(3600):
             rng = random.Random(seed)
             credential = rng.choice(CREDENTIALS)
@@ -248,10 +250,8 @@ class SensitiveEquivalence(unittest.TestCase):
                 new = _result(protocol._secret_in, key, values)
                 old = _result(_old_secret_in, key, values)
                 self.assertEqual(new, old, f"seed {seed} key {key!r}")
-                if new[0] == "raised":
-                    counts["raised"] += 1
-                else:
-                    counts[str(new[1])] += 1
+                self.assertEqual(new[0], "value", f"seed {seed} key {key!r}")
+                counts[str(new[1])] += 1
         # The generator must reach each outcome, or the comparison proves little.
         self.assertTrue(all(count > 0 for count in counts.values()), counts)
 
