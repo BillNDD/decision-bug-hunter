@@ -10,9 +10,9 @@ Environment: Windows 11; Python 3.12.10 (project environment), Python
 
 | Check | Result |
 |---|---|
-| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set as in CI) | 1,544 tests, OK, 3 skipped (POSIX receipt directory mode on disk, POSIX directory fsync, POSIX symlink creation); about 6 to 7 minutes on a loaded machine |
-| Same suite, Python 3.13 | 1,544 tests, OK, same 3 skips |
-| Same suite, Python 3.11 | 1,544 tests, OK, same 3 skips |
+| Offline suite, Python 3.12 (`python -m unittest discover -s tests -t .`, with dummy `OPENAI_API_KEY` and `OPENROUTER_API_KEY` set as in CI) | 1,537 tests, OK, 3 skipped (POSIX receipt directory mode on disk, POSIX directory fsync, POSIX symlink creation); about 11 to 12 minutes on a loaded machine |
+| Same suite, Python 3.13 | 1,537 tests, OK, same 3 skips |
+| Same suite, Python 3.11 | 1,537 tests, OK, same 3 skips |
 | Ruff (configured fatal-error rules) | clean |
 | mypy (strict definitions for `providers`, `decisions`, `exchange`, `hosted`, `openrouter`, `secret_scan`, `injection_markers`) | clean; the inherited engine is not fully typed |
 | `python -m build` and `tools/check_distribution.py` | pass: archive contents, fresh wheel install without keys, exit-3 judge and route selection and exit-2 `provider_unavailable` gates for both OpenAI routes, and the unpacked sdist's own test suite |
