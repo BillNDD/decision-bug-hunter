@@ -29,7 +29,7 @@ Repository = "https://github.com/BillNDD/decision-bug-hunter"
 Issues = "https://github.com/BillNDD/decision-bug-hunter/issues"
 
 [project.optional-dependencies]
-dev = ["ruff>=0.14,<1", "mypy>=1.19,<2", "build>=1.3,<2", "setuptools>=77"]
+dev = ["ruff>=0.14,<1", "mypy>=1.19,<3", "build>=1.3,<2", "setuptools>=77"]
 
 [project.scripts]
 decision-bug-hunter = "decision_bug_hunter.__main__:main"
